@@ -1,0 +1,108 @@
+/**
+ * Local-first entity shapes for the on-device store.
+ *
+ * One type per backend table, kept in `snake_case` to mirror the Laravel
+ * schema so the future cloud-sync layer (Phase 2) is a thin mapping rather
+ * than a transform. Every entity carries:
+ *   - a client-generated UUID `id` (so offline creates have a stable identity),
+ *   - a `household_id` scoping it to the local household, and
+ *   - `created_at` / `updated_at` ISO strings used by Phase-2 sync.
+ *
+ * Derived display values (e.g. a dinner's name on a plan entry, an
+ * ingredient's name on a shopping item) are intentionally NOT stored here —
+ * they are joined at read time from their owning collection, which mirrors
+ * the server DTOs and avoids rename staleness.
+ */
+
+export type MealType = 'breakfast' | 'lunch' | 'dinner';
+
+export type LocalHousehold = {
+  id: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type LocalIngredient = {
+  id: string;
+  household_id: string;
+  name: string;
+  default_unit: string | null;
+  category: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type LocalDinner = {
+  id: string;
+  household_id: string;
+  name: string;
+  default_servings: number;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type LocalDinnerItem = {
+  id: string;
+  dinner_id: string;
+  ingredient_id: string;
+  quantity: number | null;
+  unit: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type LocalDinnerPlan = {
+  id: string;
+  household_id: string;
+  name: string;
+  start_date: string | null;
+  end_date: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type LocalPlanEntry = {
+  id: string;
+  dinner_plan_id: string;
+  dinner_id: string;
+  scheduled_date: string;
+  servings: number;
+  meal_type: MealType;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type LocalShoppingList = {
+  id: string;
+  household_id: string;
+  dinner_plan_id: string | null;
+  name: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type LocalShoppingListItem = {
+  id: string;
+  shopping_list_id: string;
+  /** An item must carry EITHER `ingredient_id` OR a free-text `name`. */
+  ingredient_id: string | null;
+  name: string | null;
+  quantity: number | null;
+  unit: string | null;
+  is_checked: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+/* ---- Read models (entity + JS-joined display fields) ------------------- */
+
+export type DinnerWithItems = LocalDinner & { items: LocalDinnerItem[] };
+
+export type PlanEntryWithDinner = LocalPlanEntry & { dinner_name: string | null };
+
+export type ShoppingListItemWithIngredient = LocalShoppingListItem & {
+  ingredient_name: string | null;
+};
