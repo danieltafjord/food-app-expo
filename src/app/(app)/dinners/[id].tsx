@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, View } from 'react-native';
 
 import { Button } from '@/components/button';
 import { Card } from '@/components/card';
@@ -109,8 +109,17 @@ function DinnerEditorForm({ dinner }: { dinner: DinnerWithItems }) {
   }
 
   function onDelete() {
-    deleteDinner(dinner.id);
-    router.back();
+    Alert.alert(t('dinners.deleteDinnerTitle'), t('dinners.deleteDinnerMessage'), [
+      { text: t('common.cancel'), style: 'cancel' },
+      {
+        text: t('common.delete'),
+        style: 'destructive',
+        onPress: () => {
+          deleteDinner(dinner.id);
+          router.back();
+        },
+      },
+    ]);
   }
 
   return (

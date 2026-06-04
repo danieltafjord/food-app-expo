@@ -6,31 +6,28 @@ import { Button } from '@/components/button';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
-import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/lib/i18n';
 import type { PlanEntryWithDinner } from '@/lib/store';
-import { dateKeyOf, type WeekDay } from '@/lib/week';
 
-export type EntryEdit = { date: string; servings: number };
+export type EntryEdit = { servings: number };
 
 type EntryEditorProps = {
   entry: PlanEntryWithDinner | null;
-  days: WeekDay[];
   busy?: boolean;
   onClose: () => void;
   onSave: (entry: PlanEntryWithDinner, edit: EntryEdit) => void;
   onRemove: (entry: PlanEntryWithDinner) => void;
 };
 
-/** Edit a scheduled dinner: change servings, move it to another day (drag-free), or remove it. */
-export function EntryEditor({ entry, days, busy, onClose, onSave, onRemove }: EntryEditorProps) {
+/** Edit a scheduled dinner: change its servings or remove it. Moving it to
+ * another day is done by dragging the card on the week board. */
+export function EntryEditor({ entry, busy, onClose, onSave, onRemove }: EntryEditorProps) {
   return (
     <BottomSheet visible={!!entry} onClose={onClose} contentGap={Spacing.four}>
       {entry ? (
         <EntryEditorForm
           key={entry.id}
           entry={entry}
-          days={days}
           busy={busy}
           onClose={onClose}
           onSave={onSave}
@@ -43,23 +40,19 @@ export function EntryEditor({ entry, days, busy, onClose, onSave, onRemove }: En
 
 function EntryEditorForm({
   entry,
-  days,
   busy,
   onClose,
   onSave,
   onRemove,
 }: {
   entry: PlanEntryWithDinner;
-  days: WeekDay[];
   busy?: boolean;
   onClose: () => void;
   onSave: (entry: PlanEntryWithDinner, edit: EntryEdit) => void;
   onRemove: (entry: PlanEntryWithDinner) => void;
 }) {
   const t = useT();
-  const theme = useTheme();
   const [servings, setServings] = useState(entry.servings);
-  const [date, setDate] = useState(dateKeyOf(entry.scheduled_date));
 
   return (
     <>
@@ -78,28 +71,7 @@ function EntryEditorForm({
         </View>
       </View>
 
-      <View style={styles.field}>
-        <ThemedText type="smallBold">{t('entryEditor.day')}</ThemedText>
-        <View style={styles.dayGrid}>
-          {days.map((day) => {
-            const selected = day.date === date;
-            return (
-              <Pressable key={day.date} onPress={() => setDate(day.date)} style={styles.flex}>
-                <ThemedView
-                  type={selected ? 'backgroundSelected' : 'backgroundElement'}
-                  style={[styles.dayChip, selected && { borderColor: theme.tint }]}>
-                  <ThemedText type="small" themeColor={selected ? undefined : 'textSecondary'}>
-                    {day.weekday}
-                  </ThemedText>
-                  <ThemedText type="smallBold">{day.dayOfMonth}</ThemedText>
-                </ThemedView>
-              </Pressable>
-            );
-          })}
-        </View>
-      </View>
-
-      <Button title={t('common.save')} onPress={() => onSave(entry, { date, servings })} loading={busy} />
+      <Button title={t('common.save')} onPress={() => onSave(entry, { servings })} loading={busy} />
       <View style={styles.footer}>
         <Button title={t('common.remove')} variant="secondary" style={styles.flex} onPress={() => onRemove(entry)} />
         <Button title={t('common.cancel')} variant="secondary" style={styles.flex} onPress={onClose} />
@@ -142,18 +114,6 @@ const styles = StyleSheet.create({
   },
   stepperButtonText: {
     lineHeight: 30,
-  },
-  dayGrid: {
-    flexDirection: 'row',
-    gap: Spacing.one,
-  },
-  dayChip: {
-    alignItems: 'center',
-    paddingVertical: Spacing.two,
-    borderRadius: Spacing.two,
-    borderWidth: 2,
-    borderColor: 'transparent',
-    gap: Spacing.half,
   },
   footer: {
     flexDirection: 'row',

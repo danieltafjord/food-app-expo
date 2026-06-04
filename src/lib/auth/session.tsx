@@ -10,7 +10,7 @@ import {
   saveSession,
   type StoredSession,
 } from '@/lib/auth/token-storage';
-import { applyServerSettings } from '@/lib/store';
+import { applyServerHouseholdSettings, applyServerSettings } from '@/lib/store';
 import { setSyncAuth } from '@/lib/sync/auth-bridge';
 import { connectCollections, disconnectCollections } from '@/lib/sync/engine';
 
@@ -124,6 +124,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     // Adopt the account's saved theme + language so a signed-in device matches
     // the user's preferences (local-first store stays the source of truth).
     applyServerSettings(me.theme, me.locale);
+    // Adopt the active household's shared default servings (null when the user
+    // hasn't joined a household yet — the local value is then kept).
+    applyServerHouseholdSettings(me.current_household?.default_servings);
   }
 
   async function signIn(token: AuthSession.TokenResponse): Promise<void> {

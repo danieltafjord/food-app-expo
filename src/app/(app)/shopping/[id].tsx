@@ -1,27 +1,30 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, View } from 'react-native';
 
 import { Button } from '@/components/button';
 import { Card } from '@/components/card';
-import { IngredientPicker } from '@/components/ingredient-picker';
+import { Fab } from '@/components/fab';
 import { Screen } from '@/components/screen';
 import { ShoppingItemEditor, type ShoppingItemEdit } from '@/components/shopping-item-editor';
-import { TextField } from '@/components/text-field';
+import { SwipeToDelete } from '@/components/swipe-to-delete';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { CATEGORY_EMOJI } from '@/lib/categorize';
 import { formatQuantity } from '@/lib/format';
+import { hapticSelection } from '@/lib/haptics';
 import { useT } from '@/lib/i18n';
 import {
-  addShoppingItem,
+  clearCheckedItems,
   deleteShoppingList,
+  recategorizeShoppingItem,
   removeShoppingItem,
   toggleShoppingItem,
+  uncheckAllItems,
   updateShoppingItem,
   useShoppingList,
-  useShoppingListItems,
-  type LocalIngredient,
+  useShoppingListSections,
   type ShoppingListItemWithIngredient,
 } from '@/lib/store';
 
@@ -30,10 +33,8 @@ export default function ShoppingListScreen() {
   const theme = useTheme();
   const params = useLocalSearchParams<{ id: string }>();
   const list = useShoppingList(params.id);
-  const items = useShoppingListItems(params.id);
+  const { sections, total, checked } = useShoppingListSections(params.id);
 
-  const [newItem, setNewItem] = useState('');
-  const [pickerOpen, setPickerOpen] = useState(false);
   const [editing, setEditing] = useState<ShoppingListItemWithIngredient | null>(null);
 
   if (!list) {
@@ -48,24 +49,12 @@ export default function ShoppingListScreen() {
   }
 
   const listId = list.id;
-  const checkedCount = items.filter((it) => it.is_checked).length;
-
-  function onAddFreeText() {
-    const trimmed = newItem.trim();
-    if (!trimmed) {
-      return;
-    }
-    addShoppingItem(listId, { name: trimmed });
-    setNewItem('');
-  }
-
-  function onPickIngredient(ingredient: LocalIngredient) {
-    setPickerOpen(false);
-    addShoppingItem(listId, { ingredient_id: ingredient.id, unit: ingredient.default_unit });
-  }
 
   function onSaveItem(item: ShoppingListItemWithIngredient, edit: ShoppingItemEdit) {
     updateShoppingItem(item.id, { name: edit.name, quantity: edit.quantity, unit: edit.unit });
+    if (edit.category !== item.category) {
+      recategorizeShoppingItem(item.id, edit.category);
+    }
     setEditing(null);
   }
 
@@ -74,108 +63,138 @@ export default function ShoppingListScreen() {
     setEditing(null);
   }
 
+  function onClearChecked() {
+    Alert.alert(t('shopping.clearCheckedTitle'), t('shopping.clearCheckedMessage'), [
+      { text: t('common.cancel'), style: 'cancel' },
+      { text: t('shopping.clearChecked'), style: 'destructive', onPress: () => clearCheckedItems(listId) },
+    ]);
+  }
+
   function onDeleteList() {
-    deleteShoppingList(listId);
-    router.back();
+    Alert.alert(t('shopping.deleteListTitle'), t('shopping.deleteListMessage'), [
+      { text: t('common.cancel'), style: 'cancel' },
+      {
+        text: t('common.delete'),
+        style: 'destructive',
+        onPress: () => {
+          deleteShoppingList(listId);
+          router.back();
+        },
+      },
+    ]);
+  }
+
+  function renderItem(item: ShoppingListItemWithIngredient, index: number) {
+    const qty = formatQuantity(item.quantity, item.unit);
+    return (
+      <SwipeToDelete
+        key={item.id}
+        label={t('common.delete')}
+        onDelete={() => removeShoppingItem(item.id)}>
+        <View
+          style={[
+            styles.itemRow,
+            { backgroundColor: theme.backgroundElement },
+            index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border },
+          ]}>
+          <Pressable
+            onPress={() => {
+              hapticSelection();
+              toggleShoppingItem(item.id);
+            }}
+            hitSlop={4}
+            style={styles.itemMain}>
+            <View
+              style={[
+                styles.checkbox,
+                { borderColor: theme.border },
+                item.is_checked && { backgroundColor: theme.tint, borderColor: theme.tint },
+              ]}>
+              {item.is_checked ? (
+                <ThemedText style={[styles.check, { color: theme.onTint }]}>✓</ThemedText>
+              ) : null}
+            </View>
+            <View style={styles.flex}>
+              <ThemedText numberOfLines={1} style={item.is_checked ? styles.checkedText : undefined}>
+                {item.ingredient_name ?? item.name ?? t('common.itemFallback')}
+              </ThemedText>
+              {qty ? (
+                <ThemedText type="small" themeColor="textSecondary">
+                  {qty}
+                </ThemedText>
+              ) : null}
+            </View>
+          </Pressable>
+          <Pressable onPress={() => setEditing(item)} hitSlop={8} style={styles.editButton}>
+            <ThemedText type="subtitle" themeColor="textSecondary">
+              ⋯
+            </ThemedText>
+          </Pressable>
+        </View>
+      </SwipeToDelete>
+    );
   }
 
   return (
-    <Screen topInset={false}>
+    <Screen
+      topInset={false}
+      overlay={
+        <Fab
+          accessibilityLabel={t('shopping.addItems')}
+          onPress={() => router.push({ pathname: '/shopping/add', params: { listId } })}
+        />
+      }>
       <View style={styles.heading}>
         <ThemedText type="subtitle">{list.name}</ThemedText>
         <ThemedText type="small" themeColor="textSecondary">
-          {items.length === 0
-            ? t('shopping.emptyList')
-            : t('shopping.checkedCount', { checked: checkedCount, total: items.length })}
+          {total === 0 ? t('shopping.emptyList') : t('shopping.checkedCount', { checked, total })}
         </ThemedText>
       </View>
 
-      <Card>
-        <ThemedText type="smallBold">{t('shopping.addItem')}</ThemedText>
-        <View style={styles.addRow}>
-          <View style={styles.flex}>
-            <TextField
-              label={t('shopping.item')}
-              placeholder={t('shopping.itemPlaceholder')}
-              value={newItem}
-              onChangeText={setNewItem}
-              returnKeyType="done"
-              onSubmitEditing={onAddFreeText}
-            />
-          </View>
+      {checked > 0 ? (
+        <View style={styles.actionsRow}>
           <Button
-            title={t('common.add')}
-            onPress={onAddFreeText}
-            disabled={!newItem.trim()}
-            style={styles.addButton}
+            title={t('shopping.uncheckAll')}
+            variant="secondary"
+            size="small"
+            onPress={() => uncheckAllItems(listId)}
+          />
+          <Button
+            title={t('shopping.clearChecked')}
+            variant="secondary"
+            size="small"
+            onPress={onClearChecked}
           />
         </View>
-        <Button
-          title={t('shopping.fromIngredients')}
-          variant="secondary"
-          size="small"
-          onPress={() => setPickerOpen(true)}
-        />
-      </Card>
+      ) : null}
 
-      {items.length > 0 ? (
-        <Card>
-          {items.map((item, index) => {
-            const qty = formatQuantity(item.quantity, item.unit);
-            return (
-              <View
-                key={item.id}
-                style={[
-                  styles.itemRow,
-                  index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border },
-                ]}>
-                <Pressable
-                  onPress={() => toggleShoppingItem(item.id)}
-                  hitSlop={4}
-                  style={styles.itemMain}>
-                  <View
-                    style={[
-                      styles.checkbox,
-                      { borderColor: theme.border },
-                      item.is_checked && { backgroundColor: theme.tint, borderColor: theme.tint },
-                    ]}>
-                    {item.is_checked ? (
-                      <ThemedText style={[styles.check, { color: theme.onTint }]}>✓</ThemedText>
-                    ) : null}
-                  </View>
-                  <View style={styles.flex}>
-                    <ThemedText
-                      numberOfLines={1}
-                      style={item.is_checked ? styles.checkedText : undefined}>
-                      {item.ingredient_name ?? item.name ?? t('common.itemFallback')}
-                    </ThemedText>
-                    {qty ? (
-                      <ThemedText type="small" themeColor="textSecondary">
-                        {qty}
-                      </ThemedText>
-                    ) : null}
-                  </View>
-                </Pressable>
-                <Pressable onPress={() => setEditing(item)} hitSlop={8} style={styles.editButton}>
-                  <ThemedText type="subtitle" themeColor="textSecondary">
-                    ⋯
-                  </ThemedText>
-                </Pressable>
-              </View>
-            );
-          })}
-        </Card>
+      {total > 0 ? (
+        sections.map((section) => (
+          <View key={section.id} style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <ThemedText style={styles.sectionEmoji}>{CATEGORY_EMOJI[section.id]}</ThemedText>
+              <ThemedText type="smallBold" themeColor="textSecondary">
+                {t(`categories.${section.id}`)}
+              </ThemedText>
+            </View>
+            <View style={[styles.listCard, { backgroundColor: theme.backgroundElement }]}>
+              {section.items.map((item, index) => renderItem(item, index))}
+            </View>
+          </View>
+        ))
       ) : (
-        <ThemedText themeColor="textSecondary">{t('shopping.noItems')}</ThemedText>
+        <Card>
+          <ThemedText themeColor="textSecondary">{t('shopping.tapPlusHint')}</ThemedText>
+        </Card>
       )}
 
-      <Button title={t('shopping.deleteList')} variant="secondary" onPress={onDeleteList} />
-
-      <IngredientPicker
-        visible={pickerOpen}
-        onClose={() => setPickerOpen(false)}
-        onPick={onPickIngredient}
+      <Button
+        title={t('shopping.deleteList')}
+        variant="secondary"
+        size="small"
+        onPress={onDeleteList}
       />
+
       <ShoppingItemEditor
         item={editing}
         onClose={() => setEditing(null)}
@@ -190,19 +209,33 @@ const styles = StyleSheet.create({
   heading: {
     gap: Spacing.half,
   },
-  addRow: {
+  actionsRow: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
+    gap: Spacing.two,
+    flexWrap: 'wrap',
+  },
+  section: {
     gap: Spacing.two,
   },
-  addButton: {
-    minWidth: 72,
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    paddingHorizontal: Spacing.one,
+  },
+  sectionEmoji: {
+    fontSize: 16,
+  },
+  listCard: {
+    borderRadius: Spacing.three,
+    overflow: 'hidden',
   },
   itemRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.two,
-    paddingVertical: Spacing.one,
+    paddingVertical: Spacing.three,
+    paddingHorizontal: Spacing.three,
   },
   itemMain: {
     flex: 1,

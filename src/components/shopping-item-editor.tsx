@@ -3,9 +3,11 @@ import { StyleSheet, View } from 'react-native';
 
 import { BottomSheet } from '@/components/bottom-sheet';
 import { Button } from '@/components/button';
+import { CategoryPicker } from '@/components/category-picker';
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
+import { type CategoryId } from '@/lib/categorize';
 import { useT } from '@/lib/i18n';
 import type { ShoppingListItemWithIngredient } from '@/lib/store';
 
@@ -13,6 +15,7 @@ export type ShoppingItemEdit = {
   name: string | null;
   quantity: number | null;
   unit: string | null;
+  category: CategoryId;
 };
 
 type Props = {
@@ -39,6 +42,7 @@ function ItemForm({ item, onClose, onSave, onRemove }: Omit<Props, 'item'> & { i
   const [name, setName] = useState(item.name ?? '');
   const [quantity, setQuantity] = useState(item.quantity != null ? String(item.quantity) : '');
   const [unit, setUnit] = useState(item.unit ?? '');
+  const [category, setCategory] = useState<CategoryId>(item.category);
 
   // A free-text item must keep a name; an ingredient-backed one keeps its ingredient.
   const canSave = !isFreeText || !!name.trim();
@@ -48,6 +52,7 @@ function ItemForm({ item, onClose, onSave, onRemove }: Omit<Props, 'item'> & { i
       name: isFreeText ? name.trim() || null : item.name,
       quantity: quantity.trim() ? Number(quantity) : null,
       unit: unit.trim() || null,
+      category,
     });
   }
 
@@ -83,6 +88,13 @@ function ItemForm({ item, onClose, onSave, onRemove }: Omit<Props, 'item'> & { i
         </View>
       </View>
 
+      <View style={styles.field}>
+        <ThemedText type="small" themeColor="textSecondary">
+          {t('shoppingItemEditor.category')}
+        </ThemedText>
+        <CategoryPicker value={category} onChange={setCategory} />
+      </View>
+
       <Button title={t('common.save')} onPress={save} disabled={!canSave} />
       <View style={styles.footer}>
         <Button title={t('common.remove')} variant="secondary" style={styles.flex} onPress={() => onRemove(item)} />
@@ -93,6 +105,9 @@ function ItemForm({ item, onClose, onSave, onRemove }: Omit<Props, 'item'> & { i
 }
 
 const styles = StyleSheet.create({
+  field: {
+    gap: Spacing.two,
+  },
   qtyRow: {
     flexDirection: 'row',
     gap: Spacing.two,

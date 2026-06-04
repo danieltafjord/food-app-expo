@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { BottomSheet } from '@/components/bottom-sheet';
@@ -26,12 +26,16 @@ export function DinnerPicker({ visible, date, busy, onClose, onPick }: DinnerPic
   const theme = useTheme();
   const dinners = useDinners();
   const [name, setName] = useState('');
+  // One create per typed name — createDinner does not dedupe, so a "done" + tap
+  // double-fire would otherwise create two dinners with the same name.
+  const created = useRef(false);
 
   function onQuickCreate() {
     const trimmed = name.trim();
-    if (!trimmed) {
+    if (!trimmed || created.current) {
       return;
     }
+    created.current = true;
     const id = createDinner({ name: trimmed });
     setName('');
     const dinner = getDinner(id);
@@ -55,7 +59,10 @@ export function DinnerPicker({ visible, date, busy, onClose, onPick }: DinnerPic
             label={t('dinnerPicker.newDinner')}
             placeholder={t('dinnerPicker.placeholder')}
             value={name}
-            onChangeText={setName}
+            onChangeText={(text) => {
+              created.current = false;
+              setName(text);
+            }}
             returnKeyType="done"
             onSubmitEditing={onQuickCreate}
           />

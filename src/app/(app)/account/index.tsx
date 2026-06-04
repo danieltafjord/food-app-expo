@@ -1,23 +1,26 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Alert, StyleSheet, View } from 'react-native';
 
 import { Badge } from '@/components/badge';
 import { Button } from '@/components/button';
 import { Card } from '@/components/card';
 import { OptionGroup, type Option } from '@/components/option-group';
 import { Screen } from '@/components/screen';
+import { Stepper } from '@/components/stepper';
 import { SyncIndicator } from '@/components/sync-indicator';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
-import { useActiveHousehold } from '@/lib/api/households';
+import { useActiveHousehold, useUpdateHousehold } from '@/lib/api/households';
 import { useUpdateSettings } from '@/lib/api/settings';
 import type { HouseholdRole } from '@/lib/api/types';
 import { useSession } from '@/lib/auth/session';
 import { LOCALE_LABELS, LOCALES, useT, type Locale } from '@/lib/i18n';
 import {
+  setHouseholdDefaultServings,
   setLocale,
   setThemePreference,
+  useHouseholdDefaultServings,
   useLocale,
   useLocalHousehold,
   useThemePreference,
@@ -36,22 +39,44 @@ export default function AccountScreen() {
 
   const themePreference = useThemePreference();
   const locale = useLocale();
+  const defaultServings = useHouseholdDefaultServings();
   const updateSettings = useUpdateSettings();
+  const updateHousehold = useUpdateHousehold();
 
   const [signingOut, setSigningOut] = useState(false);
+
+  // The change already landed locally (local-first), so the mirror to the server
+  // is best-effort — but a silent failure would leave this device and the account
+  // disagreeing, so surface it. The next successful sync re-converges.
+  function notifySyncFailure() {
+    Alert.alert(t('account.syncFailedTitle'), t('account.syncFailedMessage'));
+  }
 
   // Apply locally first (instant), then mirror to the account when signed in.
   function onThemeChange(next: ThemePreference) {
     setThemePreference(next);
     if (isAuthenticated) {
-      updateSettings.mutate({ theme: next, locale });
+      updateSettings.mutate({ theme: next, locale }, { onError: notifySyncFailure });
     }
   }
 
   function onLocaleChange(next: Locale) {
     setLocale(next);
     if (isAuthenticated) {
-      updateSettings.mutate({ theme: themePreference, locale: next });
+      updateSettings.mutate({ theme: themePreference, locale: next }, { onError: notifySyncFailure });
+    }
+  }
+
+  // Apply locally first (instant + offline), then mirror to the shared server
+  // household so the rest of the household picks it up. The Stepper clamps the
+  // value, so `next` is already within range.
+  function onDefaultServingsChange(next: number) {
+    setHouseholdDefaultServings(next);
+    if (isAuthenticated && household) {
+      updateHousehold.mutate(
+        { id: household.id, name: household.name, default_servings: next },
+        { onError: notifySyncFailure },
+      );
     }
   }
 
@@ -84,6 +109,20 @@ export default function AccountScreen() {
       <View style={styles.section}>
         <ThemedText type="smallBold">{t('account.language')}</ThemedText>
         <OptionGroup options={localeOptions} value={locale} onChange={onLocaleChange} />
+      </View>
+
+      <View style={styles.section}>
+        <ThemedText type="smallBold">{t('account.defaultServings')}</ThemedText>
+        <Stepper
+          value={defaultServings}
+          onChange={onDefaultServingsChange}
+          min={1}
+          max={99}
+          accessibilityLabel={t('account.defaultServings')}
+        />
+        <ThemedText type="small" themeColor="textSecondary">
+          {t('account.defaultServingsHint')}
+        </ThemedText>
       </View>
 
       <Card>

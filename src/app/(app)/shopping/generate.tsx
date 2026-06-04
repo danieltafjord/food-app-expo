@@ -1,6 +1,6 @@
 import { useValue } from '@legendapp/state/react';
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import { Button } from '@/components/button';
@@ -27,11 +27,15 @@ export default function GenerateScreen() {
   // previewPlanItems reads the plan/dinner/ingredient collections, so useValue
   // re-runs and re-renders whenever any of them change.
   const preview = useValue(() => (planId ? previewPlanItems(planId) : []));
+  // One generate per visit — a double tap before `replace` navigates would
+  // otherwise build two lists from the same plan.
+  const submitted = useRef(false);
 
   function onCreate() {
-    if (!plan) {
+    if (!plan || submitted.current) {
       return;
     }
+    submitted.current = true;
     const id = createShoppingListFromPlan(plan.id);
     router.replace({ pathname: '/shopping/[id]', params: { id } });
   }

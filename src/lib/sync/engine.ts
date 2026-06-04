@@ -1,13 +1,14 @@
 import { batch, type ListenerParams } from '@legendapp/state';
 import { AppState, type AppStateStatus, type NativeEventSubscription } from 'react-native';
 
-import { ApiError } from '@/lib/api/client';
+import { ApiError, type RequestOptions } from '@/lib/api/client';
+import { bootStore } from '@/lib/store/boot';
 import { store$ } from '@/lib/store/collections';
 import { getLocalHouseholdId } from '@/lib/store/household';
 import { nowIso } from '@/lib/store/ids';
 import { whenHydrated } from '@/lib/store/persistence';
 
-import { getSyncRequest } from './auth-bridge';
+import { getSyncRequest, type SyncRequest } from './auth-bridge';
 import { markSyncError, markSynced, markSyncing, setPendingCount } from './status';
 
 /**
@@ -27,7 +28,11 @@ import { markSyncError, markSynced, markSyncing, setPendingCount } from './statu
  */
 
 const DEBOUNCE_MS = 1500;
-const RETRY_MS = 8000;
+/** Retry backoff: first retry ~4s, doubling each consecutive failure, capped at
+ *  5 min, with jitter so many devices don't retry in lockstep against a struggling
+ *  server. Reset to 0 on any successful sync. */
+const RETRY_BASE_MS = 4000;
+const RETRY_MAX_MS = 5 * 60_000;
 /** Background pull cadence when the user isn't actively planning. */
 const POLL_IDLE_MS = 30_000;
 /**
@@ -39,6 +44,15 @@ const POLL_IDLE_MS = 30_000;
 const POLL_ACTIVE_MS = 4_000;
 /** How long after the last local edit / foreground we keep the fast cadence. */
 const ACTIVE_WINDOW_MS = 60_000;
+/**
+ * Hard ceiling on a single sync round-trip. React Native's `fetch` has no default
+ * timeout, so a half-open socket (captive portal, dropped connection) would leave
+ * the `await` pending forever — and because `inFlight` is only cleared in the
+ * `finally`, every subsequent push/pull would silently no-op. Aborting after this
+ * keeps the loop alive: the request fails, the retry backoff kicks in, and sync
+ * recovers once connectivity returns.
+ */
+const REQUEST_TIMEOUT_MS = 20_000;
 
 /** The seven syncable collections, mapped to their server payload keys. */
 const SYNCABLE = [
@@ -74,6 +88,7 @@ let inFlight = false;
 let rerun = false;
 let foreground = true;
 let lastActivityAt = 0; // epoch ms of the last local edit / foreground / manual sync
+let retryAttempt = 0; // consecutive sync failures, for exponential backoff
 
 let disposeListener: (() => void) | null = null;
 let appStateSub: NativeEventSubscription | null = null;
@@ -93,6 +108,18 @@ export async function connectCollections(): Promise<void> {
 
   await whenHydrated;
   if (!started) return; // disconnected while awaiting hydration
+
+  // Upgrade + seed the store before we read or push a single row. Idempotent and
+  // shared with StoreProvider, so this either runs the migrations (if the engine
+  // won the race) or is a no-op (if the UI already did). A boot failure means the
+  // data is in an unknown shape — bail rather than sync garbage; StoreProvider
+  // surfaces the error and a retry/relaunch re-runs it.
+  try {
+    bootStore();
+  } catch {
+    started = false;
+    return;
+  }
 
   // Attach AFTER hydration so restoring persisted rows doesn't mark them dirty.
   disposeListener = store$.onChange(handleStoreChange);
@@ -128,6 +155,16 @@ export function disconnectCollections(): void {
   if (debounceTimer) clearTimeout(debounceTimer);
   if (retryTimer) clearTimeout(retryTimer);
   pollTimer = debounceTimer = retryTimer = null;
+  retryAttempt = 0;
+
+  // Reset the sync cursor so signing back into the SAME account re-runs first-sync
+  // (re-seed the outbox from local data, pull the household fresh) — without this a
+  // stale cursor would never re-upload existing local rows. Signing into a
+  // DIFFERENT account is handled before we get here: the sign-in screen wipes and
+  // rebinds the local data (see `resetLocalDataForAccount`), so it can't bleed
+  // across accounts. The outbox (dirty/tombstones) is left intact so edits made
+  // while signed out still sync on reconnect.
+  store$.meta.lastSync.set(null);
 }
 
 /* ---- change tracking ----------------------------------------------------- */
@@ -170,7 +207,10 @@ function scheduleSync(): void {
 
 function scheduleRetry(): void {
   if (retryTimer) clearTimeout(retryTimer);
-  retryTimer = setTimeout(() => void pushPull(), RETRY_MS);
+  const backoff = Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** retryAttempt);
+  const jitter = backoff * 0.25 * Math.random();
+  retryAttempt += 1;
+  retryTimer = setTimeout(() => void pushPull(), backoff + jitter);
 }
 
 /* ---- adaptive poll ------------------------------------------------------- */
@@ -212,6 +252,21 @@ function handleAppStateChange(state: AppStateStatus): void {
 
 /* ---- push / pull --------------------------------------------------------- */
 
+/** Run a sync request with a timeout so a stalled connection can't pin `inFlight`. */
+async function timed<T>(
+  request: SyncRequest,
+  path: string,
+  options: RequestOptions = {},
+): Promise<T> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    return await request<T>(path, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function pushPull(): Promise<void> {
   if (inFlight) {
     rerun = true;
@@ -234,7 +289,7 @@ async function pushPull(): Promise<void> {
       hasPush = hasPush || countPending(snapshot.sentDirty, snapshot.sentTombstones) > 0;
       if (hasPush) markSyncing();
 
-      const response = await request<SyncResponse>('/sync', {
+      const response = await timed<SyncResponse>(request, '/sync', {
         method: 'POST',
         body: { last_sync: store$.meta.lastSync.get(), changes: snapshot.changes },
       });
@@ -242,6 +297,7 @@ async function pushPull(): Promise<void> {
       applyRemote(response.changes);
       clearSent(snapshot);
       store$.meta.lastSync.set(response.server_time);
+      retryAttempt = 0; // connectivity restored — reset the backoff
       markSynced();
     }
   } catch (error) {
@@ -271,7 +327,7 @@ async function pushPull(): Promise<void> {
 async function prepareFirstSync(request: NonNullable<ReturnType<typeof getSyncRequest>>): Promise<boolean> {
   if (store$.meta.lastSync.get() !== null) return true; // already linked
 
-  const me = await request<{ current_household: { id: number } | null }>('/me');
+  const me = await timed<{ current_household: { id: number } | null }>(request, '/me');
   if (!me?.current_household) return false; // wait for the user to create/join one
 
   seedOutboxFromLocal();

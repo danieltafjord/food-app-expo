@@ -1,16 +1,15 @@
 import { useValue } from '@legendapp/state/react';
 
+import { dateKeyOf } from '@/lib/week';
 import { store$ } from './collections';
 import { getLocalHouseholdId } from './household';
-import { newId, nowIso } from './ids';
+import { compareIso, newId, nowIso } from './ids';
 import type { LocalDinnerPlan, MealType, PlanEntryWithDinner } from './schema';
 
 /** All dinner plans, newest first. */
 export function usePlans(): LocalDinnerPlan[] {
   return useValue(() =>
-    Object.values(store$.dinnerPlans.get()).sort((a, b) =>
-      b.created_at.localeCompare(a.created_at),
-    ),
+    Object.values(store$.dinnerPlans.get()).sort((a, b) => compareIso(b.created_at, a.created_at)),
   );
 }
 
@@ -33,7 +32,29 @@ export function usePlanEntries(planId: string | undefined): PlanEntryWithDinner[
     return Object.values(store$.planEntries.get())
       .filter((e) => e.dinner_plan_id === planId)
       .map((e) => ({ ...e, dinner_name: dinners[e.dinner_id]?.name ?? null }))
-      .sort((a, b) => a.created_at.localeCompare(b.created_at));
+      .sort((a, b) => compareIso(a.created_at, b.created_at));
+  });
+}
+
+/**
+ * For every week that has a plan, the set of dates (local `YYYY-MM-DD`) that
+ * carry at least one dinner — keyed by the plan's Monday `start_date`. Drives
+ * the planner's week-overview grid (which weeks, and which days within them,
+ * are filled).
+ */
+export function useWeekFill(): Record<string, Set<string>> {
+  return useValue(() => {
+    const weekByPlan: Record<string, string> = {};
+    for (const plan of Object.values(store$.dinnerPlans.get())) {
+      if (plan.start_date) weekByPlan[plan.id] = plan.start_date;
+    }
+    const fill: Record<string, Set<string>> = {};
+    for (const entry of Object.values(store$.planEntries.get())) {
+      const week = weekByPlan[entry.dinner_plan_id];
+      if (!week) continue;
+      (fill[week] ??= new Set<string>()).add(dateKeyOf(entry.scheduled_date));
+    }
+    return fill;
   });
 }
 

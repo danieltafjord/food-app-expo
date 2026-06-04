@@ -38,7 +38,20 @@ export const store$ = observable({
     locale: '' as Locale | '',
   },
   meta: {
+    /**
+     * On-device schema version. Bumped by migrations (see `./migrations`) when
+     * the shape in `schema.ts` changes, so persisted rows from an older app
+     * version are upgraded on launch instead of hydrating with a stale shape.
+     * `0` means "pre-migrations" (or a fresh install before the first run).
+     */
+    schemaVersion: 0 as number,
     localHouseholdId: '' as string,
+    /**
+     * The server user id this device's local data is bound to (`null` until an
+     * account first claims it). Signing into a *different* account clears the
+     * local data so it never bleeds across accounts — see `@/lib/store/account`.
+     */
+    accountId: null as number | null,
     /**
      * Cloud-sync bookkeeping (Phase 2). All persisted with the store, so the
      * outbox survives restarts. Keyed by client collection name

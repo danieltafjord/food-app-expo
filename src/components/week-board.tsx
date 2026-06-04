@@ -21,9 +21,11 @@ import {
 } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
+  LinearTransition,
   measure,
   runOnJS,
   scrollTo,
+  useAnimatedReaction,
   useAnimatedRef,
   useAnimatedStyle,
   useFrameCallback,
@@ -38,6 +40,7 @@ import { ThemedText } from '@/components/themed-text';
 import { useSyncRefresh } from '@/hooks/use-sync-refresh';
 import { useResolvedScheme, useTheme } from '@/hooks/use-theme';
 import { BottomTabInset, Spacing } from '@/constants/theme';
+import { hapticDrop, hapticLift } from '@/lib/haptics';
 import { useT } from '@/lib/i18n';
 import type { PlanEntryWithDinner } from '@/lib/store';
 import type { WeekDay } from '@/lib/week';
@@ -46,6 +49,15 @@ import type { WeekDay } from '@/lib/week';
 const EDGE = 80;
 /** Max auto-scroll speed (px per frame ≈ 60fps) reached at the very edge. */
 const MAX_SCROLL_SPEED = 14;
+
+/**
+ * When a dinner is dropped onto another day, the source day shrinks and the
+ * target grows. This animates those size/position changes (and the days sliding
+ * below them) so the board settles smoothly instead of snapping. Near-critically
+ * damped, so it glides without bouncing. Only runs on the post-drop re-flow —
+ * never during the drag, which moves cards via transforms, not layout.
+ */
+const REFLOW = LinearTransition.springify().damping(24).stiffness(200).mass(0.7);
 
 type ScrollRef = ReturnType<typeof useAnimatedRef<Animated.ScrollView>>;
 /** Per-day [top, height] within the scroll content, filled by each section's onLayout. */
@@ -108,7 +120,7 @@ export function WeekBoard({ days, entriesByDate, onMove, onAdd, onEdit }: WeekBo
   // While a card is held near a viewport edge, scroll continuously (a move event
   // only fires when the finger moves, so a held finger needs this frame loop).
   // Also keep the hovered-day highlight current as new days scroll into view.
-  useFrameCallback(() => {
+  const frame = useFrameCallback(() => {
     'worklet';
     if (!dragging.value) {
       return;
@@ -129,7 +141,20 @@ export function WeekBoard({ days, entriesByDate, onMove, onAdd, onEdit }: WeekBo
       scrollTo(scrollRef, 0, scrollOffset.value + delta, false);
     }
     hoverIndex.value = dayIndexAt(pointerY.value, scrollRef, scrollOffset, layouts, -1);
-  });
+  }, false);
+
+  // Only run the per-frame auto-scroll/hover loop while a card is actually being
+  // dragged. Starting inactive (and toggling on the drag flag) avoids waking the
+  // UI runtime ~60×/sec for the board's whole lifetime just to early-return.
+  const setFrameActive = (active: boolean) => frame.setActive(active);
+  useAnimatedReaction(
+    () => dragging.value,
+    (isDragging, wasDragging) => {
+      if (isDragging !== wasDragging) {
+        runOnJS(setFrameActive)(isDragging);
+      }
+    },
+  );
 
   return (
     <Animated.ScrollView
@@ -231,7 +256,7 @@ function DaySection({
   }));
 
   return (
-    <Animated.View onLayout={onLayout} style={[styles.section, sectionStyle]}>
+    <Animated.View onLayout={onLayout} layout={REFLOW} style={[styles.section, sectionStyle]}>
       <View style={styles.sectionHeader}>
         <View style={styles.dayLabel}>
           <ThemedText type="smallBold">{day.weekday}</ThemedText>
@@ -333,11 +358,20 @@ function DraggableDinnerCard({
   // list's side edges and get clipped.
   const panY = useSharedValue(0);
   const lift = useSharedValue(0);
+  // Set true the moment this card is dropped onto another day. It keeps the card
+  // pinned at the drop point (see `cardStyle`) instead of snapping back to its
+  // source slot for a few frames until the store update re-renders it into the
+  // target day and this instance unmounts.
+  const moved = useSharedValue(false);
 
   function reset() {
     'worklet';
-    panY.value = withTiming(0, { duration: 160 });
-    lift.value = withTiming(0, { duration: 160 });
+    // A moved card is about to unmount into the target day — leave it where it
+    // was dropped. Animating panY/lift back home is the visible "jump home".
+    if (!moved.value) {
+      panY.value = withTiming(0, { duration: 160 });
+      lift.value = withTiming(0, { duration: 160 });
+    }
     dragging.value = false;
     activeId.value = null;
     activeSourceIndex.value = -1;
@@ -353,6 +387,7 @@ function DraggableDinnerCard({
       pointerY.value = event.absoluteY;
       dragging.value = true;
       lift.value = withTiming(1, { duration: 120 });
+      runOnJS(hapticLift)();
     })
     .onUpdate((event) => {
       panY.value = event.translationY;
@@ -362,7 +397,9 @@ function DraggableDinnerCard({
     .onEnd((event) => {
       const target = dayIndexAt(event.absoluteY, scrollRef, scrollOffset, layouts, sourceIndex);
       if (target !== sourceIndex) {
+        moved.value = true;
         runOnJS(onMove)(entryId, dayDates[target]);
+        runOnJS(hapticDrop)();
       }
       reset();
     })
@@ -378,23 +415,27 @@ function DraggableDinnerCard({
   const gesture = Gesture.Exclusive(pan, tap);
 
   const cardStyle = useAnimatedStyle(() => {
-    const isActive = activeId.value === entryId;
-    // While active, add the scroll delta since drag start so the card stays
+    // `dragLike` = actively dragged, OR just dropped onto another day and waiting
+    // to unmount. Both keep the drag offset applied so the card never snaps back
+    // to its source slot — it stays under the finger, then at the drop point until
+    // the re-render places it on the target day.
+    const dragLike = activeId.value === entryId || moved.value;
+    // While dragging, add the scroll delta since drag start so the card stays
     // under the finger even as the list auto-scrolls.
-    const scrollComp = isActive ? scrollOffset.value - startScrollOffset.value : 0;
+    const scrollComp = dragLike ? scrollOffset.value - startScrollOffset.value : 0;
     return {
       transform: [
-        { translateY: (isActive ? panY.value : 0) + scrollComp },
+        { translateY: (dragLike ? panY.value : 0) + scrollComp },
         { scale: 1 + lift.value * 0.03 },
       ],
-      zIndex: isActive ? 1000 : 1,
+      zIndex: dragLike ? 1000 : 1,
       shadowOpacity: 0.05 + lift.value * 0.07,
     };
   });
 
   return (
     <GestureDetector gesture={gesture}>
-      <Animated.View style={[styles.card, { backgroundColor: cardBg }, cardStyle]}>
+      <Animated.View layout={REFLOW} style={[styles.card, { backgroundColor: cardBg }, cardStyle]}>
         <DinnerThumbnail />
         <ThemedText style={styles.cardName} numberOfLines={1}>
           {entry.dinner_name ?? t('common.dinnerFallback')}

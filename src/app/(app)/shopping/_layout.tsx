@@ -17,6 +17,7 @@ export default function ShoppingLayout() {
       }}>
       <Stack.Screen name="index" options={{ title: t('shopping.title') }} />
       <Stack.Screen name="[id]" options={{ title: t('shopping.listTitle') }} />
+      <Stack.Screen name="add" options={{ title: t('shopping.addItems') }} />
       <Stack.Screen name="generate" options={{ title: t('generate.title') }} />
     </Stack>
   );

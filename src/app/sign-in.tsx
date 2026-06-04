@@ -2,7 +2,7 @@ import * as AuthSession from 'expo-auth-session';
 import { router } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { useState } from 'react';
-import { StyleSheet } from 'react-native';
+import { Alert, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/button';
@@ -10,11 +10,13 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { ApiError } from '@/lib/api/client';
+import { ApiError, apiRequest } from '@/lib/api/client';
+import type { User } from '@/lib/api/types';
 import { authRequestConfig, discovery, redirectUri } from '@/lib/auth/oauth';
 import { useSession } from '@/lib/auth/session';
 import { isOAuthConfigured, OAUTH_CLIENT_ID } from '@/lib/config';
 import { useT } from '@/lib/i18n';
+import { accountTransitionFor, bindAccount, resetLocalDataForAccount } from '@/lib/store';
 
 // Required so the auth popup/redirect can settle the pending session (web + native).
 WebBrowser.maybeCompleteAuthSession();
@@ -31,8 +33,8 @@ export default function SignInScreen() {
   // (after an await), out of an effect, and reads top-to-bottom.
   const [request, , promptAsync] = AuthSession.useAuthRequest(authRequestConfig, discovery);
 
-  async function exchange(code: string) {
-    const token = await AuthSession.exchangeCodeAsync(
+  function exchange(code: string): Promise<AuthSession.TokenResponse> {
+    return AuthSession.exchangeCodeAsync(
       {
         clientId: OAUTH_CLIENT_ID,
         code,
@@ -41,7 +43,42 @@ export default function SignInScreen() {
       },
       discovery,
     );
-    await signIn(token);
+  }
+
+  function confirmAccountSwitch(email: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      Alert.alert(
+        t('auth.switchAccountTitle'),
+        t('auth.switchAccountMessage', { email }),
+        [
+          { text: t('common.cancel'), style: 'cancel', onPress: () => resolve(false) },
+          {
+            text: t('auth.switchAccountConfirm'),
+            style: 'destructive',
+            onPress: () => resolve(true),
+          },
+        ],
+        { cancelable: true, onDismiss: () => resolve(false) },
+      );
+    });
+  }
+
+  // Bind the local data to this account before the session (and the sync engine)
+  // start. If the device's data belongs to a *different* account, wipe it first —
+  // with the user's confirmation — so one account's data never uploads into
+  // another. Returns false if the user backs out of a switch (data left untouched).
+  async function reconcileLocalData(accessToken: string): Promise<boolean> {
+    const me = await apiRequest<User>('/me', { accessToken });
+    if (accountTransitionFor(me.id) === 'switch') {
+      const confirmed = await confirmAccountSwitch(me.email);
+      if (!confirmed) {
+        return false;
+      }
+      resetLocalDataForAccount(me.id);
+    } else {
+      bindAccount(me.id);
+    }
+    return true;
   }
 
   function dismiss() {
@@ -59,8 +96,12 @@ export default function SignInScreen() {
       const result = await promptAsync();
       if (result.type === 'success') {
         if (result.params.code) {
-          await exchange(result.params.code);
-          dismiss(); // connected — return to Settings; local data is untouched.
+          const token = await exchange(result.params.code);
+          // Reconcile local data with the account before committing the session.
+          if (await reconcileLocalData(token.accessToken)) {
+            await signIn(token);
+            dismiss(); // connected — return to Settings.
+          }
           return;
         }
         // The server redirected back with an OAuth error instead of a code.
@@ -72,8 +113,11 @@ export default function SignInScreen() {
       }
       // 'cancel' / 'dismiss' / 'locked' need no message — the user backed out.
     } catch (err) {
-      // Surface the real reason — token-exchange and network failures hide here otherwise.
-      console.error('[sign-in] failed', err);
+      // Surface the real reason — token-exchange and network failures hide here
+      // otherwise. The user sees `message`; the log is dev-only so we don't ship it.
+      if (__DEV__) {
+        console.error('[sign-in] failed', err);
+      }
       const message =
         err instanceof ApiError
           ? err.message

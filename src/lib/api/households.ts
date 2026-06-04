@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Household, HouseholdMembership, HouseholdRole } from '@/lib/api/types';
 import { queryKeys } from '@/lib/api/keys';
 import { useSession } from '@/lib/auth/session';
+import { applyServerHouseholdSettings } from '@/lib/store';
 import { syncNow } from '@/lib/sync/engine';
 
 /** Households the user belongs to, each with the caller's role. */
@@ -45,6 +46,26 @@ export function useCreateHousehold() {
       // First link to a server household: kick off the initial upload now rather
       // than waiting for the sync poll.
       syncNow();
+    },
+  });
+}
+
+/**
+ * Update the active household's shared settings (name / default servings).
+ * The local household is updated optimistically by the caller so the UI flips
+ * instantly; this mirrors the change to the server household so the rest of the
+ * household sees it. On success we re-adopt the server's canonical value.
+ */
+export function useUpdateHousehold() {
+  const { request } = useSession();
+  return useMutation({
+    mutationFn: (input: { id: number; name: string; default_servings: number }) =>
+      request<Household>(`/households/${input.id}`, {
+        method: 'PATCH',
+        body: { name: input.name, default_servings: input.default_servings },
+      }),
+    onSuccess: (household) => {
+      applyServerHouseholdSettings(household.default_servings);
     },
   });
 }

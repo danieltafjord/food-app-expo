@@ -13,6 +13,7 @@
     "expo-device": "~56.0.4",
     "expo-font": "~56.0.5",
     "expo-glass-effect": "~56.0.4",
+    "expo-haptics": "~56.0.3",
     "expo-image": "~56.0.9",
     "expo-linking": "~56.0.13",
     "expo-localization": "~56.0.6",
@@ -35,11 +36,19 @@
     "react-native-worklets": "0.8.3"
   },
   "devDependencies": {
+    "@types/jest": "^30.0.0",
     "@types/react": "~19.2.2",
     "eslint": "^9.0.0",
     "eslint-config-expo": "~56.0.4",
+    "jest": "^30.4.2",
     "patch-package": "^8.0.1",
     "typescript": "~6.0.3"
+  },
+  "overrides": {
+    "jest-mock": "^30.0.0",
+    "jest-runtime": "^30.0.0",
+    "jest-snapshot": "^30.0.0",
+    "jest-environment-node": "^30.0.0"
   },
   "scripts": {
     "start": "expo start",
@@ -48,6 +57,8 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "lint": "expo lint",
+    "test": "NODE_OPTIONS=--localstorage-file=.jest-localstorage jest --runInBand",
+    "test:watch": "NODE_OPTIONS=--localstorage-file=.jest-localstorage jest --runInBand --watch",
     "postinstall": "patch-package"
   },
   "private": true

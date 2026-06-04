@@ -28,6 +28,12 @@ export function dateKeyOf(iso: string | null | undefined): string {
   return iso ? iso.slice(0, 10) : '';
 }
 
+/** Local Date at midnight for a `YYYY-MM-DD` key — the inverse of `toDateKey`. */
+export function fromDateKey(key: string): Date {
+  const [year, month, day] = key.split('-').map(Number);
+  return new Date(year, month - 1, day);
+}
+
 export function addDays(date: Date, days: number): Date {
   const next = new Date(date);
   next.setDate(next.getDate() + days);

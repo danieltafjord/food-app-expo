@@ -1,5 +1,7 @@
 import { useValue } from '@legendapp/state/react';
 
+import { categorize, type CategoryId } from '@/lib/categorize';
+
 import { store$ } from './collections';
 import { getLocalHouseholdId } from './household';
 import { newId, nowIso } from './ids';
@@ -29,6 +31,10 @@ export type CreateIngredientInput = {
 /**
  * Create an ingredient, or return the existing one with the same name
  * (case-insensitive) — mirrors the backend's `unique(household_id, name)`.
+ *
+ * When no category is supplied, the name is auto-categorized into an aisle
+ * (`@/lib/categorize`) so the shopping list can group it; an unknown item is
+ * left null and treated as "Other" at read time.
  */
 export function createIngredient(input: CreateIngredientInput): string {
   const name = input.name.trim();
@@ -44,9 +50,20 @@ export function createIngredient(input: CreateIngredientInput): string {
     household_id: getLocalHouseholdId(),
     name,
     default_unit: input.default_unit ?? null,
-    category: input.category ?? null,
+    category: input.category ?? categorize(name),
     created_at: ts,
     updated_at: ts,
   });
   return id;
+}
+
+/**
+ * Set (or clear) an ingredient's aisle category — used when the user manually
+ * recategorizes an item. Persisted on the ingredient, so it's remembered for
+ * future lists and synced within the household.
+ */
+export function setIngredientCategory(id: string, category: CategoryId | null): void {
+  const ing$ = store$.ingredients[id];
+  if (!ing$.get()) return;
+  ing$.assign({ category, updated_at: nowIso() });
 }

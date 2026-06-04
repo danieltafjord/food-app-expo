@@ -11,6 +11,10 @@ import { takePendingInvite } from '@/lib/auth/pending-invite';
 import { SessionProvider, useSession } from '@/lib/auth/session';
 import { StoreProvider } from '@/lib/store';
 
+// Re-exported so Expo Router renders it instead of a white screen when any route
+// in the tree throws during render. See `@/components/error-boundary`.
+export { AppErrorBoundary as ErrorBoundary } from '@/components/error-boundary';
+
 export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
@@ -79,6 +83,7 @@ function RootNavigator() {
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="(app)" />
       <Stack.Screen name="sign-in" options={{ presentation: 'modal' }} />
+      <Stack.Screen name="weeks" options={{ presentation: 'modal' }} />
       <Stack.Screen name="invitations/[token]" />
     </Stack>
   );

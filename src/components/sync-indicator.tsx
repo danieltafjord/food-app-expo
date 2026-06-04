@@ -55,10 +55,11 @@ function describe(t: TFunction, isAuthenticated: boolean, status: SyncStatus): D
           busy: false,
         };
       }
-      // Connected, but the sync engine isn't live yet (Phase 1).
+      // Connected, but nothing has synced yet — e.g. no household joined/created
+      // yet, or the first sync hasn't completed.
       return {
         label: t('sync.connected'),
-        detail: t('sync.syncSoon'),
+        detail: t('sync.waitingToSync'),
         color: COLORS.pending,
         busy: false,
       };

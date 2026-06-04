@@ -1,11 +1,9 @@
 import { useValue } from '@legendapp/state/react';
 
 import { store$ } from './collections';
-import { getLocalHouseholdId } from './household';
-import { newId, nowIso } from './ids';
+import { getHouseholdDefaultServings, getLocalHouseholdId } from './household';
+import { compareIso, newId, nowIso } from './ids';
 import type { DinnerWithItems, LocalDinnerItem } from './schema';
-
-const DEFAULT_SERVINGS = 4;
 
 function itemsForDinner(
   allItems: Record<string, LocalDinnerItem>,
@@ -13,7 +11,7 @@ function itemsForDinner(
 ): LocalDinnerItem[] {
   return Object.values(allItems)
     .filter((it) => it.dinner_id === dinnerId)
-    .sort((a, b) => a.created_at.localeCompare(b.created_at));
+    .sort((a, b) => compareIso(a.created_at, b.created_at));
 }
 
 /** All dinners (recipes) with their items, alphabetised. */
@@ -54,7 +52,7 @@ export function createDinner(input: CreateDinnerInput): string {
     id,
     household_id: getLocalHouseholdId(),
     name: input.name,
-    default_servings: input.default_servings ?? DEFAULT_SERVINGS,
+    default_servings: input.default_servings ?? getHouseholdDefaultServings(),
     notes: input.notes ?? null,
     created_at: ts,
     updated_at: ts,

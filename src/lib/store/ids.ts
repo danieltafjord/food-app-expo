@@ -15,3 +15,15 @@ export function newId(): string {
 export function nowIso(): string {
   return new Date().toISOString();
 }
+
+/**
+ * Crash-proof ascending comparison of two ISO timestamps. Older persisted rows
+ * can carry a non-string (or missing) `created_at`; coercing to string and using
+ * plain relational operators tolerates that — unlike `localeCompare`, which is
+ * `undefined` on a number and throws "undefined is not a function".
+ */
+export function compareIso(a: string | null | undefined, b: string | null | undefined): number {
+  const x = a == null ? '' : String(a);
+  const y = b == null ? '' : String(b);
+  return x < y ? -1 : x > y ? 1 : 0;
+}

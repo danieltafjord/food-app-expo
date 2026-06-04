@@ -14,11 +14,15 @@
  * the server DTOs and avoids rename staleness.
  */
 
+import type { CategoryId } from '@/lib/categorize';
+
 export type MealType = 'breakfast' | 'lunch' | 'dinner';
 
 export type LocalHousehold = {
   id: string;
   name: string;
+  /** Seeds the servings field when a new dinner is created in this household. */
+  default_servings: number;
   created_at: string;
   updated_at: string;
 };
@@ -105,4 +109,6 @@ export type PlanEntryWithDinner = LocalPlanEntry & { dinner_name: string | null 
 
 export type ShoppingListItemWithIngredient = LocalShoppingListItem & {
   ingredient_name: string | null;
+  /** Resolved aisle for grouping — from the ingredient, the name, or `other`. */
+  category: CategoryId;
 };

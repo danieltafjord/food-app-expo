@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet } from 'react-native';
 
 import { BottomSheet } from '@/components/bottom-sheet';
@@ -22,6 +22,8 @@ export function IngredientPicker({ visible, onClose, onPick }: IngredientPickerP
   const theme = useTheme();
   const all = useIngredients();
   const [query, setQuery] = useState('');
+  // One create per typed query — guards a "done" + button tap firing twice.
+  const created = useRef(false);
 
   const trimmed = query.trim();
   const filtered = trimmed
@@ -30,9 +32,10 @@ export function IngredientPicker({ visible, onClose, onPick }: IngredientPickerP
   const exactMatch = all.some((item) => item.name.toLowerCase() === trimmed.toLowerCase());
 
   function onCreate() {
-    if (!trimmed) {
+    if (!trimmed || created.current) {
       return;
     }
+    created.current = true;
     const id = createIngredient({ name: trimmed });
     setQuery('');
     const ingredient = getIngredient(id);
@@ -49,7 +52,10 @@ export function IngredientPicker({ visible, onClose, onPick }: IngredientPickerP
         label={t('ingredientPicker.searchOrCreate')}
         placeholder={t('ingredientPicker.placeholder')}
         value={query}
-        onChangeText={setQuery}
+        onChangeText={(text) => {
+          created.current = false;
+          setQuery(text);
+        }}
         autoCapitalize="none"
         autoCorrect={false}
         returnKeyType="done"

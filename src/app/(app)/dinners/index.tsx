@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import { Button } from '@/components/button';
@@ -17,12 +17,16 @@ export default function DinnersScreen() {
   const theme = useTheme();
   const dinners = useDinners();
   const [name, setName] = useState('');
+  // Guards against a keyboard "done" + button tap both firing one create; reset
+  // when the user starts typing the next name (the field is always visible here).
+  const submitted = useRef(false);
 
   function onCreate() {
     const trimmed = name.trim();
-    if (!trimmed) {
+    if (!trimmed || submitted.current) {
       return;
     }
+    submitted.current = true;
     const id = createDinner({ name: trimmed });
     setName('');
     router.push({ pathname: '/dinners/[id]', params: { id } });
@@ -36,7 +40,10 @@ export default function DinnersScreen() {
           label={t('dinners.name')}
           placeholder={t('dinners.namePlaceholder')}
           value={name}
-          onChangeText={setName}
+          onChangeText={(text) => {
+            submitted.current = false;
+            setName(text);
+          }}
           autoCapitalize="sentences"
           returnKeyType="done"
           onSubmitEditing={onCreate}

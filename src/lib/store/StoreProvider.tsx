@@ -1,12 +1,13 @@
 import { syncState } from '@legendapp/state';
 import { useValue } from '@legendapp/state/react';
-import { useEffect, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { StyleSheet, View } from 'react-native';
 
+import { AppErrorBoundary } from '@/components/error-boundary';
+
+import { bootStore } from './boot';
 import { store$ } from './collections';
-import { ensureLocalHousehold } from './household';
 import { whenHydrated } from './persistence';
-import { ensureSettingsDefaults } from './settings';
 
 /**
  * Gates the app on local persistence being loaded.
@@ -18,19 +19,47 @@ import { ensureSettingsDefaults } from './settings';
  * children render) then plays its reveal. Hydration is a local kv-store read,
  * so this is effectively instant after the first launch.
  *
+ * Migrations + defaults run via the shared, idempotent `bootStore()` (see
+ * `./boot`) so the same upgrade-then-seed sequence is guaranteed to finish before
+ * either a screen or the sync engine reads the collections. If it throws, we show
+ * the recoverable error boundary with a retry rather than wedging on the splash.
+ *
  * Cloud sync is attached separately, by `SessionProvider`, once the user signs
  * in — see `connectCollections()` in `@/lib/sync/engine`.
  */
 export function StoreProvider({ children }: { children: ReactNode }) {
   const hydrated = useValue(syncState(store$).isPersistLoaded);
   const householdId = useValue(store$.meta.localHouseholdId);
+  const [bootError, setBootError] = useState<unknown>(null);
+
+  const runBoot = useCallback(() => {
+    whenHydrated
+      .then(() => {
+        try {
+          bootStore();
+          setBootError(null);
+        } catch (error) {
+          setBootError(error);
+        }
+      })
+      .catch(setBootError);
+  }, []);
 
   useEffect(() => {
-    whenHydrated.then(() => {
-      ensureLocalHousehold();
-      ensureSettingsDefaults();
-    });
-  }, []);
+    runBoot();
+  }, [runBoot]);
+
+  if (bootError) {
+    const error = bootError instanceof Error ? bootError : new Error(String(bootError));
+    return (
+      <AppErrorBoundary
+        error={error}
+        retry={async () => {
+          runBoot();
+        }}
+      />
+    );
+  }
 
   if (!hydrated || !householdId) {
     return <View style={styles.splash} />;

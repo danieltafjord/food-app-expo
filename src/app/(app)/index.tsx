@@ -1,3 +1,5 @@
+import { router } from 'expo-router';
+import { SymbolView } from 'expo-symbols';
 import { useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -10,6 +12,7 @@ import { WeekBoard } from '@/components/week-board';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/lib/i18n';
+import { setPlannerWeekKey, usePlannerWeekKey } from '@/lib/planner-state';
 import {
   createPlanEntry,
   deletePlanEntry,
@@ -26,6 +29,7 @@ import {
   addWeeks,
   buildWeek,
   dateKeyOf,
+  fromDateKey,
   startOfWeek,
   toDateKey,
   weekLabel,
@@ -35,12 +39,12 @@ export default function PlansScreen() {
   const t = useT();
   const theme = useTheme();
   const locale = useLocale();
-  const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
+  const weekStartKey = usePlannerWeekKey();
+  const weekStart = fromDateKey(weekStartKey);
   const [pickerDate, setPickerDate] = useState<string | null>(null);
   const [editingEntry, setEditingEntry] = useState<PlanEntryWithDinner | null>(null);
 
   const days = buildWeek(weekStart, locale);
-  const weekStartKey = toDateKey(weekStart);
   const weekEndKey = toDateKey(addDays(weekStart, 6));
   const label = weekLabel(weekStart, locale);
   const isCurrentWeek = weekStartKey === toDateKey(startOfWeek(new Date()));
@@ -78,7 +82,7 @@ export default function PlansScreen() {
   }
 
   function onSaveEntry(entry: PlanEntryWithDinner, edit: EntryEdit) {
-    updatePlanEntry(entry.id, { scheduled_date: edit.date, servings: edit.servings });
+    updatePlanEntry(entry.id, { servings: edit.servings });
     setEditingEntry(null);
   }
 
@@ -92,22 +96,41 @@ export default function PlansScreen() {
       <SafeAreaView edges={['top']} style={styles.safeArea}>
         <View style={styles.header}>
           <View style={styles.weekNav}>
-            <NavButton label="‹" onPress={() => setWeekStart((w) => addWeeks(w, -1))} />
+            <NavButton
+              label="‹"
+              onPress={() => setPlannerWeekKey(toDateKey(addWeeks(weekStart, -1)))}
+            />
             <View style={styles.weekLabel}>
-              <ThemedText type="smallBold">{label}</ThemedText>
+              <Pressable
+                onPress={() => router.push('/weeks')}
+                hitSlop={8}
+                style={({ pressed }) => [styles.weekLabelButton, pressed && styles.pressed]}>
+                <ThemedText type="smallBold">{label}</ThemedText>
+                <SymbolView
+                  name="chevron.down"
+                  size={11}
+                  tintColor={theme.textSecondary}
+                  type="monochrome"
+                />
+              </Pressable>
               {isCurrentWeek ? (
                 <ThemedText type="small" themeColor="textSecondary">
                   {t('plans.thisWeek')}
                 </ThemedText>
               ) : (
-                <Pressable onPress={() => setWeekStart(startOfWeek(new Date()))} hitSlop={6}>
+                <Pressable
+                  onPress={() => setPlannerWeekKey(toDateKey(startOfWeek(new Date())))}
+                  hitSlop={6}>
                   <ThemedText type="small" style={{ color: theme.tint }}>
                     {t('plans.jumpToThisWeek')}
                   </ThemedText>
                 </Pressable>
               )}
             </View>
-            <NavButton label="›" onPress={() => setWeekStart((w) => addWeeks(w, 1))} />
+            <NavButton
+              label="›"
+              onPress={() => setPlannerWeekKey(toDateKey(addWeeks(weekStart, 1)))}
+            />
           </View>
         </View>
 
@@ -131,7 +154,6 @@ export default function PlansScreen() {
 
       <EntryEditor
         entry={editingEntry}
-        days={days}
         onClose={() => setEditingEntry(null)}
         onSave={onSaveEntry}
         onRemove={onRemoveEntry}
@@ -176,6 +198,11 @@ const styles = StyleSheet.create({
   weekLabel: {
     alignItems: 'center',
     gap: Spacing.half,
+  },
+  weekLabelButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.one,
   },
   navButton: {
     width: 44,

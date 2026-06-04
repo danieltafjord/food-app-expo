@@ -27,7 +27,7 @@ export default function AcceptInvitationScreen() {
   const [error, setError] = useState<string | null>(null);
 
   async function onAccept() {
-    if (!token) {
+    if (!token || accept.isPending || decline.isPending) {
       return;
     }
     setError(null);
@@ -41,7 +41,7 @@ export default function AcceptInvitationScreen() {
   }
 
   async function onDecline() {
-    if (!token) {
+    if (!token || accept.isPending || decline.isPending) {
       return;
     }
     setError(null);
@@ -133,7 +133,12 @@ export default function AcceptInvitationScreen() {
             {error}
           </ThemedText>
         ) : null}
-        <Button title={t('invitation.accept')} onPress={onAccept} loading={accept.isPending} />
+        <Button
+          title={t('invitation.accept')}
+          onPress={onAccept}
+          loading={accept.isPending}
+          disabled={decline.isPending}
+        />
         <Button
           title={t('invitation.decline')}
           variant="secondary"

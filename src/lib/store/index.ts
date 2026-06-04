@@ -1,14 +1,26 @@
 /** Public surface of the on-device store. */
 export * from './schema';
 export { store$ } from './collections';
+export {
+  type AccountTransition,
+  accountTransitionFor,
+  bindAccount,
+  getBoundAccountId,
+  resetLocalDataForAccount,
+} from './account';
 export { newId, nowIso } from './ids';
 export { whenHydrated } from './persistence';
 export { StoreProvider } from './StoreProvider';
 export {
+  DEFAULT_HOUSEHOLD_SERVINGS,
   LOCAL_HOUSEHOLD_NAME,
+  applyServerHouseholdSettings,
   ensureLocalHousehold,
+  getHouseholdDefaultServings,
   getLocalHouseholdId,
   renameLocalHousehold,
+  setHouseholdDefaultServings,
+  useHouseholdDefaultServings,
   useLocalHousehold,
 } from './household';
 export {
