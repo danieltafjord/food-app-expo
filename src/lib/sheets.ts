@@ -37,8 +37,15 @@ export function cancelSheet(requestId: string | undefined): void {
   if (requestId) pending.delete(requestId);
 }
 
+/** What the ingredient picker returns: the ingredient plus any amount typed with it. */
+export type IngredientPick = {
+  ingredient: LocalIngredient;
+  quantity: number | null;
+  unit: string | null;
+};
+
 /** Open the ingredient picker sheet; `onPick` runs when the user chooses one. */
-export function openIngredientPicker(onPick: (ingredient: LocalIngredient) => void): void {
+export function openIngredientPicker(onPick: (pick: IngredientPick) => void): void {
   const request = requestSheet(onPick);
   router.push({ pathname: '/sheets/ingredient-picker', params: { request } });
 }

@@ -1,6 +1,7 @@
 import { router } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { useRef } from 'react';
+import { Alert, Pressable, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
@@ -10,11 +11,13 @@ import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/lib/i18n';
 import { setPlannerWeekKey, usePlannerWeekKey } from '@/lib/planner-state';
+import { createShoppingListFromPlan, dinnersWithoutIngredients } from '@/lib/shopping/generate';
 import {
   updatePlanEntry,
   useLocale,
   usePlanEntries,
   usePlanForWeek,
+  useShoppingListForPlan,
   type PlanEntryWithDinner,
 } from '@/lib/store';
 import {
@@ -40,6 +43,11 @@ export default function PlansScreen() {
 
   const currentPlan = usePlanForWeek(weekStartKey);
   const entries = usePlanEntries(currentPlan?.id);
+  // The list generated from this week, if any: the header button opens it
+  // instead of making a second one.
+  const existingList = useShoppingListForPlan(currentPlan?.id);
+  // One list per tap — a double tap before navigation would build two.
+  const creating = useRef(false);
 
   const entriesByDate: Record<string, PlanEntryWithDinner[]> = {};
   for (const entry of entries) {
@@ -59,6 +67,35 @@ export default function PlansScreen() {
 
   function onEditEntry(entryId: string) {
     router.push({ pathname: '/sheets/entry-editor', params: { entryId } });
+  }
+
+  function openList(id: string) {
+    router.push({ pathname: '/shopping/[id]', params: { id } });
+  }
+
+  // Build this week's list from its dinners. Dinners without ingredients add
+  // nothing, which is easy to miss — name them first so the user can decide.
+  function onMakeList() {
+    if (!currentPlan || creating.current) return;
+    const planId = currentPlan.id;
+    const create = () => {
+      creating.current = true;
+      openList(createShoppingListFromPlan(planId));
+      creating.current = false;
+    };
+    const missing = dinnersWithoutIngredients(planId);
+    if (missing.length === 0) {
+      create();
+      return;
+    }
+    Alert.alert(
+      t('plans.noIngredientsTitle'),
+      t('plans.noIngredientsMessage', { names: missing.join(', ') }),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        { text: t('plans.makeAnyway'), onPress: create },
+      ],
+    );
   }
 
   return (
@@ -104,6 +141,37 @@ export default function PlansScreen() {
               onPress={() => setPlannerWeekKey(toDateKey(addWeeks(weekStart, 1)))}
             />
           </View>
+
+          {/* The bridge from planning to shopping. Hidden until the week has a
+              dinner, so an empty board stays quiet. */}
+          {entries.length > 0 ? (
+            <Pressable
+              onPress={existingList ? () => openList(existingList.id) : onMakeList}
+              accessibilityRole="button"
+              style={({ pressed }) => [
+                styles.listButton,
+                { backgroundColor: existingList ? theme.backgroundElement : theme.tint },
+                pressed && styles.pressed,
+              ]}>
+              <SymbolView
+                name={{ ios: 'cart.fill', android: 'shopping_cart', web: 'shopping_cart' }}
+                size={16}
+                tintColor={existingList ? theme.text : theme.onTint}
+                type="monochrome"
+              />
+              <ThemedText
+                type="smallBold"
+                style={{ color: existingList ? theme.text : theme.onTint }}>
+                {existingList ? t('plans.openList') : t('plans.makeList')}
+              </ThemedText>
+              <SymbolView
+                name={{ ios: 'chevron.right', android: 'chevron_right', web: 'chevron_right' }}
+                size={11}
+                tintColor={existingList ? theme.textSecondary : theme.onTint}
+                type="monochrome"
+              />
+            </Pressable>
+          ) : null}
         </View>
 
         <View style={styles.boardArea}>
@@ -157,6 +225,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.four,
     paddingTop: Spacing.two,
     paddingBottom: Spacing.two,
+    gap: Spacing.two,
+  },
+  listButton: {
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    paddingVertical: Spacing.two,
+    paddingLeft: Spacing.three,
+    paddingRight: Spacing.two,
+    borderRadius: 999,
   },
   weekNav: {
     flexDirection: 'row',

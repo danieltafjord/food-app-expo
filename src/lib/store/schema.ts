@@ -105,7 +105,11 @@ export type LocalShoppingListItem = {
 
 export type DinnerWithItems = LocalDinner & { items: LocalDinnerItem[] };
 
-export type PlanEntryWithDinner = LocalPlanEntry & { dinner_name: string | null };
+export type PlanEntryWithDinner = LocalPlanEntry & {
+  dinner_name: string | null;
+  /** How many ingredients the dinner has — 0 means it adds nothing to a shopping list. */
+  ingredient_count: number;
+};
 
 export type ShoppingListItemWithIngredient = LocalShoppingListItem & {
   ingredient_name: string | null;

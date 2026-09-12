@@ -128,7 +128,7 @@ export default function DinnerPickerSheet() {
   const idle = action === 'idle';
 
   return (
-    <SheetScreen title={t('dinnerPicker.title')} layout="fill">
+    <SheetScreen layout="fill">
       {date ? (
         <ThemedText type="small" themeColor="textSecondary">
           {formatDate(date)}

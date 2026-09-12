@@ -7,11 +7,12 @@ import { CategorySelect } from '@/components/category-select';
 import { SheetScreen } from '@/components/sheet';
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
+import { UnitChips } from '@/components/unit-chips';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { type CategoryId } from '@/lib/categorize';
-import { parseQuantity } from '@/lib/format';
 import { useT } from '@/lib/i18n';
+import { amountText, parseAmount } from '@/lib/parse-line';
 import {
   recategorizeShoppingItem,
   removeShoppingItem,
@@ -20,7 +21,7 @@ import {
   type ShoppingListItemWithIngredient,
 } from '@/lib/store';
 
-/** Edit a shopping-list item's quantity, unit, aisle and (free-text) name. */
+/** Edit a shopping-list item's amount ("500 g"), aisle and (free-text) name. */
 export default function ShoppingItemSheet() {
   const t = useT();
   const { itemId } = useLocalSearchParams<{ itemId: string }>();
@@ -41,18 +42,24 @@ function ItemForm({ item }: { item: ShoppingListItemWithIngredient }) {
   const theme = useTheme();
   const isFreeText = item.ingredient_id == null;
   const [name, setName] = useState(item.name ?? '');
-  const [quantity, setQuantity] = useState(item.quantity != null ? String(item.quantity) : '');
-  const [unit, setUnit] = useState(item.unit ?? '');
+  // One field for quantity + unit, parsed on save ("500 g", "2", "dl").
+  const [amount, setAmount] = useState(amountText(item.quantity, item.unit));
   const [category, setCategory] = useState<CategoryId>(item.category);
+  const parsed = parseAmount(amount);
 
   // A free-text item must keep a name; an ingredient-backed one keeps its ingredient.
   const canSave = !isFreeText || !!name.trim();
 
+  function pickUnit(unit: string) {
+    // Replace the unit, keep the number: "500 g" + "kg" → "500 kg".
+    setAmount(amountText(parsed.quantity, parsed.unit === unit ? null : unit));
+  }
+
   function save() {
     updateShoppingItem(item.id, {
       name: isFreeText ? name.trim() || null : item.name,
-      quantity: parseQuantity(quantity),
-      unit: unit.trim() || null,
+      quantity: parsed.quantity,
+      unit: parsed.unit,
     });
     if (category !== item.category) {
       recategorizeShoppingItem(item.id, category);
@@ -81,26 +88,16 @@ function ItemForm({ item }: { item: ShoppingListItemWithIngredient }) {
         />
       ) : null}
 
-      <View style={styles.qtyRow}>
-        <View style={styles.flex}>
-          <TextField
-            label={t('shoppingItemEditor.quantity')}
-            value={quantity}
-            onChangeText={setQuantity}
-            keyboardType="decimal-pad"
-            inputMode="decimal"
-            placeholder="0"
-          />
-        </View>
-        <View style={styles.flex}>
-          <TextField
-            label={t('shoppingItemEditor.unit')}
-            value={unit}
-            onChangeText={setUnit}
-            autoCapitalize="none"
-            placeholder="g"
-          />
-        </View>
+      <View style={styles.field}>
+        <TextField
+          label={t('shoppingItemEditor.amount')}
+          value={amount}
+          onChangeText={setAmount}
+          placeholder={t('shoppingItemEditor.amountPlaceholder')}
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+        <UnitChips value={parsed.unit} onPick={pickUnit} />
       </View>
 
       <View style={styles.field}>
@@ -111,7 +108,7 @@ function ItemForm({ item }: { item: ShoppingListItemWithIngredient }) {
       </View>
 
       {/* Cancel + Save as a pair; removal is red and below a divider so it
-          can't be mistaken for "cancel" (same layout as the entry editor). */}
+          can't be mistaken for "cancel". */}
       <View style={styles.actions}>
         <Button
           title={t('common.cancel')}
@@ -131,10 +128,6 @@ function ItemForm({ item }: { item: ShoppingListItemWithIngredient }) {
 
 const styles = StyleSheet.create({
   field: {
-    gap: Spacing.two,
-  },
-  qtyRow: {
-    flexDirection: 'row',
     gap: Spacing.two,
   },
   actions: {

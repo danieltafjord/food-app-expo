@@ -148,7 +148,10 @@ export type ShoppingSection = {
 };
 
 export type ShoppingListSections = {
+  /** Unchecked items, grouped by aisle. */
   sections: ShoppingSection[];
+  /** Checked items in the order they were ticked off, shown as one group at the end. */
+  checkedIds: string[];
   total: number;
   checked: number;
 };
@@ -164,19 +167,26 @@ const sectionsCache = new Map<string, { key: string; value: ShoppingListSections
 
 /**
  * A list's items grouped by aisle for the Listonic-style sectioned view.
- * Empty aisles are omitted; within each, unchecked items come first, then by
- * creation order. Returns ids only — see {@link ShoppingSection.itemIds}. All
- * derivation happens inside the selector (Legend-State + React-Compiler safe).
+ * Empty aisles are omitted. Checked items leave their aisle and collect in one
+ * group at the end (most recently ticked last), so the part of the list still
+ * to shop keeps getting shorter. Returns ids only — see
+ * {@link ShoppingSection.itemIds}. All derivation happens inside the selector
+ * (Legend-State + React-Compiler safe).
  */
 const sectionsFor = derivedById((listId): ShoppingListSections => {
   const ingredients = store$.ingredients.get();
   const byCategory = new Map<CategoryId, ShoppingListItemWithIngredient[]>();
+  const checkedItems: LocalShoppingListItem[] = [];
   let total = 0;
   let checked = 0;
   for (const it of Object.values(store$.shoppingListItems.get())) {
     if (it.shopping_list_id !== listId) continue;
     total += 1;
-    if (it.is_checked) checked += 1;
+    if (it.is_checked) {
+      checked += 1;
+      checkedItems.push(it);
+      continue;
+    }
     const item = toItemWithIngredient(it, lookupIngredient(ingredients, it));
     const bucket = byCategory.get(item.category);
     if (bucket) {
@@ -191,19 +201,19 @@ const sectionsFor = derivedById((listId): ShoppingListSections => {
   for (const id of CATEGORY_ORDER) {
     const items = byCategory.get(id);
     if (!items) continue;
-    items.sort(
-      (a, b) =>
-        Number(a.is_checked) - Number(b.is_checked) || compareIso(a.created_at, b.created_at),
-    );
+    items.sort((a, b) => compareIso(a.created_at, b.created_at));
     const itemIds = items.map((it) => it.id);
     sections.push({ id, itemIds });
     keyParts.push(`${id}:${itemIds.join(',')}`);
   }
+  // Ticking sets updated_at, so this is "in the order they were checked".
+  checkedItems.sort((a, b) => compareIso(a.updated_at, b.updated_at));
+  const checkedIds = checkedItems.map((it) => it.id);
 
-  const key = `${total}/${checked}|${keyParts.join(';')}`;
+  const key = `${total}/${checked}|${keyParts.join(';')}|${checkedIds.join(',')}`;
   const cached = sectionsCache.get(listId);
   if (cached && cached.key === key) return cached.value;
-  const value = { sections, total, checked };
+  const value = { sections, checkedIds, total, checked };
   sectionsCache.set(listId, { key, value });
   return value;
 });

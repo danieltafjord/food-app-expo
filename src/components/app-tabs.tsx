@@ -35,7 +35,7 @@ export default function AppTabs() {
 
       <NativeTabs.Trigger name="account">
         <NativeTabs.Trigger.Label>{t('tabs.account')}</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon sf="person.crop.circle" />
+        <NativeTabs.Trigger.Icon sf="gearshape.fill" />
       </NativeTabs.Trigger>
     </NativeTabs>
   );

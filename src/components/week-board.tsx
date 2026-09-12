@@ -36,11 +36,10 @@ import Animated, {
   type SharedValue,
 } from 'react-native-reanimated';
 
-import { DinnerThumbnail } from '@/components/dinner-thumbnail';
 import { ThemedText } from '@/components/themed-text';
 import { useSyncRefresh } from '@/hooks/use-sync-refresh';
 import { useResolvedScheme, useTheme } from '@/hooks/use-theme';
-import { BottomTabInset, Spacing } from '@/constants/theme';
+import { BadgeColors, BottomTabInset, Spacing } from '@/constants/theme';
 import { hapticDrop, hapticLift } from '@/lib/haptics';
 import { useT } from '@/lib/i18n';
 import type { PlanEntryWithDinner } from '@/lib/store';
@@ -275,7 +274,15 @@ function DaySection({
           <Pressable
             onPress={() => onAdd(day.date)}
             hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={t('weekBoard.addDinner')}
             style={({ pressed }) => [styles.addAnother, pressed && styles.pressed]}>
+            <SymbolView
+              name={{ ios: 'plus', android: 'add', web: 'add' }}
+              size={12}
+              tintColor={theme.textSecondary}
+              type="monochrome"
+            />
             <ThemedText type="small" themeColor="textSecondary">
               {t('weekBoard.add')}
             </ThemedText>
@@ -307,7 +314,14 @@ function DaySection({
         ) : (
           <Pressable
             onPress={() => onAdd(day.date)}
+            accessibilityRole="button"
             style={({ pressed }) => [styles.addButton, pressed && styles.pressed]}>
+            <SymbolView
+              name={{ ios: 'plus', android: 'add', web: 'add' }}
+              size={13}
+              tintColor={theme.textSecondary}
+              type="monochrome"
+            />
             <ThemedText type="small" themeColor="textSecondary">
               {t('weekBoard.addDinner')}
             </ThemedText>
@@ -362,9 +376,11 @@ const DraggableDinnerCard = memo(function DraggableDinnerCard({
   const t = useT();
   const theme = useTheme();
   const scheme = useResolvedScheme();
+  const warning = BadgeColors[scheme].warning;
   // A clean elevated surface: white in light mode (less "gray"), the elevated
   // grey in dark mode; border + soft shadow give it depth.
   const cardBg = scheme === 'dark' ? theme.backgroundElement : theme.background;
+  const count = entry.ingredient_count;
   const entryId = entry.id; // worklets capture this primitive, never the entry object
   // Drag is vertical-only (day to day), so the card never slides past the
   // list's side edges and get clipped.
@@ -448,10 +464,24 @@ const DraggableDinnerCard = memo(function DraggableDinnerCard({
   return (
     <GestureDetector gesture={gesture}>
       <Animated.View layout={REFLOW} style={[styles.card, { backgroundColor: cardBg }, cardStyle]}>
-        <DinnerThumbnail />
-        <ThemedText style={styles.cardName} numberOfLines={1}>
-          {entry.dinner_name ?? t('common.dinnerFallback')}
-        </ThemedText>
+        <View style={styles.cardText}>
+          <ThemedText style={styles.cardName} numberOfLines={1}>
+            {entry.dinner_name ?? t('common.dinnerFallback')}
+          </ThemedText>
+          {/* What the dinner brings to the shopping list — a dinner with no
+              ingredients is the one thing worth flagging on the board. */}
+          {count === 0 ? (
+            <View style={[styles.warn, { backgroundColor: warning.bg }]}>
+              <ThemedText type="small" style={{ color: warning.fg }} numberOfLines={1}>
+                {t('weekBoard.noIngredients')}
+              </ThemedText>
+            </View>
+          ) : (
+            <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
+              {count} {count === 1 ? t('common.ingredient') : t('common.ingredients')}
+            </ThemedText>
+          )}
+        </View>
         <View style={styles.servings}>
           <SymbolView
             name={{ ios: 'person.fill', android: 'person', web: 'person' }}
@@ -491,6 +521,9 @@ const styles = StyleSheet.create({
     gap: Spacing.two,
   },
   addAnother: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.one,
     paddingVertical: Spacing.half,
     paddingHorizontal: Spacing.one,
   },
@@ -502,6 +535,8 @@ const styles = StyleSheet.create({
     padding: Spacing.one,
   },
   addButton: {
+    flexDirection: 'row',
+    gap: Spacing.one,
     borderWidth: 1.5,
     borderColor: 'rgba(128,128,128,0.35)',
     borderStyle: 'dashed',
@@ -523,10 +558,19 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 2 },
   },
-  cardName: {
+  cardText: {
     flexShrink: 1,
     flexGrow: 1,
+    gap: Spacing.half,
+  },
+  cardName: {
     fontWeight: '600',
+  },
+  warn: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: Spacing.two,
+    paddingVertical: 1,
+    borderRadius: 999,
   },
   servings: {
     flexDirection: 'row',

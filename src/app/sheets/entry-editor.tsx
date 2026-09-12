@@ -1,28 +1,30 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { SymbolView } from 'expo-symbols';
+import { Pressable, StyleSheet, View } from 'react-native';
 
 import { Button } from '@/components/button';
 import { SheetScreen } from '@/components/sheet';
 import { Stepper } from '@/components/stepper';
 import { ThemedText } from '@/components/themed-text';
-import { Spacing } from '@/constants/theme';
-import { useTheme } from '@/hooks/use-theme';
+import { BadgeColors, Spacing } from '@/constants/theme';
+import { useResolvedScheme, useTheme } from '@/hooks/use-theme';
+import { hapticSelection } from '@/lib/haptics';
 import { useT } from '@/lib/i18n';
 import {
   deletePlanEntry,
   updatePlanEntry,
+  useLocale,
   usePlanEntry,
   type PlanEntryWithDinner,
 } from '@/lib/store';
+import { buildWeek, dateKeyOf, fromDateKey, startOfWeek } from '@/lib/week';
 
 /**
- * Edit a scheduled dinner (`entryId`): change its servings or remove it. Moving
- * it to another day is done by dragging the card on the week board.
- *
- * Cancel and Save sit together as the form's pair; removing the dinner from
- * the plan is a separate, red action below a divider so it can't be mistaken
- * for "cancel".
+ * A scheduled dinner (`entryId`). Everything here saves as you go, like the
+ * rest of the board: the servings stepper writes on each tap, the day chips
+ * move the dinner (dragging the card on the board does the same), and the
+ * "Edit dinner" row opens the recipe itself. Removing the dinner from the
+ * plan is a separate red action below a divider.
  */
 export default function EntryEditorSheet() {
   const t = useT();
@@ -43,11 +45,24 @@ export default function EntryEditorSheet() {
 function EntryForm({ entry }: { entry: PlanEntryWithDinner }) {
   const t = useT();
   const theme = useTheme();
-  const [servings, setServings] = useState(entry.servings);
+  const warning = BadgeColors[useResolvedScheme()].warning;
+  const locale = useLocale();
 
-  function save() {
-    updatePlanEntry(entry.id, { servings });
+  const scheduled = dateKeyOf(entry.scheduled_date);
+  const days = buildWeek(startOfWeek(fromDateKey(scheduled)), locale);
+  const noIngredients = entry.ingredient_count === 0;
+
+  function moveTo(date: string) {
+    if (date === scheduled) return;
+    hapticSelection();
+    updatePlanEntry(entry.id, { scheduled_date: date });
     router.back();
+  }
+
+  function editDinner() {
+    // Leave the sheet, then push the recipe onto the Dinners tab.
+    router.back();
+    router.push({ pathname: '/dinners/[id]', params: { id: entry.dinner_id } });
   }
 
   function remove() {
@@ -59,18 +74,78 @@ function EntryForm({ entry }: { entry: PlanEntryWithDinner }) {
     <SheetScreen title={entry.dinner_name ?? t('common.dinnerFallback')}>
       <View style={styles.field}>
         <ThemedText type="smallBold">{t('entryEditor.servings')}</ThemedText>
-        <Stepper value={servings} onChange={setServings} min={1} max={99} />
+        <Stepper
+          value={entry.servings}
+          onChange={(servings) => updatePlanEntry(entry.id, { servings })}
+          min={1}
+          max={99}
+          accessibilityLabel={t('entryEditor.servings')}
+        />
       </View>
 
-      <View style={styles.actions}>
-        <Button
-          title={t('common.cancel')}
-          variant="secondary"
-          onPress={() => router.back()}
-          style={styles.action}
-        />
-        <Button title={t('common.save')} onPress={save} style={styles.action} />
+      <View style={styles.field}>
+        <ThemedText type="smallBold">{t('entryEditor.moveTo')}</ThemedText>
+        <View style={styles.days}>
+          {days.map((day) => {
+            const selected = day.date === scheduled;
+            return (
+              <Pressable
+                key={day.date}
+                onPress={() => moveTo(day.date)}
+                accessibilityRole="radio"
+                accessibilityState={{ selected }}
+                accessibilityLabel={`${day.weekday} ${day.dayOfMonth}`}
+                style={({ pressed }) => [
+                  styles.day,
+                  { backgroundColor: selected ? theme.tint : theme.backgroundElement },
+                  pressed && !selected && styles.pressed,
+                ]}>
+                <ThemedText
+                  type="small"
+                  style={[styles.dayName, selected && { color: theme.onTint }]}
+                  themeColor={selected ? undefined : 'textSecondary'}>
+                  {day.weekday}
+                </ThemedText>
+                <ThemedText
+                  type="smallBold"
+                  style={[
+                    selected && { color: theme.onTint },
+                    !selected && day.isToday && { color: theme.tint },
+                  ]}>
+                  {day.dayOfMonth}
+                </ThemedText>
+              </Pressable>
+            );
+          })}
+        </View>
       </View>
+
+      <Pressable
+        onPress={editDinner}
+        accessibilityRole="button"
+        style={({ pressed }) => [
+          styles.link,
+          { backgroundColor: noIngredients ? warning.bg : theme.backgroundElement },
+          pressed && styles.pressed,
+        ]}>
+        <View style={styles.linkText}>
+          <ThemedText type="smallBold" style={noIngredients ? { color: warning.fg } : undefined}>
+            {t('entryEditor.editDinner')}
+          </ThemedText>
+          <ThemedText
+            type="small"
+            themeColor={noIngredients ? undefined : 'textSecondary'}
+            style={noIngredients ? { color: warning.fg } : undefined}>
+            {noIngredients ? t('entryEditor.noIngredientsHint') : t('entryEditor.editDinnerHint')}
+          </ThemedText>
+        </View>
+        <SymbolView
+          name={{ ios: 'chevron.right', android: 'chevron_right', web: 'chevron_right' }}
+          size={13}
+          tintColor={noIngredients ? warning.fg : theme.textSecondary}
+          type="monochrome"
+        />
+      </Pressable>
 
       <View style={[styles.divider, { backgroundColor: theme.border }]} />
 
@@ -83,15 +158,36 @@ const styles = StyleSheet.create({
   field: {
     gap: Spacing.two,
   },
-  actions: {
+  days: {
     flexDirection: 'row',
-    gap: Spacing.two,
+    gap: Spacing.one,
   },
-  action: {
+  day: {
     flex: 1,
+    alignItems: 'center',
+    gap: Spacing.half,
+    paddingVertical: Spacing.two,
+    borderRadius: Spacing.two,
+  },
+  dayName: {
+    textTransform: 'capitalize',
+  },
+  link: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.three,
+    padding: Spacing.three,
+    borderRadius: Spacing.three,
+  },
+  linkText: {
+    flex: 1,
+    gap: Spacing.half,
   },
   divider: {
     height: StyleSheet.hairlineWidth,
     marginVertical: Spacing.one,
+  },
+  pressed: {
+    opacity: 0.6,
   },
 });

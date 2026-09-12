@@ -7,8 +7,11 @@ import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 
 type SheetScreenProps = {
-  /** Drawn inside the sheet: the native header would float over the content. */
-  title: string;
+  /**
+   * Drawn inside the sheet: the native header would float over the content.
+   * Omit for sheets whose content speaks for itself.
+   */
+  title?: string;
   children: ReactNode;
   /**
    * `fit` (default) sizes to its content — for the form sheets presented with
@@ -37,9 +40,11 @@ export function SheetScreen({ title, children, layout = 'fit' }: SheetScreenProp
     <ThemedView
       collapsable={false}
       style={[styles.body, layout === 'fill' && styles.fill, { paddingBottom: bottom }]}>
-      <ThemedText type="subtitle" numberOfLines={1} style={styles.title}>
-        {title}
-      </ThemedText>
+      {title ? (
+        <ThemedText type="subtitle" numberOfLines={1} style={styles.title}>
+          {title}
+        </ThemedText>
+      ) : null}
       <View style={[styles.content, layout === 'fill' && styles.fill]}>{children}</View>
     </ThemedView>
   );

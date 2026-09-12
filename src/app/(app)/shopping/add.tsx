@@ -7,7 +7,9 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { BottomTabInset, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { formatQuantity } from '@/lib/format';
 import { useT } from '@/lib/i18n';
+import { parseItemLine } from '@/lib/parse-line';
 import {
   addShoppingItem,
   buildShoppingSuggestions,
@@ -22,7 +24,9 @@ import {
 /**
  * Listonic-style "add items" screen: search the household's previous items and
  * tap to toggle them on/off the list, or type a new item that doesn't exist yet
- * and add it. Stays open so several items can be added in one pass.
+ * and add it. A typed line may carry the amount ("2 l melk") — the name part
+ * drives the search and the amount lands on the item. Stays open so several
+ * items can be added in one pass.
  */
 export default function AddShoppingItemsScreen() {
   const t = useT();
@@ -37,12 +41,15 @@ export default function AddShoppingItemsScreen() {
   const [suggestions, setSuggestions] = useState(buildShoppingSuggestions);
   const [query, setQuery] = useState('');
 
-  const trimmed = query.trim();
-  const lowerQuery = trimmed.toLowerCase();
-  const filtered = lowerQuery
-    ? suggestions.filter((s) => s.name.toLowerCase().includes(lowerQuery))
+  const parsed = parseItemLine(query);
+  const name = parsed.name;
+  const lowerName = name.toLowerCase();
+  const hasAmount = parsed.quantity != null || parsed.unit != null;
+  const amount = formatQuantity(parsed.quantity, parsed.unit);
+  const filtered = lowerName
+    ? suggestions.filter((s) => s.name.toLowerCase().includes(lowerName))
     : suggestions;
-  const exactMatch = suggestions.some((s) => s.name.toLowerCase() === lowerQuery);
+  const exactMatch = suggestions.some((s) => s.name.toLowerCase() === lowerName);
 
   const onListIngredientIds = new Set(
     items.map((it) => it.ingredient_id).filter((id): id is string => !!id),
@@ -55,6 +62,19 @@ export default function AddShoppingItemsScreen() {
       ? onListIngredientIds.has(s.ingredient_id)
       : onListNames.has(s.name.toLowerCase());
 
+  /** Add a suggestion, with the typed amount if there is one, else its usual unit. */
+  function add(s: ShoppingSuggestion) {
+    if (!listId) return;
+    const base = hasAmount
+      ? { quantity: parsed.quantity, unit: parsed.unit ?? s.default_unit }
+      : { unit: s.default_unit };
+    if (s.ingredient_id) {
+      addShoppingItem(listId, { ingredient_id: s.ingredient_id, ...base });
+    } else {
+      addShoppingItem(listId, { name: s.name, ...base });
+    }
+  }
+
   function toggle(s: ShoppingSuggestion) {
     if (!listId) return;
     const existing = s.ingredient_id
@@ -65,27 +85,31 @@ export default function AddShoppingItemsScreen() {
 
     if (existing.length > 0) {
       existing.forEach((it) => removeShoppingItem(it.id));
-    } else if (s.ingredient_id) {
-      addShoppingItem(listId, { ingredient_id: s.ingredient_id, unit: s.default_unit });
     } else {
-      addShoppingItem(listId, { name: s.name, unit: s.default_unit });
+      add(s);
     }
+    // An amount only applies to the item it was typed for.
+    if (hasAmount) setQuery('');
   }
 
   // A typed item with no match becomes a real ingredient (so it's remembered as
-  // a future suggestion) and is added to the list.
+  // a future suggestion) and is added to the list with the typed amount.
   function addNew() {
-    if (!listId || !trimmed) return;
-    const id = createIngredient({ name: trimmed });
+    if (!listId || !name) return;
+    const id = createIngredient({ name, default_unit: parsed.unit });
     const ingredient = getIngredient(id);
-    addShoppingItem(listId, { ingredient_id: id, unit: ingredient?.default_unit ?? null });
+    addShoppingItem(listId, {
+      ingredient_id: id,
+      quantity: parsed.quantity,
+      unit: parsed.unit ?? ingredient?.default_unit ?? null,
+    });
     setSuggestions((current) =>
       current.some((s) => s.key === id)
         ? current
         : [
             {
               key: id,
-              name: ingredient?.name ?? trimmed,
+              name: ingredient?.name ?? name,
               ingredient_id: id,
               default_unit: ingredient?.default_unit ?? null,
               usage_count: 1,
@@ -99,10 +123,10 @@ export default function AddShoppingItemsScreen() {
   // Enter always commits the typed text: add the matching suggestion if there is
   // one (and it isn't already on the list), otherwise create it. Then reset.
   function submit() {
-    if (!trimmed) return;
-    const match = suggestions.find((s) => s.name.toLowerCase() === lowerQuery);
+    if (!name) return;
+    const match = suggestions.find((s) => s.name.toLowerCase() === lowerName);
     if (match) {
-      if (!isOnList(match)) toggle(match);
+      if (!isOnList(match)) add(match);
       setQuery('');
     } else {
       addNew();
@@ -145,9 +169,10 @@ export default function AddShoppingItemsScreen() {
         style={styles.list}
         contentContainerStyle={styles.listContent}
         ListHeaderComponent={
-          trimmed && !exactMatch ? (
+          name && !exactMatch ? (
             <Pressable
               onPress={addNew}
+              accessibilityRole="button"
               style={({ pressed }) => [
                 styles.row,
                 { borderBottomColor: theme.border },
@@ -160,13 +185,18 @@ export default function AddShoppingItemsScreen() {
                 </ThemedText>
               </View>
               <ThemedText style={styles.flex} numberOfLines={1}>
-                {t('shopping.addNamed', { name: trimmed })}
+                {t('shopping.addNamed', { name })}
               </ThemedText>
+              {amount ? (
+                <ThemedText type="small" themeColor="textSecondary">
+                  {amount}
+                </ThemedText>
+              ) : null}
             </Pressable>
           ) : null
         }
         ListEmptyComponent={
-          trimmed ? null : (
+          name ? null : (
             <ThemedText themeColor="textSecondary" style={styles.empty}>
               {t('shopping.suggestionsEmpty')}
             </ThemedText>
@@ -174,9 +204,13 @@ export default function AddShoppingItemsScreen() {
         }
         renderItem={({ item: s }) => {
           const onList = isOnList(s);
+          // The typed amount previews on rows it would apply to.
+          const rowAmount = !onList && hasAmount ? amount : s.default_unit;
           return (
             <Pressable
               onPress={() => toggle(s)}
+              accessibilityRole="button"
+              accessibilityState={{ selected: onList }}
               style={({ pressed }) => [
                 styles.row,
                 { borderBottomColor: theme.border },
@@ -199,9 +233,9 @@ export default function AddShoppingItemsScreen() {
               <ThemedText style={[styles.flex, onList ? { color: theme.tint } : null]} numberOfLines={1}>
                 {s.name}
               </ThemedText>
-              {s.default_unit ? (
+              {rowAmount ? (
                 <ThemedText type="small" themeColor="textSecondary">
-                  {s.default_unit}
+                  {rowAmount}
                 </ThemedText>
               ) : null}
             </Pressable>

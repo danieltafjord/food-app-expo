@@ -37,15 +37,32 @@ const NO_ENTRIES: PlanEntryWithDinner[] = [];
  */
 const planEntriesCache = new Map<string, { key: string; value: PlanEntryWithDinner[] }>();
 
+/** Ingredient rows per dinner, for the "no ingredients" hint on plan cards. */
+function countItemsByDinner(): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const it of Object.values(store$.dinnerItems.get())) {
+    counts.set(it.dinner_id, (counts.get(it.dinner_id) ?? 0) + 1);
+  }
+  return counts;
+}
+
 const planEntriesFor = derivedById((planId): PlanEntryWithDinner[] => {
   const dinners = store$.dinners.get();
+  const counts = countItemsByDinner();
   const entries = Object.values(store$.planEntries.get())
     .filter((e) => e.dinner_plan_id === planId)
-    .map((e) => ({ ...e, dinner_name: dinners[e.dinner_id]?.name ?? null }))
+    .map((e) => ({
+      ...e,
+      dinner_name: dinners[e.dinner_id]?.name ?? null,
+      ingredient_count: counts.get(e.dinner_id) ?? 0,
+    }))
     .sort((a, b) => compareIso(a.created_at, b.created_at));
 
   const key = entries
-    .map((e) => `${e.id}|${e.scheduled_date}|${e.servings}|${e.meal_type}|${e.dinner_id}|${e.dinner_name}|${e.notes ?? ''}`)
+    .map(
+      (e) =>
+        `${e.id}|${e.scheduled_date}|${e.servings}|${e.meal_type}|${e.dinner_id}|${e.dinner_name}|${e.ingredient_count}|${e.notes ?? ''}`,
+    )
     .join(';');
   const cached = planEntriesCache.get(planId);
   if (cached && cached.key === key) return cached.value;
@@ -64,7 +81,11 @@ export function usePlanEntry(entryId: string | undefined): PlanEntryWithDinner |
     if (!entryId) return undefined;
     const entry = store$.planEntries.get()[entryId];
     if (!entry) return undefined;
-    return { ...entry, dinner_name: store$.dinners.get()[entry.dinner_id]?.name ?? null };
+    return {
+      ...entry,
+      dinner_name: store$.dinners.get()[entry.dinner_id]?.name ?? null,
+      ingredient_count: countItemsByDinner().get(entry.dinner_id) ?? 0,
+    };
   });
 }
 

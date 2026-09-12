@@ -113,7 +113,7 @@ function RootNavigator() {
       {/* Bottom sheets are native form sheets: the system owns the surface,
           dimming, grabber, swipe-to-dismiss and keyboard avoidance, and they
           present above the native tab bar (a JS Modal renders beneath it). */}
-      <Stack.Screen name="sheets/new-list" options={formSheet} />
+      <Stack.Screen name="sheets/rename-list" options={formSheet} />
       <Stack.Screen name="sheets/entry-editor" options={formSheet} />
       <Stack.Screen name="sheets/shopping-item" options={formSheet} />
       <Stack.Screen name="sheets/dinner-picker" options={listSheet} />

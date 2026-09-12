@@ -1,25 +1,30 @@
-import { router, useLocalSearchParams, useNavigation } from 'expo-router';
+import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { Alert, Pressable, StyleSheet, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, TextInput, View } from 'react-native';
 
 import { Button } from '@/components/button';
 import { Card } from '@/components/card';
+import { HeaderMenu, MenuAction } from '@/components/header-menu';
 import { Screen } from '@/components/screen';
+import { Stepper } from '@/components/stepper';
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
+import { UnitChips } from '@/components/unit-chips';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { parseQuantity } from '@/lib/format';
 import { useT } from '@/lib/i18n';
-import { openIngredientPicker } from '@/lib/sheets';
+import { amountText, parseAmount } from '@/lib/parse-line';
+import { openIngredientPicker, type IngredientPick } from '@/lib/sheets';
 import {
   deleteDinner,
   getIngredient,
   updateDinner,
   useDinner,
   type DinnerWithItems,
-  type LocalIngredient,
 } from '@/lib/store';
+
+/** How long after the last edit the draft is written to the store. */
+const SAVE_DELAY_MS = 400;
 
 export default function DinnerEditorScreen() {
   const t = useT();
@@ -45,58 +50,69 @@ export default function DinnerEditorScreen() {
 type EditorItem = {
   ingredient_id: string;
   ingredient_name: string;
-  quantity: string;
-  unit: string;
+  /** Quantity + unit as typed: "500 g", "2", "dl". Parsed when saved. */
+  amount: string;
 };
 
-/** Snapshot of the editable fields, for a cheap "has anything changed" check. */
-function draftKey(name: string, servings: string, notes: string, items: EditorItem[]): string {
+/** Snapshot of the editable fields, so saves only happen when something changed. */
+function draftKey(name: string, servings: number, notes: string, items: EditorItem[]): string {
   return JSON.stringify([name, servings, notes, items]);
 }
 
+/**
+ * Saves as you go, like the rest of the app: edits land in the store a moment
+ * after you stop typing, and whatever is still pending is written when the
+ * screen closes. So there is no Save button and nothing to discard.
+ */
 function DinnerEditorForm({ dinner }: { dinner: DinnerWithItems }) {
   const t = useT();
   const theme = useTheme();
-  const navigation = useNavigation();
   const [name, setName] = useState(dinner.name);
-  const [servings, setServings] = useState(String(dinner.default_servings));
+  const [servings, setServings] = useState(dinner.default_servings);
   const [notes, setNotes] = useState(dinner.notes ?? '');
   const [items, setItems] = useState<EditorItem[]>(() =>
     dinner.items.map((item) => ({
       ingredient_id: item.ingredient_id,
       ingredient_name: getIngredient(item.ingredient_id)?.name ?? t('common.ingredientFallback'),
-      quantity: item.quantity != null ? String(item.quantity) : '',
-      unit: item.unit ?? '',
+      amount: amountText(item.quantity, item.unit),
     })),
   );
-  // What the form looked like when it opened; compared against the live draft
-  // to decide whether leaving would lose anything.
-  const [initialKey] = useState(() => draftKey(name, servings, notes, items));
-  const dirty = draftKey(name, servings, notes, items) !== initialKey;
-  // Set by Save / Delete right before they navigate back, so the guard below
-  // lets a deliberate exit through without asking.
-  const leaving = useRef(false);
+  // Which amount field was last focused — the unit chips apply to that row.
+  const [focusedItem, setFocusedItem] = useState<string | null>(null);
 
-  // Edits live only in this form until "Save"; the header back button and the
-  // swipe-back gesture would otherwise throw them away silently. Intercept the
-  // removal and ask first.
+  const key = draftKey(name, servings, notes, items);
+  // The last draft written to the store; seeded with the opening state so
+  // mounting never writes.
+  const savedKey = useRef(key);
+  // The save that is waiting for the debounce, so closing the screen can flush it.
+  const pending = useRef<(() => void) | null>(null);
+
   useEffect(() => {
-    if (!dirty) return;
-    return navigation.addListener('beforeRemove', (event) => {
-      if (leaving.current) return;
-      event.preventDefault();
-      Alert.alert(t('dinners.discardTitle'), t('dinners.discardMessage'), [
-        { text: t('dinners.keepEditing'), style: 'cancel' },
-        {
-          text: t('dinners.discard'),
-          style: 'destructive',
-          onPress: () => navigation.dispatch(event.data.action),
-        },
-      ]);
-    });
-  }, [navigation, dirty, t]);
+    if (key === savedKey.current) return;
+    const save = () => {
+      savedKey.current = key;
+      pending.current = null;
+      updateDinner(dinner.id, {
+        // An emptied name keeps the last one rather than saving a blank.
+        name: name.trim() || dinner.name,
+        default_servings: servings,
+        notes: notes.trim() || null,
+        items: items.map((item) => {
+          const { quantity, unit } = parseAmount(item.amount);
+          return { ingredient_id: item.ingredient_id, quantity, unit };
+        }),
+      });
+    };
+    pending.current = save;
+    const timer = setTimeout(save, SAVE_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [key, dinner.id, dinner.name, name, servings, notes, items]);
 
-  function addIngredient(ingredient: LocalIngredient) {
+  // Flush on unmount (back, swipe back, or a delete — `updateDinner` is a
+  // no-op once the row is gone).
+  useEffect(() => () => pending.current?.(), []);
+
+  function addIngredient({ ingredient, quantity, unit }: IngredientPick) {
     setItems((current) => {
       if (current.some((item) => item.ingredient_id === ingredient.id)) {
         return current;
@@ -106,38 +122,32 @@ function DinnerEditorForm({ dinner }: { dinner: DinnerWithItems }) {
         {
           ingredient_id: ingredient.id,
           ingredient_name: ingredient.name,
-          quantity: '',
-          unit: ingredient.default_unit ?? '',
+          amount: amountText(quantity, unit),
         },
       ];
     });
   }
 
-  function updateItem(index: number, patch: Partial<EditorItem>) {
-    setItems((current) => current.map((item, i) => (i === index ? { ...item, ...patch } : item)));
+  function updateAmount(ingredientId: string, amount: string) {
+    setItems((current) =>
+      current.map((item) => (item.ingredient_id === ingredientId ? { ...item, amount } : item)),
+    );
   }
 
-  function removeItem(index: number) {
-    setItems((current) => current.filter((_, i) => i !== index));
+  function pickUnit(unit: string) {
+    if (!focusedItem) return;
+    setItems((current) =>
+      current.map((item) => {
+        if (item.ingredient_id !== focusedItem) return item;
+        const { quantity, unit: currentUnit } = parseAmount(item.amount);
+        return { ...item, amount: amountText(quantity, currentUnit === unit ? null : unit) };
+      }),
+    );
   }
 
-  function onSave() {
-    const trimmed = name.trim();
-    if (!trimmed) {
-      return;
-    }
-    updateDinner(dinner.id, {
-      name: trimmed,
-      default_servings: Math.max(1, parseInt(servings, 10) || 1),
-      notes: notes.trim() || null,
-      items: items.map((item) => ({
-        ingredient_id: item.ingredient_id,
-        quantity: parseQuantity(item.quantity),
-        unit: item.unit.trim() || null,
-      })),
-    });
-    leaving.current = true;
-    router.back();
+  function removeItem(ingredientId: string) {
+    setItems((current) => current.filter((item) => item.ingredient_id !== ingredientId));
+    if (focusedItem === ingredientId) setFocusedItem(null);
   }
 
   function onDelete() {
@@ -147,68 +157,81 @@ function DinnerEditorForm({ dinner }: { dinner: DinnerWithItems }) {
         text: t('common.delete'),
         style: 'destructive',
         onPress: () => {
+          // Nothing pending should be written after the row is gone.
+          pending.current = null;
           deleteDinner(dinner.id);
-          leaving.current = true;
           router.back();
         },
       },
     ]);
   }
 
-  return (
-    <Screen topInset={false} refreshable={false}>
-      <TextField
-        label={t('dinners.name')}
-        value={name}
-        onChangeText={setName}
-        autoCapitalize="sentences"
-      />
-      <TextField
-        label={t('dinners.defaultServings')}
-        value={servings}
-        onChangeText={setServings}
-        keyboardType="number-pad"
-        inputMode="numeric"
-      />
+  const focused = items.find((item) => item.ingredient_id === focusedItem);
+  const focusedUnit = focused ? parseAmount(focused.amount).unit : null;
 
-      <View style={styles.section}>
-        <ThemedText type="smallBold">{t('dinners.ingredients')}</ThemedText>
-        <Card>
-          {items.length === 0 ? (
-            <ThemedText type="small" themeColor="textSecondary">
-              {t('dinners.noIngredients')}
-            </ThemedText>
-          ) : (
-            items.map((item, index) => (
-              <View
-                key={item.ingredient_id}
-                style={[
-                  styles.item,
-                  index > 0 && { ...styles.divider, borderTopColor: theme.border },
-                ]}>
-                <ThemedText numberOfLines={1}>{item.ingredient_name}</ThemedText>
-                <View style={styles.itemControls}>
-                  <View style={styles.qty}>
-                    <TextField
-                      label={t('dinners.qty')}
-                      value={item.quantity}
-                      onChangeText={(value) => updateItem(index, { quantity: value })}
-                      keyboardType="decimal-pad"
-                      inputMode="decimal"
-                      placeholder="0"
-                    />
-                  </View>
-                  <View style={styles.unit}>
-                    <TextField
-                      label={t('dinners.unit')}
-                      value={item.unit}
-                      onChangeText={(value) => updateItem(index, { unit: value })}
-                      autoCapitalize="none"
-                      placeholder="g"
-                    />
-                  </View>
+  return (
+    <>
+      <Stack.Screen options={{ title: name.trim() || dinner.name }} />
+      <HeaderMenu>
+        <MenuAction icon="trash" destructive onPress={onDelete}>
+          {t('dinners.deleteDinner')}
+        </MenuAction>
+      </HeaderMenu>
+
+      <Screen topInset={false} refreshable={false}>
+        <TextField
+          label={t('dinners.name')}
+          value={name}
+          onChangeText={setName}
+          autoCapitalize="sentences"
+        />
+
+        <View style={styles.section}>
+          <ThemedText type="smallBold">{t('dinners.defaultServings')}</ThemedText>
+          <Stepper
+            value={servings}
+            onChange={setServings}
+            min={1}
+            max={99}
+            unit={t('common.servings')}
+            accessibilityLabel={t('dinners.defaultServings')}
+          />
+        </View>
+
+        <View style={styles.section}>
+          <ThemedText type="smallBold">{t('dinners.ingredients')}</ThemedText>
+          <Card style={styles.itemsCard}>
+            {items.length === 0 ? (
+              <ThemedText type="small" themeColor="textSecondary">
+                {t('dinners.noIngredients')}
+              </ThemedText>
+            ) : (
+              items.map((item, index) => (
+                <View
+                  key={item.ingredient_id}
+                  style={[
+                    styles.item,
+                    index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border },
+                  ]}>
+                  <ThemedText style={styles.itemName} numberOfLines={1}>
+                    {item.ingredient_name}
+                  </ThemedText>
+                  <TextInput
+                    value={item.amount}
+                    onChangeText={(value) => updateAmount(item.ingredient_id, value)}
+                    onFocus={() => setFocusedItem(item.ingredient_id)}
+                    placeholder={t('dinners.amountPlaceholder')}
+                    placeholderTextColor={theme.textSecondary}
+                    accessibilityLabel={`${t('dinners.amount')} ${item.ingredient_name}`}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    style={[
+                      styles.amount,
+                      { backgroundColor: theme.backgroundSelected, color: theme.text },
+                    ]}
+                  />
                   <Pressable
-                    onPress={() => removeItem(index)}
+                    onPress={() => removeItem(item.ingredient_id)}
                     accessibilityRole="button"
                     accessibilityLabel={t('a11y.removeIngredient')}
                     hitSlop={10}
@@ -216,29 +239,27 @@ function DinnerEditorForm({ dinner }: { dinner: DinnerWithItems }) {
                     <ThemedText themeColor="textSecondary">✕</ThemedText>
                   </Pressable>
                 </View>
-              </View>
-            ))
-          )}
-        </Card>
-        <Button
-          title={t('dinners.addIngredient')}
-          variant="secondary"
-          size="small"
-          onPress={() => openIngredientPicker(addIngredient)}
+              ))
+            )}
+          </Card>
+          {focused ? <UnitChips value={focusedUnit} onPick={pickUnit} /> : null}
+          <Button
+            title={t('dinners.addIngredient')}
+            variant="secondary"
+            size="small"
+            onPress={() => openIngredientPicker(addIngredient)}
+          />
+        </View>
+
+        <TextField
+          label={t('dinners.notes')}
+          value={notes}
+          onChangeText={setNotes}
+          placeholder={t('dinners.notesPlaceholder')}
+          multiline
         />
-      </View>
-
-      <TextField
-        label={t('dinners.notes')}
-        value={notes}
-        onChangeText={setNotes}
-        placeholder={t('dinners.notesPlaceholder')}
-        multiline
-      />
-
-      <Button title={t('dinners.saveDinner')} onPress={onSave} disabled={!name.trim()} />
-      <Button title={t('dinners.deleteDinner')} variant="secondary" onPress={onDelete} />
-    </Screen>
+      </Screen>
+    </>
   );
 }
 
@@ -246,27 +267,28 @@ const styles = StyleSheet.create({
   section: {
     gap: Spacing.two,
   },
+  itemsCard: {
+    gap: 0,
+    paddingVertical: Spacing.one,
+  },
   item: {
-    gap: Spacing.two,
-  },
-  divider: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    paddingTop: Spacing.three,
-    marginTop: Spacing.one,
-  },
-  itemControls: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
+    alignItems: 'center',
     gap: Spacing.two,
+    paddingVertical: Spacing.two,
   },
-  qty: {
-    width: 80,
+  itemName: {
+    flex: 1,
   },
-  unit: {
-    width: 80,
+  amount: {
+    width: 104,
+    minHeight: 40,
+    borderRadius: Spacing.two,
+    paddingHorizontal: Spacing.two,
+    fontSize: 16,
+    textAlign: 'right',
   },
   removeItem: {
-    paddingBottom: Spacing.two,
     paddingHorizontal: Spacing.one,
   },
 });

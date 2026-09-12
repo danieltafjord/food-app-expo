@@ -17,13 +17,11 @@ import type { HouseholdRole } from '@/lib/api/types';
 import { useSession } from '@/lib/auth/session';
 import { LOCALE_LABELS, LOCALES, useT, type Locale } from '@/lib/i18n';
 import {
-  LOCAL_HOUSEHOLD_NAME,
   setHouseholdDefaultServings,
   setLocale,
   setThemePreference,
   useHouseholdDefaultServings,
   useLocale,
-  useLocalHousehold,
   useThemePreference,
   type ThemePreference,
 } from '@/lib/store';
@@ -35,7 +33,6 @@ function roleTone(role: HouseholdRole) {
 export default function AccountScreen() {
   const t = useT();
   const { user, signOut, isAuthenticated } = useSession();
-  const localHousehold = useLocalHousehold();
   const { household, role, isOwner } = useActiveHousehold();
 
   const themePreference = useThemePreference();
@@ -126,22 +123,6 @@ export default function AccountScreen() {
         </ThemedText>
       </View>
 
-      <Card>
-        <ThemedText type="smallBold">{t('account.thisDevice')}</ThemedText>
-        <View style={styles.rowBetween}>
-          <ThemedText type="subtitle" style={styles.flex}>
-            {localHousehold && localHousehold.name !== LOCAL_HOUSEHOLD_NAME
-              ? localHousehold.name
-              : t('household.localDefaultName')}
-          </ThemedText>
-          <Badge label={t('account.onThisDevice')} tone="neutral" />
-        </View>
-        <ThemedText type="small" themeColor="textSecondary">
-          {t('account.deviceDescription')}
-        </ThemedText>
-        <SyncIndicator />
-      </Card>
-
       {isAuthenticated ? (
         <>
           <View style={styles.section}>
@@ -206,6 +187,7 @@ export default function AccountScreen() {
                   {user?.email ?? '—'}
                 </ThemedText>
               </View>
+              <SyncIndicator />
             </Card>
             <Button
               title={t('account.signOut')}
@@ -216,16 +198,15 @@ export default function AccountScreen() {
           </View>
         </>
       ) : (
-        <Card>
-          <ThemedText type="smallBold">{t('account.cloudAccount')}</ThemedText>
-          <ThemedText type="small" themeColor="textSecondary">
-            {t('account.cloudDescription')}
-          </ThemedText>
-          <Button title={t('account.connect')} onPress={() => router.push('/sign-in')} />
-          <ThemedText type="small" themeColor="textSecondary">
-            {t('account.cloudSoon')}
-          </ThemedText>
-        </Card>
+        <View style={styles.section}>
+          <ThemedText type="smallBold">{t('account.dataTitle')}</ThemedText>
+          <Card>
+            <ThemedText type="small" themeColor="textSecondary">
+              {t('account.dataLocal')}
+            </ThemedText>
+            <Button title={t('account.connect')} onPress={() => router.push('/sign-in')} />
+          </Card>
+        </View>
       )}
     </Screen>
   );

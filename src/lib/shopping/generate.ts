@@ -13,6 +13,7 @@
  *   - summed quantities are rounded to 2 decimals
  */
 import { batch } from '@legendapp/state';
+import { useValue } from '@legendapp/state/react';
 
 import { translate } from '@/lib/i18n';
 import { store$ } from '@/lib/store/collections';
@@ -72,6 +73,23 @@ export function aggregatePlanItems(planId: string): AggregatedItem[] {
   }));
 }
 
+/**
+ * Names of the plan's dinners that have no ingredients at all — they contribute
+ * nothing to a generated list, which is worth telling the user before creating one.
+ */
+export function dinnersWithoutIngredients(planId: string): string[] {
+  const withItems = new Set<string>();
+  for (const it of Object.values(store$.dinnerItems.get())) withItems.add(it.dinner_id);
+  const dinners = store$.dinners.get();
+  const names = new Set<string>();
+  for (const entry of Object.values(store$.planEntries.get())) {
+    if (entry.dinner_plan_id !== planId || withItems.has(entry.dinner_id)) continue;
+    const name = dinners[entry.dinner_id]?.name;
+    if (name) names.add(name);
+  }
+  return [...names];
+}
+
 /** Aggregated items with ingredient names resolved, for the generate preview. */
 export function previewPlanItems(planId: string): AggregatedItemPreview[] {
   const ingredients = store$.ingredients.get();
@@ -119,9 +137,15 @@ export function createShoppingListFromPlan(planId: string): string {
 
 export type UpdateFromPlanResult = { added: number; updated: number };
 
+const NO_CHANGES: UpdateFromPlanResult = { added: 0, updated: 0 };
+
+type PlanDiff = UpdateFromPlanResult & {
+  adds: AggregatedItem[];
+  quantityUpdates: { itemId: string; quantity: number | null }[];
+};
+
 /**
- * Bring an existing list in line with a plan's current dinners, instead of
- * generating a second list for the same week.
+ * What {@link updateShoppingListFromPlan} would change, without changing it.
  *
  * Matching is by `ingredient_id | unit`, the same key the aggregation uses.
  * For each aggregated row:
@@ -132,9 +156,7 @@ export type UpdateFromPlanResult = { added: number; updated: number };
  * Items on the list that the plan no longer produces are kept — there is no
  * way to tell a stale generated row from something the user added by hand.
  */
-export function updateShoppingListFromPlan(listId: string, planId: string): UpdateFromPlanResult {
-  const result: UpdateFromPlanResult = { added: 0, updated: 0 };
-  const ts = nowIso();
+function diffPlan(listId: string, planId: string): PlanDiff {
   const existing = new Map<string, LocalShoppingListItem>();
   for (const it of Object.values(store$.shoppingListItems.get())) {
     if (it.shopping_list_id !== listId || !it.ingredient_id) continue;
@@ -142,22 +164,58 @@ export function updateShoppingListFromPlan(listId: string, planId: string): Upda
     const key = `${it.ingredient_id}|${normalizeUnit(it.unit) ?? ''}`;
     if (!existing.has(key)) existing.set(key, it);
   }
-
-  batch(() => {
-    for (const row of aggregatePlanItems(planId)) {
-      const match = existing.get(`${row.ingredient_id}|${row.unit ?? ''}`);
-      if (!match) {
-        addAggregatedRow(listId, row, ts);
-        result.added += 1;
-        continue;
-      }
-      if (match.is_checked || match.quantity === row.quantity) continue;
-      store$.shoppingListItems[match.id].assign({ quantity: row.quantity, updated_at: ts });
-      result.updated += 1;
+  const diff: PlanDiff = { added: 0, updated: 0, adds: [], quantityUpdates: [] };
+  for (const row of aggregatePlanItems(planId)) {
+    const match = existing.get(`${row.ingredient_id}|${row.unit ?? ''}`);
+    if (!match) {
+      diff.adds.push(row);
+      diff.added += 1;
+      continue;
     }
-    if (result.added > 0 || result.updated > 0) {
+    if (match.is_checked || match.quantity === row.quantity) continue;
+    diff.quantityUpdates.push({ itemId: match.id, quantity: row.quantity });
+    diff.updated += 1;
+  }
+  return diff;
+}
+
+/** Counts of what updating `listId` from `planId` would add/change (no writes). */
+export function diffShoppingListFromPlan(listId: string, planId: string): UpdateFromPlanResult {
+  const { added, updated } = diffPlan(listId, planId);
+  return { added, updated };
+}
+
+/**
+ * Reactive: how far the list generated from `planId` has drifted from the
+ * plan. `{0, 0}` (a shared constant, so it never re-renders on its own) when
+ * they agree or when the list wasn't generated from a plan.
+ */
+export function usePlanListDrift(
+  listId: string,
+  planId: string | null | undefined,
+): UpdateFromPlanResult {
+  return useValue(() => {
+    if (!planId) return NO_CHANGES;
+    const { added, updated } = diffPlan(listId, planId);
+    return added === 0 && updated === 0 ? NO_CHANGES : { added, updated };
+  });
+}
+
+/**
+ * Bring an existing list in line with a plan's current dinners, instead of
+ * generating a second list for the same week. See {@link diffPlan} for the rules.
+ */
+export function updateShoppingListFromPlan(listId: string, planId: string): UpdateFromPlanResult {
+  const diff = diffPlan(listId, planId);
+  const ts = nowIso();
+  batch(() => {
+    for (const row of diff.adds) addAggregatedRow(listId, row, ts);
+    for (const { itemId, quantity } of diff.quantityUpdates) {
+      store$.shoppingListItems[itemId].assign({ quantity, updated_at: ts });
+    }
+    if (diff.added > 0 || diff.updated > 0) {
       store$.shoppingLists[listId].updated_at.set(ts);
     }
   });
-  return result;
+  return { added: diff.added, updated: diff.updated };
 }

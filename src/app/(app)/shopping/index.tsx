@@ -1,5 +1,4 @@
-import { router, useNavigation } from 'expo-router';
-import { useEffect } from 'react';
+import { router } from 'expo-router';
 import { Alert, Pressable, StyleSheet, View } from 'react-native';
 
 import { Fab } from '@/components/fab';
@@ -8,36 +7,22 @@ import { SwipeToDelete } from '@/components/swipe-to-delete';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { formatDay } from '@/lib/format';
 import { useT } from '@/lib/i18n';
-import { deleteShoppingList, useShoppingLists } from '@/lib/store';
+import { createShoppingList, deleteShoppingList, useShoppingLists } from '@/lib/store';
+import { toDateKey } from '@/lib/week';
 
 export default function ShoppingListsScreen() {
   const t = useT();
   const theme = useTheme();
-  const navigation = useNavigation();
   const lists = useShoppingLists();
 
-  // A compact "Generate" action lives in the header, out of the list's way.
-  useEffect(() => {
-    navigation.setOptions({
-      headerRight: () => (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={t('shopping.generateShort')}
-          hitSlop={8}
-          onPress={() => router.push('/shopping/generate')}
-          style={({ pressed }) => [styles.headerAction, pressed && styles.pressed]}>
-          <ThemedText type="smallBold" style={{ color: theme.tint }}>
-            {t('shopping.generateShort')}
-          </ThemedText>
-        </Pressable>
-      ),
-    });
-  }, [navigation, t, theme]);
-
-  // Naming a new list happens in a native sheet (root route) that opens the list.
+  // No naming step: a new list gets today's date as its name and opens at
+  // once. It can be renamed from the list's menu.
   function openCreate() {
-    router.push('/sheets/new-list');
+    const name = `${t('shopping.defaultListName')} ${formatDay(toDateKey(new Date()))}`;
+    const id = createShoppingList(name);
+    router.push({ pathname: '/shopping/[id]', params: { id } });
   }
 
   function confirmDelete(id: string) {
@@ -48,68 +33,61 @@ export default function ShoppingListsScreen() {
   }
 
   return (
-    <>
-      <Screen
-        topInset={false}
-        overlay={<Fab accessibilityLabel={t('shopping.newList')} onPress={openCreate} />}>
-        {lists.length > 0 ? (
-          <View style={[styles.listCard, { backgroundColor: theme.backgroundElement }]}>
-            {lists.map((list, index) => {
-              const complete = list.item_count > 0 && list.checked_count === list.item_count;
-              return (
-                <SwipeToDelete
-                  key={list.id}
-                  label={t('common.delete')}
-                  onDelete={() => confirmDelete(list.id)}>
-                  <Pressable
-                    onPress={() => router.push({ pathname: '/shopping/[id]', params: { id: list.id } })}
-                    style={({ pressed }) => [
-                      styles.row,
-                      { backgroundColor: theme.backgroundElement },
-                      index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border },
-                      pressed && styles.pressed,
-                    ]}>
-                    <View style={styles.flex}>
-                      <ThemedText numberOfLines={1}>{list.name}</ThemedText>
-                      <ThemedText
-                        type="small"
-                        style={complete ? { color: theme.tint } : undefined}
-                        themeColor={complete ? undefined : 'textSecondary'}>
-                        {list.item_count === 0
-                          ? t('shopping.emptyLabel')
-                          : complete
-                            ? t('shopping.allChecked')
-                            : t('shopping.checkedCount', {
-                                checked: list.checked_count,
-                                total: list.item_count,
-                              })}
-                      </ThemedText>
-                    </View>
-                    <ThemedText type="small" themeColor="textSecondary">
-                      ›
+    <Screen
+      topInset={false}
+      overlay={<Fab accessibilityLabel={t('shopping.newList')} onPress={openCreate} />}>
+      {lists.length > 0 ? (
+        <View style={[styles.listCard, { backgroundColor: theme.backgroundElement }]}>
+          {lists.map((list, index) => {
+            const complete = list.item_count > 0 && list.checked_count === list.item_count;
+            return (
+              <SwipeToDelete
+                key={list.id}
+                label={t('common.delete')}
+                onDelete={() => confirmDelete(list.id)}>
+                <Pressable
+                  onPress={() => router.push({ pathname: '/shopping/[id]', params: { id: list.id } })}
+                  style={({ pressed }) => [
+                    styles.row,
+                    { backgroundColor: theme.backgroundElement },
+                    index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border },
+                    pressed && styles.pressed,
+                  ]}>
+                  <View style={styles.flex}>
+                    <ThemedText numberOfLines={1}>{list.name}</ThemedText>
+                    <ThemedText
+                      type="small"
+                      style={complete ? { color: theme.tint } : undefined}
+                      themeColor={complete ? undefined : 'textSecondary'}>
+                      {list.item_count === 0
+                        ? t('shopping.emptyLabel')
+                        : complete
+                          ? t('shopping.allChecked')
+                          : t('shopping.checkedCount', {
+                              checked: list.checked_count,
+                              total: list.item_count,
+                            })}
                     </ThemedText>
-                  </Pressable>
-                </SwipeToDelete>
-              );
-            })}
-          </View>
-        ) : (
-          <View style={styles.empty}>
-            <ThemedText type="subtitle">{t('shopping.emptyTitle')}</ThemedText>
-            <ThemedText themeColor="textSecondary">{t('shopping.empty')}</ThemedText>
-          </View>
-        )}
-      </Screen>
-
-    </>
+                  </View>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    ›
+                  </ThemedText>
+                </Pressable>
+              </SwipeToDelete>
+            );
+          })}
+        </View>
+      ) : (
+        <View style={styles.empty}>
+          <ThemedText type="subtitle">{t('shopping.emptyTitle')}</ThemedText>
+          <ThemedText themeColor="textSecondary">{t('shopping.empty')}</ThemedText>
+        </View>
+      )}
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  headerAction: {
-    paddingHorizontal: Spacing.two,
-    paddingVertical: Spacing.one,
-  },
   listCard: {
     borderRadius: Spacing.three,
     overflow: 'hidden',
