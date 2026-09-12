@@ -8,7 +8,7 @@
       "developmentClient": true,
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_API_URL": "http://localhost:8000",
+        "EXPO_PUBLIC_API_URL": "http://food-app.test",
         "EXPO_PUBLIC_OAUTH_CLIENT_ID": "REPLACE_WITH_DEV_PASSPORT_CLIENT_ID"
       }
     },

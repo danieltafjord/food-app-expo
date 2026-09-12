@@ -442,7 +442,7 @@ function DraggableDinnerCard({
         </ThemedText>
         <View style={styles.servings}>
           <SymbolView
-            name="person.fill"
+            name={{ ios: 'person.fill', android: 'person', web: 'person' }}
             size={12}
             tintColor={theme.textSecondary}
             type="monochrome"

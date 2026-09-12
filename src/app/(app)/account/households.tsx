@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Alert, StyleSheet, View } from 'react-native';
 
 import { Badge } from '@/components/badge';
 import { Button } from '@/components/button';
@@ -12,6 +12,7 @@ import { useMembers } from '@/lib/api/members';
 import type { HouseholdRole } from '@/lib/api/types';
 import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/lib/i18n';
+import { SyncPendingError } from '@/lib/sync/engine';
 
 function roleTone(role: HouseholdRole) {
   return role === 'owner' ? 'brand' : 'neutral';
@@ -123,7 +124,18 @@ export default function HouseholdsScreen() {
                   size="small"
                   variant="secondary"
                   loading={switchHousehold.isPending && switchHousehold.variables === item.id}
-                  onPress={() => switchHousehold.mutate(item.id)}
+                  onPress={() =>
+                    switchHousehold.mutate(item.id, {
+                      onError: (error) => {
+                        Alert.alert(
+                          t('household.switchTitle'),
+                          error instanceof SyncPendingError
+                            ? t('household.switchBlockedPending')
+                            : error.message,
+                        );
+                      },
+                    })
+                  }
                 />
               </View>
             ))}

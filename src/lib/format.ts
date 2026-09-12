@@ -1,16 +1,37 @@
 import { translate } from '@/lib/i18n';
 import { getLocale } from '@/lib/store/settings';
+import { fromDateKey } from '@/lib/week';
 
-/** Format an ISO-8601 string as a short date in the app's language. Falls back to the raw value. */
+const DATE_KEY = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Format an ISO-8601 datetime or a `YYYY-MM-DD` date key as a short date in the
+ * app's language. A bare date key is a *local* calendar day (it has no time or
+ * zone), so it is parsed with `fromDateKey` — `new Date('2026-06-01')` would
+ * treat it as UTC midnight and show the previous day west of Greenwich. Falls
+ * back to the raw value when it can't be parsed.
+ */
 export function formatDate(iso: string | null | undefined): string {
   if (!iso) {
     return '';
   }
-  const date = new Date(iso);
+  const date = DATE_KEY.test(iso) ? fromDateKey(iso) : new Date(iso);
   if (Number.isNaN(date.getTime())) {
     return iso;
   }
   return date.toLocaleDateString(getLocale(), { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+/** Like `formatDate` but without the year — for dates near today ("12. sep."). */
+export function formatDay(iso: string | null | undefined): string {
+  if (!iso) {
+    return '';
+  }
+  const date = DATE_KEY.test(iso) ? fromDateKey(iso) : new Date(iso);
+  if (Number.isNaN(date.getTime())) {
+    return iso;
+  }
+  return date.toLocaleDateString(getLocale(), { month: 'short', day: 'numeric' });
 }
 
 /** Render a plan's date range, tolerating missing ends. */
@@ -25,6 +46,20 @@ export function formatDateRange(start: string | null, end: string | null): strin
 
 export function capitalize(value: string): string {
   return value.length ? value[0].toUpperCase() + value.slice(1) : value;
+}
+
+/**
+ * Parse a user-typed quantity. Accepts a comma or a dot as the decimal separator
+ * (the nb-NO decimal keypad offers a comma, and `Number('1,5')` is `NaN`).
+ * Returns `null` for empty, non-numeric, or negative input.
+ */
+export function parseQuantity(text: string): number | null {
+  const normalized = text.trim().replace(',', '.');
+  if (!normalized) {
+    return null;
+  }
+  const value = Number(normalized);
+  return Number.isFinite(value) && value >= 0 ? value : null;
 }
 
 /** "2 kg", "200 g", "1,5 l" (nb) / "1.5 l" (en), or "" when both are missing. */

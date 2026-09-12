@@ -4,7 +4,12 @@ import { store$ } from './collections';
 import { newId, nowIso } from './ids';
 import type { LocalHousehold } from './schema';
 
-/** Default name for the implicit on-device household. */
+/**
+ * Sentinel name stored on the implicit on-device household. It is a stable
+ * identifier, not display text: screens show `t('household.localDefaultName')`
+ * while the stored name equals this constant, and the user's own name once they
+ * rename it.
+ */
 export const LOCAL_HOUSEHOLD_NAME = 'My Kitchen';
 
 /**

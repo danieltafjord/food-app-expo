@@ -42,9 +42,9 @@ describe('migrate — v0 → v1 (backfill timestamps)', () => {
     expect(() => migrate({ dinners: { bad: null } }, 0)).not.toThrow();
   });
 
-  it('does not touch the meta blob', () => {
-    const out = migrate({ meta: { lastSync: 'x' }, dinners: {} }, 0) as Record<string, any>;
-    expect(out.meta).toEqual({ lastSync: 'x' });
+  it('replaces the timestamp cursor with the integer cursor and household binding', () => {
+    const out = migrate({ meta: { lastSync: 'x', accountId: 3 }, dinners: {} }, 0) as Record<string, any>;
+    expect(out.meta).toEqual({ accountId: 3, cursor: null, serverHouseholdId: null });
   });
 });
 

@@ -4,7 +4,7 @@ import type { Household, HouseholdMembership, HouseholdRole } from '@/lib/api/ty
 import { queryKeys } from '@/lib/api/keys';
 import { useSession } from '@/lib/auth/session';
 import { applyServerHouseholdSettings } from '@/lib/store';
-import { syncNow } from '@/lib/sync/engine';
+import { adoptServerHousehold, flushPendingChanges, SyncPendingError } from '@/lib/sync/engine';
 
 /** Households the user belongs to, each with the caller's role. */
 export function useHouseholds() {
@@ -39,13 +39,13 @@ export function useCreateHousehold() {
   return useMutation({
     mutationFn: (input: { name: string }) =>
       request<Household>('/households', { method: 'POST', body: input }),
-    onSuccess: async () => {
+    onSuccess: async (household) => {
       // Creating a household makes it active — refresh /me and everything scoped to it.
       await refreshUser();
       await queryClient.invalidateQueries();
-      // First link to a server household: kick off the initial upload now rather
-      // than waiting for the sync poll.
-      syncNow();
+      // Bind this device to the new household and start the first upload now
+      // rather than waiting for the sync poll.
+      await adoptServerHousehold(household.id);
     },
   });
 }
@@ -70,18 +70,28 @@ export function useUpdateHousehold() {
   });
 }
 
+/**
+ * Switch the active household. The local copy belongs to the current household,
+ * so it is pushed first (refusing the switch with `SyncPendingError` if that
+ * fails) and then replaced by the new household's data.
+ */
 export function useSwitchHousehold() {
   const { request, refreshUser } = useSession();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (householdId: number) =>
-      request<Household>('/household/switch', {
+    mutationFn: async (householdId: number) => {
+      if (!(await flushPendingChanges())) {
+        throw new SyncPendingError();
+      }
+      return request<Household>('/household/switch', {
         method: 'POST',
         body: { household_id: householdId },
-      }),
-    onSuccess: async () => {
+      });
+    },
+    onSuccess: async (household) => {
       await refreshUser();
       await queryClient.invalidateQueries();
+      await adoptServerHousehold(household.id);
     },
   });
 }

@@ -1,29 +1,33 @@
-import { useRef, useState } from 'react';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet } from 'react-native';
 
-import { BottomSheet } from '@/components/bottom-sheet';
 import { Button } from '@/components/button';
+import { SheetScreen } from '@/components/sheet';
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/lib/i18n';
+import { cancelSheet, resolveSheet } from '@/lib/sheets';
 import { createIngredient, getIngredient, useIngredients, type LocalIngredient } from '@/lib/store';
 
-type IngredientPickerProps = {
-  visible: boolean;
-  onClose: () => void;
-  onPick: (ingredient: LocalIngredient) => void;
-};
-
-/** Bottom sheet to search the ingredient catalogue or create a new entry. */
-export function IngredientPicker({ visible, onClose, onPick }: IngredientPickerProps) {
+/**
+ * Search the ingredient catalogue or create a new entry. The pick is handed
+ * back to the opener through `@/lib/sheets` (param `request`) because it lands
+ * in the dinner editor's unsaved draft, not in the store.
+ */
+export default function IngredientPickerSheet() {
   const t = useT();
   const theme = useTheme();
+  const { request } = useLocalSearchParams<{ request: string }>();
   const all = useIngredients();
   const [query, setQuery] = useState('');
   // One create per typed query — guards a "done" + button tap firing twice.
   const created = useRef(false);
+
+  // Dismissed without picking: release the opener's callback.
+  useEffect(() => () => cancelSheet(request), [request]);
 
   const trimmed = query.trim();
   const filtered = trimmed
@@ -31,23 +35,20 @@ export function IngredientPicker({ visible, onClose, onPick }: IngredientPickerP
     : all;
   const exactMatch = all.some((item) => item.name.toLowerCase() === trimmed.toLowerCase());
 
+  function pick(ingredient: LocalIngredient) {
+    resolveSheet(request, ingredient);
+    router.back();
+  }
+
   function onCreate() {
-    if (!trimmed || created.current) {
-      return;
-    }
+    if (!trimmed || created.current) return;
     created.current = true;
-    const id = createIngredient({ name: trimmed });
-    setQuery('');
-    const ingredient = getIngredient(id);
-    if (ingredient) {
-      onPick(ingredient);
-    }
+    const ingredient = getIngredient(createIngredient({ name: trimmed }));
+    if (ingredient) pick(ingredient);
   }
 
   return (
-    <BottomSheet visible={visible} onClose={onClose} sheetStyle={styles.sheetCap}>
-      <ThemedText type="subtitle">{t('ingredientPicker.title')}</ThemedText>
-
+    <SheetScreen title={t('ingredientPicker.title')} layout="fill">
       <TextField
         label={t('ingredientPicker.searchOrCreate')}
         placeholder={t('ingredientPicker.placeholder')}
@@ -56,13 +57,12 @@ export function IngredientPicker({ visible, onClose, onPick }: IngredientPickerP
           created.current = false;
           setQuery(text);
         }}
+        autoFocus
         autoCapitalize="none"
         autoCorrect={false}
         returnKeyType="done"
         onSubmitEditing={() => {
-          if (trimmed && !exactMatch) {
-            onCreate();
-          }
+          if (trimmed && !exactMatch) onCreate();
         }}
       />
 
@@ -70,12 +70,13 @@ export function IngredientPicker({ visible, onClose, onPick }: IngredientPickerP
         <Button title={t('ingredientPicker.create', { name: trimmed })} onPress={onCreate} />
       ) : null}
 
-      <ScrollView style={styles.list} keyboardShouldPersistTaps="handled">
+      <ScrollView style={styles.list} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
         {filtered.length > 0 ? (
           filtered.map((ingredient) => (
             <Pressable
               key={ingredient.id}
-              onPress={() => onPick(ingredient)}
+              onPress={() => pick(ingredient)}
+              accessibilityRole="button"
               style={({ pressed }) => [
                 styles.row,
                 { borderBottomColor: theme.border },
@@ -97,18 +98,13 @@ export function IngredientPicker({ visible, onClose, onPick }: IngredientPickerP
           </ThemedText>
         )}
       </ScrollView>
-
-      <Button title={t('common.cancel')} variant="secondary" onPress={onClose} />
-    </BottomSheet>
+    </SheetScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  sheetCap: {
-    maxHeight: '80%',
-  },
   list: {
-    maxHeight: 280,
+    flex: 1,
   },
   row: {
     flexDirection: 'row',

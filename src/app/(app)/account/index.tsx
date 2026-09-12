@@ -17,6 +17,7 @@ import type { HouseholdRole } from '@/lib/api/types';
 import { useSession } from '@/lib/auth/session';
 import { LOCALE_LABELS, LOCALES, useT, type Locale } from '@/lib/i18n';
 import {
+  LOCAL_HOUSEHOLD_NAME,
   setHouseholdDefaultServings,
   setLocale,
   setThemePreference,
@@ -129,7 +130,9 @@ export default function AccountScreen() {
         <ThemedText type="smallBold">{t('account.thisDevice')}</ThemedText>
         <View style={styles.rowBetween}>
           <ThemedText type="subtitle" style={styles.flex}>
-            {localHousehold?.name ?? 'My Kitchen'}
+            {localHousehold && localHousehold.name !== LOCAL_HOUSEHOLD_NAME
+              ? localHousehold.name
+              : t('household.localDefaultName')}
           </ThemedText>
           <Badge label={t('account.onThisDevice')} tone="neutral" />
         </View>

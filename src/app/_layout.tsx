@@ -1,14 +1,13 @@
 import { QueryClientProvider } from '@tanstack/react-query';
-import { DarkTheme, DefaultTheme, router, Stack, ThemeProvider } from 'expo-router';
+import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, type ReactNode } from 'react';
+import { type ComponentProps, type ReactNode } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import { useResolvedScheme, useTheme } from '@/hooks/use-theme';
 import { queryClient } from '@/lib/api/query-client';
-import { takePendingInvite } from '@/lib/auth/pending-invite';
-import { SessionProvider, useSession } from '@/lib/auth/session';
+import { SessionProvider } from '@/lib/auth/session';
 import { StoreProvider } from '@/lib/store';
 
 // Re-exported so Expo Router renders it instead of a white screen when any route
@@ -61,19 +60,32 @@ function ThemedRoot({ children }: { children: ReactNode }) {
   );
 }
 
-function RootNavigator() {
-  const { isAuthenticated } = useSession();
+type ScreenOptions = ComponentProps<typeof Stack.Screen>['options'];
 
-  // Resume a deferred invite once the user connects (deep link arrived signed-out).
-  useEffect(() => {
-    if (!isAuthenticated) {
-      return;
-    }
-    const token = takePendingInvite();
-    if (token) {
-      router.replace({ pathname: '/invitations/[token]', params: { token } });
-    }
-  }, [isAuthenticated]);
+/** A sheet sized to its content (short forms). */
+const formSheet: ScreenOptions = {
+  presentation: 'formSheet',
+  headerShown: false,
+  sheetAllowedDetents: 'fitToContents',
+  sheetGrabberVisible: true,
+  sheetCornerRadius: 24,
+};
+
+/** A sheet with a scrolling list: opens at 60%, pulls up to full height. */
+const listSheet: ScreenOptions = {
+  ...formSheet,
+  sheetAllowedDetents: [0.6, 1],
+  sheetInitialDetentIndex: 0,
+  // The list is laid out by flex inside the sheet, not pinned by the system, so
+  // expanding is done with the grabber rather than by over-scrolling.
+  sheetExpandsWhenScrolledToEdge: false,
+};
+
+function RootNavigator() {
+  // A deferred invite (deep link opened while signed out) is resumed by the
+  // sign-in screen itself right after `signIn()` — see `src/app/sign-in.tsx`.
+  // The pending token is in-memory only, so there is no launch-restore case to
+  // handle here; a restored session never has one.
 
   // Local-first: (app) always renders — no account required. Boot gating is the
   // store's hydration (StoreProvider), and the session restores in the background.
@@ -85,6 +97,16 @@ function RootNavigator() {
       <Stack.Screen name="sign-in" options={{ presentation: 'modal' }} />
       <Stack.Screen name="weeks" options={{ presentation: 'modal' }} />
       <Stack.Screen name="invitations/[token]" />
+      <Stack.Screen name="oauth/callback" options={{ animation: 'none' }} />
+
+      {/* Bottom sheets are native form sheets: the system owns the surface,
+          dimming, grabber, swipe-to-dismiss and keyboard avoidance, and they
+          present above the native tab bar (a JS Modal renders beneath it). */}
+      <Stack.Screen name="sheets/new-list" options={formSheet} />
+      <Stack.Screen name="sheets/entry-editor" options={formSheet} />
+      <Stack.Screen name="sheets/shopping-item" options={formSheet} />
+      <Stack.Screen name="sheets/dinner-picker" options={listSheet} />
+      <Stack.Screen name="sheets/ingredient-picker" options={listSheet} />
     </Stack>
   );
 }

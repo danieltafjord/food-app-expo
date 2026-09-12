@@ -14,6 +14,12 @@ export type SyncStatus = {
   pending: number;
   /** Last sync error message, if `phase === 'error'`. */
   error: string | null;
+  /**
+   * Rows the server refused in the last sync (invalid data, unknown parent).
+   * They stay on this device but are no longer queued; surfaced once so the
+   * user knows, cleared by the next clean sync.
+   */
+  rejected: number;
 };
 
 /**
@@ -25,6 +31,7 @@ export const syncStatus$ = observable<SyncStatus>({
   lastSyncedAt: null,
   pending: 0,
   error: null,
+  rejected: 0,
 });
 
 /** Reactive read of the sync status. */
@@ -38,8 +45,8 @@ export function markSyncing(): void {
   syncStatus$.assign({ phase: 'syncing', error: null });
 }
 
-export function markSynced(): void {
-  syncStatus$.assign({ phase: 'idle', lastSyncedAt: nowIso(), pending: 0, error: null });
+export function markSynced(rejected = 0): void {
+  syncStatus$.assign({ phase: 'idle', lastSyncedAt: nowIso(), pending: 0, error: null, rejected });
 }
 
 export function markSyncError(message: string): void {

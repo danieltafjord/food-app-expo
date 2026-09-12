@@ -20,7 +20,7 @@ export function DinnerThumbnail({ size = 40 }: Props) {
         { width: size, height: size, borderRadius: size / 4, backgroundColor: theme.backgroundSelected },
       ]}>
       <SymbolView
-        name="fork.knife"
+        name={{ ios: 'fork.knife', android: 'restaurant', web: 'restaurant' }}
         size={size * 0.5}
         tintColor={theme.tint}
         type="monochrome"

@@ -27,6 +27,21 @@ export const nb: Dictionary = {
     dinnerFallback: 'Middag',
     itemFallback: 'Vare',
   },
+  app: {
+    name: 'Handlelista',
+  },
+  notFound: {
+    title: 'Fant ikke siden',
+    message: 'Denne lenken passer ikke til noe i appen.',
+  },
+  a11y: {
+    previousWeek: 'Forrige uke',
+    nextWeek: 'Neste uke',
+    openDetails: 'Åpne',
+    editItem: 'Rediger {name}',
+    removeIngredient: 'Fjern ingrediens',
+    toggleItem: 'Merk {name}',
+  },
   tabs: {
     plans: 'Planer',
     dinners: 'Middager',
@@ -45,6 +60,7 @@ export const nb: Dictionary = {
     daysAgo: '{count} d siden',
   },
   sync: {
+    rejectedCount: '{count} endring(er) kunne ikke synkroniseres og finnes bare på denne enheten',
     onThisDevice: 'På denne enheten',
     notSynced: 'Ikke synkronisert',
     syncing: 'Synkroniserer …',
@@ -71,13 +87,27 @@ export const nb: Dictionary = {
   },
   dinnerPicker: {
     title: 'Legg til en middag',
-    newDinner: 'Ny middag',
+    searchOrCreate: 'Søk eller opprett',
     placeholder: 'f.eks. Tacos',
-    yourDinners: 'Dine middager',
-    servingsCount: '{count} porsjoner',
-    empty: 'Ingen middager ennå – legg til en over.',
+    idleTitle: 'Søk eller lag en ny middag',
+    idleHint: 'Skriv et navn – finnes den ikke, lager vi den',
+    create: 'Opprett «{name}»',
+    createHint: 'Ny middag – legges til i dag',
+    addExisting: 'Legg til «{name}»',
+    addExistingHint: 'Finnes allerede – legges til i dag',
+    recent: 'Nylig',
+    madeToday: 'Laget i dag',
+    madeYesterday: 'Laget i går',
+    madeDaysAgo: 'Laget for {count} dager siden',
+    madeWeeksAgo: 'Laget for {count} uker siden',
+    madeOn: 'Laget {date}',
+    plannedOn: 'Planlagt {date}',
+    neverPlanned: 'Ikke planlagt ennå',
+    noMatches: 'Ingen treff – opprett den over.',
+    empty: 'Ingen middager ennå – skriv et navn for å lage den første.',
   },
   entryEditor: {
+    remove: 'Fjern fra planen',
     servings: 'Porsjoner',
   },
   ingredientPicker: {
@@ -89,6 +119,7 @@ export const nb: Dictionary = {
     empty: 'Ingen ingredienser ennå.',
   },
   shoppingItemEditor: {
+    remove: 'Fjern fra lista',
     editItem: 'Rediger vare',
     quantity: 'Mengde',
     unit: 'Enhet',
@@ -133,6 +164,10 @@ export const nb: Dictionary = {
     deleteDinner: 'Slett middag',
     deleteDinnerTitle: 'Slette denne middagen?',
     deleteDinnerMessage: 'Denne middagen og ingrediensene fjernes.',
+    discardTitle: 'Forkaste endringene?',
+    discardMessage: 'Du har ulagrede endringer i denne middagen.',
+    discard: 'Forkast',
+    keepEditing: 'Fortsett å redigere',
   },
   shopping: {
     title: 'Innkjøp',
@@ -174,6 +209,14 @@ export const nb: Dictionary = {
     noDinners:
       'Denne uken har ingen middager med ingredienser ennå. Legg til noen under Planer- og Middager-fanene.',
     noPlan: 'Ingen plan for denne uken ennå – legg til middager under Planer-fanen først.',
+    existingTitle: 'Denne uken har allerede en liste',
+    existingMessage:
+      '«{name}» ble laget fra denne uken. Oppdater den med ukens middager (avkryssede varer beholdes), eller åpne den som den er.',
+    openExisting: 'Åpne listen',
+    updateExisting: 'Oppdater listen',
+    createAnother: 'Lag en ny liste likevel',
+    updatedNothing: 'Listen stemmer allerede med denne uken.',
+    updatedSummary: '{added} lagt til · {updated} oppdatert',
   },
   account: {
     title: 'Konto',
@@ -203,6 +246,9 @@ export const nb: Dictionary = {
       'Endringen er lagret på denne enheten, men kunne ikke synkroniseres til kontoen din. Vi prøver igjen automatisk.',
   },
   household: {
+    switchBlockedPending:
+      'Noen endringer på denne enheten er ikke synkronisert ennå. Koble til internett og prøv igjen.',
+    localDefaultName: 'Mitt kjøkken',
     sectionTitle: 'Husstand',
     householdsTitle: 'Husstander',
     newHouseholdTitle: 'Ny husstand',

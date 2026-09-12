@@ -93,6 +93,13 @@ function describe(
   if (status.pending > 0) {
     return { label: t('sync.waitingToSync'), color: COLORS.pending, busy: false };
   }
+  if (status.rejected > 0) {
+    return {
+      label: t('sync.rejectedCount', { count: status.rejected }),
+      color: COLORS.pending,
+      busy: false,
+    };
+  }
   if (showSynced) {
     return { label: t('sync.synced'), color: COLORS.synced, busy: false };
   }

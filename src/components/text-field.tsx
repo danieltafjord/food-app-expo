@@ -1,3 +1,4 @@
+import type { Ref } from 'react';
 import { StyleSheet, TextInput, View, type TextInputProps } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
@@ -5,17 +6,20 @@ import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 export type TextFieldProps = TextInputProps & {
+  /** Reaches the underlying TextInput (e.g. to focus it once a sheet has presented). */
+  ref?: Ref<TextInput>;
   label: string;
   /** First validation message for this field, if any. */
   error?: string | null;
 };
 
-export function TextField({ label, error, style, ...rest }: TextFieldProps) {
+export function TextField({ ref, label, error, style, ...rest }: TextFieldProps) {
   const theme = useTheme();
   return (
     <View style={styles.wrap}>
       <ThemedText type="smallBold">{label}</ThemedText>
       <TextInput
+        ref={ref}
         placeholderTextColor={theme.textSecondary}
         style={[
           styles.input,

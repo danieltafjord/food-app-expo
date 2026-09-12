@@ -30,7 +30,7 @@ function seedLocalData() {
   });
   store$.meta.dirty.set({ dinners: { d1: true } });
   store$.meta.tombstones.set({ shoppingLists: { gone: '2020-01-01T00:00:00.000Z' } });
-  store$.meta.lastSync.set('2024-01-01T00:00:00.000Z');
+  store$.meta.cursor.set(42);
 }
 
 beforeEach(() => {
@@ -39,7 +39,7 @@ beforeEach(() => {
   store$.households.set({});
   store$.meta.dirty.set({});
   store$.meta.tombstones.set({});
-  store$.meta.lastSync.set(null);
+  store$.meta.cursor.set(null);
   store$.meta.localHouseholdId.set('');
   store$.meta.accountId.set(null);
 });
@@ -72,7 +72,7 @@ describe('account binding', () => {
     expect(store$.shoppingLists.get()).toEqual({});
     expect(store$.meta.dirty.get()).toEqual({});
     expect(store$.meta.tombstones.get()).toEqual({});
-    expect(store$.meta.lastSync.get()).toBeNull();
+    expect(store$.meta.cursor.get()).toBeNull();
 
     // A fresh local household is seeded so the app still has somewhere to write.
     const localId = store$.meta.localHouseholdId.get();

@@ -10,12 +10,12 @@ import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/lib/i18n';
 import {
   addShoppingItem,
+  buildShoppingSuggestions,
   createIngredient,
   getIngredient,
   removeShoppingItem,
   useShoppingList,
   useShoppingListItems,
-  useShoppingSuggestions,
   type ShoppingSuggestion,
 } from '@/lib/store';
 
@@ -30,7 +30,11 @@ export default function AddShoppingItemsScreen() {
   const { listId } = useLocalSearchParams<{ listId: string }>();
   const list = useShoppingList(listId);
   const items = useShoppingListItems(listId);
-  const suggestions = useShoppingSuggestions();
+  // The catalogue is built once when the screen opens: it walks every item
+  // ever put on a list, and rebuilding (and re-sorting) it after each tap would
+  // both cost that scan and shuffle rows under the finger. New entries typed
+  // here are appended to the snapshot; on/off state stays live via `items`.
+  const [suggestions, setSuggestions] = useState(buildShoppingSuggestions);
   const [query, setQuery] = useState('');
 
   const trimmed = query.trim();
@@ -73,7 +77,22 @@ export default function AddShoppingItemsScreen() {
   function addNew() {
     if (!listId || !trimmed) return;
     const id = createIngredient({ name: trimmed });
-    addShoppingItem(listId, { ingredient_id: id, unit: getIngredient(id)?.default_unit ?? null });
+    const ingredient = getIngredient(id);
+    addShoppingItem(listId, { ingredient_id: id, unit: ingredient?.default_unit ?? null });
+    setSuggestions((current) =>
+      current.some((s) => s.key === id)
+        ? current
+        : [
+            {
+              key: id,
+              name: ingredient?.name ?? trimmed,
+              ingredient_id: id,
+              default_unit: ingredient?.default_unit ?? null,
+              usage_count: 1,
+            },
+            ...current,
+          ],
+    );
     setQuery('');
   }
 

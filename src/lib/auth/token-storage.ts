@@ -20,20 +20,35 @@ const isWeb = Platform.OS === 'web';
 // Storage fallback. SecureStore is native-only, and even on native it can be
 // unavailable — notably the iOS Simulator when the build is signed without an
 // Apple team, where the Keychain throws "a required entitlement isn't present".
-// In those cases we fall back to an in-memory map so the app still works (tokens
-// then live for the session only). On web we prefer localStorage. Properly
-// signed builds and real devices keep using the Keychain — `nativeFallback`
-// stays false and tokens persist securely.
+// ONLY that case falls back to an in-memory map (tokens then live for the
+// session only). Any other Keychain error — e.g. the device still locked at a
+// background launch — propagates instead of silently switching to memory, which
+// would make a later sign-in look persisted when it isn't. On web we prefer
+// localStorage. Properly signed builds and real devices keep using the Keychain.
 const memoryStore = new Map<string, string>();
 let nativeFallback = false;
 
-function noteFallback(error: unknown): void {
+/** Keychain items stay readable after the first unlock, so a background/locked
+ *  launch can still restore the session. */
+const secureStoreOptions: SecureStore.SecureStoreOptions = {
+  keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK,
+};
+
+function isEntitlementError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /entitlement/i.test(message);
+}
+
+/** Switch to the in-memory fallback for the entitlement case; rethrow anything else. */
+function handleNativeError(error: unknown): void {
+  if (!isEntitlementError(error)) {
+    throw error;
+  }
   if (!nativeFallback) {
     nativeFallback = true;
     console.warn(
-      'SecureStore is unavailable; falling back to in-memory token storage (dev only). ' +
-        'Sign-in will not persist across full reloads. Cause:',
-      error,
+      'SecureStore is unavailable (missing Keychain entitlement — unsigned simulator build); ' +
+        'falling back to in-memory token storage. Sign-in will not persist across full reloads.',
     );
   }
 }
@@ -49,10 +64,10 @@ async function setItem(key: string, value: string): Promise<void> {
   }
   if (!nativeFallback) {
     try {
-      await SecureStore.setItemAsync(key, value);
+      await SecureStore.setItemAsync(key, value, secureStoreOptions);
       return;
     } catch (error) {
-      noteFallback(error);
+      handleNativeError(error);
     }
   }
   memoryStore.set(key, value);
@@ -67,9 +82,9 @@ async function getItem(key: string): Promise<string | null> {
   }
   if (!nativeFallback) {
     try {
-      return await SecureStore.getItemAsync(key);
+      return await SecureStore.getItemAsync(key, secureStoreOptions);
     } catch (error) {
-      noteFallback(error);
+      handleNativeError(error);
     }
   }
   return memoryStore.get(key) ?? null;
@@ -86,10 +101,10 @@ async function removeItem(key: string): Promise<void> {
   }
   if (!nativeFallback) {
     try {
-      await SecureStore.deleteItemAsync(key);
+      await SecureStore.deleteItemAsync(key, secureStoreOptions);
       return;
     } catch (error) {
-      noteFallback(error);
+      handleNativeError(error);
     }
   }
   memoryStore.delete(key);

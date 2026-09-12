@@ -36,6 +36,16 @@ export function usePlanEntries(planId: string | undefined): PlanEntryWithDinner[
   });
 }
 
+/** One entry joined with its dinner's name (undefined once deleted). */
+export function usePlanEntry(entryId: string | undefined): PlanEntryWithDinner | undefined {
+  return useValue(() => {
+    if (!entryId) return undefined;
+    const entry = store$.planEntries.get()[entryId];
+    if (!entry) return undefined;
+    return { ...entry, dinner_name: store$.dinners.get()[entry.dinner_id]?.name ?? null };
+  });
+}
+
 /**
  * For every week that has a plan, the set of dates (local `YYYY-MM-DD`) that
  * carry at least one dinner — keyed by the plan's Monday `start_date`. Drives

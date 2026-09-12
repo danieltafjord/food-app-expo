@@ -1,6 +1,11 @@
-import { aggregatePlanItems } from '@/lib/shopping/generate';
+import { aggregatePlanItems, updateShoppingListFromPlan } from '@/lib/shopping/generate';
 import { store$ } from '@/lib/store/collections';
-import type { LocalDinner, LocalDinnerItem, LocalPlanEntry } from '@/lib/store/schema';
+import type {
+  LocalDinner,
+  LocalDinnerItem,
+  LocalPlanEntry,
+  LocalShoppingListItem,
+} from '@/lib/store/schema';
 
 const TS = '2026-01-01T00:00:00.000Z';
 
@@ -153,5 +158,109 @@ describe('aggregatePlanItems', () => {
       ],
     });
     expect(aggregatePlanItems('p1')).toEqual([{ ingredient_id: 'ing1', unit: 'g', quantity: 100 }]);
+  });
+});
+
+describe('updateShoppingListFromPlan', () => {
+  const LIST_TS = '2026-01-02T00:00:00.000Z';
+
+  function seedList(items: Partial<LocalShoppingListItem>[] = []) {
+    store$.shoppingLists.set({
+      l1: {
+        id: 'l1',
+        household_id: 'h1',
+        dinner_plan_id: 'p1',
+        name: 'Week',
+        created_at: LIST_TS,
+        updated_at: LIST_TS,
+      },
+    });
+    store$.shoppingListItems.set(
+      Object.fromEntries(
+        items.map((it, i) => {
+          const id = it.id ?? `s${i}`;
+          return [
+            id,
+            {
+              id,
+              shopping_list_id: 'l1',
+              ingredient_id: null,
+              name: null,
+              quantity: null,
+              unit: null,
+              is_checked: false,
+              created_at: LIST_TS,
+              updated_at: LIST_TS,
+              ...it,
+            },
+          ];
+        }),
+      ),
+    );
+  }
+
+  function listItems() {
+    return Object.values(store$.shoppingListItems.get()).filter((it) => it.shopping_list_id === 'l1');
+  }
+
+  beforeEach(() => {
+    seed({
+      dinners: [dinner({ id: 'd1', default_servings: 4 })],
+      items: [
+        item({ id: 'i1', dinner_id: 'd1', ingredient_id: 'beef', quantity: 400, unit: 'g' }),
+        item({ id: 'i2', dinner_id: 'd1', ingredient_id: 'onion', quantity: 1, unit: 'stk' }),
+      ],
+      entries: [entry({ id: 'e1', dinner_plan_id: 'p1', dinner_id: 'd1', servings: 4 })],
+    });
+  });
+
+  afterEach(() => {
+    store$.shoppingLists.set({});
+    store$.shoppingListItems.set({});
+  });
+
+  it('adds rows the list is missing and reports the count', () => {
+    seedList();
+    expect(updateShoppingListFromPlan('l1', 'p1')).toEqual({ added: 2, updated: 0 });
+    expect(listItems().map((it) => [it.ingredient_id, it.quantity, it.unit])).toEqual(
+      expect.arrayContaining([
+        ['beef', 400, 'g'],
+        ['onion', 1, 'stk'],
+      ]),
+    );
+  });
+
+  it('updates an unchecked row to the plan quantity instead of duplicating it', () => {
+    seedList([{ id: 's1', ingredient_id: 'beef', quantity: 200, unit: 'g' }]);
+    expect(updateShoppingListFromPlan('l1', 'p1')).toEqual({ added: 1, updated: 1 });
+    const beef = listItems().filter((it) => it.ingredient_id === 'beef');
+    expect(beef).toHaveLength(1);
+    expect(beef[0].quantity).toBe(400);
+  });
+
+  it('leaves a checked row alone', () => {
+    seedList([{ id: 's1', ingredient_id: 'beef', quantity: 200, unit: 'g', is_checked: true }]);
+    expect(updateShoppingListFromPlan('l1', 'p1')).toEqual({ added: 1, updated: 0 });
+    expect(store$.shoppingListItems.s1.quantity.get()).toBe(200);
+    expect(store$.shoppingListItems.s1.is_checked.get()).toBe(true);
+  });
+
+  it('matches units case-insensitively and keeps manual rows', () => {
+    seedList([
+      { id: 's1', ingredient_id: 'beef', quantity: 400, unit: 'G' },
+      { id: 's2', name: 'Toalettpapir' },
+    ]);
+    expect(updateShoppingListFromPlan('l1', 'p1')).toEqual({ added: 1, updated: 0 });
+    expect(listItems()).toHaveLength(3);
+    expect(store$.shoppingListItems.s2.name.get()).toBe('Toalettpapir');
+  });
+
+  it('is a no-op when the list already matches', () => {
+    seedList([
+      { id: 's1', ingredient_id: 'beef', quantity: 400, unit: 'g' },
+      { id: 's2', ingredient_id: 'onion', quantity: 1, unit: 'stk' },
+    ]);
+    expect(updateShoppingListFromPlan('l1', 'p1')).toEqual({ added: 0, updated: 0 });
+    expect(store$.shoppingLists.l1.updated_at.get()).toBe(LIST_TS);
   });
 });

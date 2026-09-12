@@ -24,7 +24,7 @@ export function AppErrorBoundary({ error, retry }: ErrorBoundaryProps) {
     <View style={[styles.container, { backgroundColor: c.background }]}>
       <View style={styles.content}>
         <SymbolView
-          name="exclamationmark.triangle.fill"
+          name={{ ios: 'exclamationmark.triangle.fill', android: 'warning', web: 'warning' }}
           size={44}
           tintColor={c.danger}
           type="monochrome"

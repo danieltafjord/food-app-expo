@@ -1,29 +1,21 @@
 import { router, useNavigation } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect } from 'react';
 import { Alert, Pressable, StyleSheet, View } from 'react-native';
 
-import { BottomSheet } from '@/components/bottom-sheet';
-import { Button } from '@/components/button';
 import { Fab } from '@/components/fab';
 import { Screen } from '@/components/screen';
 import { SwipeToDelete } from '@/components/swipe-to-delete';
-import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/lib/i18n';
-import { createShoppingList, deleteShoppingList, useShoppingLists } from '@/lib/store';
+import { deleteShoppingList, useShoppingLists } from '@/lib/store';
 
 export default function ShoppingListsScreen() {
   const t = useT();
   const theme = useTheme();
   const navigation = useNavigation();
   const lists = useShoppingLists();
-  const [creating, setCreating] = useState(false);
-  const [name, setName] = useState('');
-  // Latches the create so a keyboard "done" + button tap in the same beat can't
-  // create (and navigate into) two lists. Reset each time the sheet is opened.
-  const submitted = useRef(false);
 
   // A compact "Generate" action lives in the header, out of the list's way.
   useEffect(() => {
@@ -43,22 +35,9 @@ export default function ShoppingListsScreen() {
     });
   }, [navigation, t, theme]);
 
-  function onCreate() {
-    const trimmed = name.trim();
-    if (!trimmed || submitted.current) {
-      return;
-    }
-    submitted.current = true;
-    const id = createShoppingList(trimmed);
-    setName('');
-    setCreating(false);
-    router.push({ pathname: '/shopping/[id]', params: { id } });
-  }
-
+  // Naming a new list happens in a native sheet (root route) that opens the list.
   function openCreate() {
-    submitted.current = false;
-    setName('');
-    setCreating(true);
+    router.push('/sheets/new-list');
   }
 
   function confirmDelete(id: string) {
@@ -122,20 +101,6 @@ export default function ShoppingListsScreen() {
         )}
       </Screen>
 
-      <BottomSheet visible={creating} onClose={() => setCreating(false)}>
-        <ThemedText type="subtitle">{t('shopping.newList')}</ThemedText>
-        <TextField
-          label={t('shopping.name')}
-          placeholder={t('shopping.namePlaceholder')}
-          value={name}
-          onChangeText={setName}
-          autoCapitalize="sentences"
-          autoFocus
-          returnKeyType="done"
-          onSubmitEditing={onCreate}
-        />
-        <Button title={t('shopping.createList')} onPress={onCreate} disabled={!name.trim()} />
-      </BottomSheet>
     </>
   );
 }

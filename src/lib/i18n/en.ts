@@ -31,6 +31,21 @@ export const en = {
     dinnerFallback: 'Dinner',
     itemFallback: 'Item',
   },
+  app: {
+    name: 'Handlelista',
+  },
+  notFound: {
+    title: 'Page not found',
+    message: 'That link doesn’t match anything in the app.',
+  },
+  a11y: {
+    previousWeek: 'Previous week',
+    nextWeek: 'Next week',
+    openDetails: 'Open',
+    editItem: 'Edit {name}',
+    removeIngredient: 'Remove ingredient',
+    toggleItem: 'Toggle {name}',
+  },
   tabs: {
     plans: 'Plans',
     dinners: 'Dinners',
@@ -49,6 +64,7 @@ export const en = {
     daysAgo: '{count}d ago',
   },
   sync: {
+    rejectedCount: '{count} change(s) could not be synced and stay only on this device',
     onThisDevice: 'On this device',
     notSynced: 'Not synced',
     syncing: 'Syncing…',
@@ -75,13 +91,27 @@ export const en = {
   },
   dinnerPicker: {
     title: 'Add a dinner',
-    newDinner: 'New dinner',
+    searchOrCreate: 'Search or create',
     placeholder: 'e.g. Tacos',
-    yourDinners: 'Your dinners',
-    servingsCount: '{count} servings',
-    empty: 'No dinners yet — add one above.',
+    idleTitle: 'Search or create a dinner',
+    idleHint: 'Type a name — if it doesn’t exist, we’ll create it',
+    create: 'Create “{name}”',
+    createHint: 'New dinner — added to this day',
+    addExisting: 'Add “{name}”',
+    addExistingHint: 'Already saved — added to this day',
+    recent: 'Recent',
+    madeToday: 'Made today',
+    madeYesterday: 'Made yesterday',
+    madeDaysAgo: 'Made {count} days ago',
+    madeWeeksAgo: 'Made {count} weeks ago',
+    madeOn: 'Made {date}',
+    plannedOn: 'Planned {date}',
+    neverPlanned: 'Not planned yet',
+    noMatches: 'No matches — create it above.',
+    empty: 'No dinners yet — type a name to create the first one.',
   },
   entryEditor: {
+    remove: 'Remove from plan',
     servings: 'Servings',
   },
   ingredientPicker: {
@@ -93,6 +123,7 @@ export const en = {
     empty: 'No ingredients yet.',
   },
   shoppingItemEditor: {
+    remove: 'Remove from list',
     editItem: 'Edit item',
     quantity: 'Quantity',
     unit: 'Unit',
@@ -137,6 +168,10 @@ export const en = {
     deleteDinner: 'Delete dinner',
     deleteDinnerTitle: 'Delete this dinner?',
     deleteDinnerMessage: 'This dinner and its ingredients will be removed.',
+    discardTitle: 'Discard changes?',
+    discardMessage: 'You have unsaved changes to this dinner.',
+    discard: 'Discard',
+    keepEditing: 'Keep editing',
   },
   shopping: {
     title: 'Shopping',
@@ -177,6 +212,14 @@ export const en = {
     noDinners:
       'This week has no dinners with ingredients yet. Add some on the Plans and Dinners tabs.',
     noPlan: 'No plan for this week yet — add dinners on the Plans tab first.',
+    existingTitle: 'This week already has a list',
+    existingMessage:
+      '«{name}» was generated from this week. Update it with the current dinners (checked items are kept), or open it as it is.',
+    openExisting: 'Open list',
+    updateExisting: 'Update list',
+    createAnother: 'Create a new list anyway',
+    updatedNothing: 'The list already matches this week.',
+    updatedSummary: '{added} added · {updated} updated',
   },
   account: {
     title: 'Account',
@@ -206,6 +249,9 @@ export const en = {
       'Your change is saved on this device but couldn’t sync to your account. We’ll try again automatically.',
   },
   household: {
+    switchBlockedPending:
+      'Some changes on this device have not synced yet. Connect to the internet and try again.',
+    localDefaultName: 'My kitchen',
     sectionTitle: 'Household',
     householdsTitle: 'Households',
     newHouseholdTitle: 'New household',

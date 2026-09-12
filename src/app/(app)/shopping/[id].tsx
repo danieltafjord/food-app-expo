@@ -1,12 +1,10 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
 import { Alert, Pressable, StyleSheet, View } from 'react-native';
 
 import { Button } from '@/components/button';
 import { Card } from '@/components/card';
 import { Fab } from '@/components/fab';
 import { Screen } from '@/components/screen';
-import { ShoppingItemEditor, type ShoppingItemEdit } from '@/components/shopping-item-editor';
 import { SwipeToDelete } from '@/components/swipe-to-delete';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
@@ -18,14 +16,12 @@ import { useT } from '@/lib/i18n';
 import {
   clearCheckedItems,
   deleteShoppingList,
-  recategorizeShoppingItem,
   removeShoppingItem,
   toggleShoppingItem,
   uncheckAllItems,
-  updateShoppingItem,
+  useShoppingItem,
   useShoppingList,
   useShoppingListSections,
-  type ShoppingListItemWithIngredient,
 } from '@/lib/store';
 
 export default function ShoppingListScreen() {
@@ -34,8 +30,6 @@ export default function ShoppingListScreen() {
   const params = useLocalSearchParams<{ id: string }>();
   const list = useShoppingList(params.id);
   const { sections, total, checked } = useShoppingListSections(params.id);
-
-  const [editing, setEditing] = useState<ShoppingListItemWithIngredient | null>(null);
 
   if (!list) {
     return (
@@ -50,17 +44,8 @@ export default function ShoppingListScreen() {
 
   const listId = list.id;
 
-  function onSaveItem(item: ShoppingListItemWithIngredient, edit: ShoppingItemEdit) {
-    updateShoppingItem(item.id, { name: edit.name, quantity: edit.quantity, unit: edit.unit });
-    if (edit.category !== item.category) {
-      recategorizeShoppingItem(item.id, edit.category);
-    }
-    setEditing(null);
-  }
-
-  function onRemoveItem(item: ShoppingListItemWithIngredient) {
-    removeShoppingItem(item.id);
-    setEditing(null);
+  function onEditItem(itemId: string) {
+    router.push({ pathname: '/sheets/shopping-item', params: { itemId } });
   }
 
   function onClearChecked() {
@@ -82,57 +67,6 @@ export default function ShoppingListScreen() {
         },
       },
     ]);
-  }
-
-  function renderItem(item: ShoppingListItemWithIngredient, index: number) {
-    const qty = formatQuantity(item.quantity, item.unit);
-    return (
-      <SwipeToDelete
-        key={item.id}
-        label={t('common.delete')}
-        onDelete={() => removeShoppingItem(item.id)}>
-        <View
-          style={[
-            styles.itemRow,
-            { backgroundColor: theme.backgroundElement },
-            index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border },
-          ]}>
-          <Pressable
-            onPress={() => {
-              hapticSelection();
-              toggleShoppingItem(item.id);
-            }}
-            hitSlop={4}
-            style={styles.itemMain}>
-            <View
-              style={[
-                styles.checkbox,
-                { borderColor: theme.border },
-                item.is_checked && { backgroundColor: theme.tint, borderColor: theme.tint },
-              ]}>
-              {item.is_checked ? (
-                <ThemedText style={[styles.check, { color: theme.onTint }]}>✓</ThemedText>
-              ) : null}
-            </View>
-            <View style={styles.flex}>
-              <ThemedText numberOfLines={1} style={item.is_checked ? styles.checkedText : undefined}>
-                {item.ingredient_name ?? item.name ?? t('common.itemFallback')}
-              </ThemedText>
-              {qty ? (
-                <ThemedText type="small" themeColor="textSecondary">
-                  {qty}
-                </ThemedText>
-              ) : null}
-            </View>
-          </Pressable>
-          <Pressable onPress={() => setEditing(item)} hitSlop={8} style={styles.editButton}>
-            <ThemedText type="subtitle" themeColor="textSecondary">
-              ⋯
-            </ThemedText>
-          </Pressable>
-        </View>
-      </SwipeToDelete>
-    );
   }
 
   return (
@@ -178,7 +112,9 @@ export default function ShoppingListScreen() {
               </ThemedText>
             </View>
             <View style={[styles.listCard, { backgroundColor: theme.backgroundElement }]}>
-              {section.items.map((item, index) => renderItem(item, index))}
+              {section.itemIds.map((itemId, index) => (
+                <ShoppingRow key={itemId} itemId={itemId} first={index === 0} onEdit={onEditItem} />
+              ))}
             </View>
           </View>
         ))
@@ -194,14 +130,81 @@ export default function ShoppingListScreen() {
         size="small"
         onPress={onDeleteList}
       />
-
-      <ShoppingItemEditor
-        item={editing}
-        onClose={() => setEditing(null)}
-        onSave={onSaveItem}
-        onRemove={onRemoveItem}
-      />
     </Screen>
+  );
+}
+
+type ShoppingRowProps = {
+  itemId: string;
+  /** First row in its aisle card — no divider above it. */
+  first: boolean;
+  onEdit: (itemId: string) => void;
+};
+
+/**
+ * One list row. Subscribes to its own item (and only that), so checking or
+ * editing one row re-renders that row; the sectioned screen above it only
+ * re-renders when rows move between sections or aisles.
+ */
+function ShoppingRow({ itemId, first, onEdit }: ShoppingRowProps) {
+  const t = useT();
+  const theme = useTheme();
+  const item = useShoppingItem(itemId);
+  if (!item) return null;
+
+  const label = item.ingredient_name ?? item.name ?? t('common.itemFallback');
+  const qty = formatQuantity(item.quantity, item.unit);
+  return (
+    <SwipeToDelete label={t('common.delete')} onDelete={() => removeShoppingItem(item.id)}>
+      <View
+        style={[
+          styles.itemRow,
+          { backgroundColor: theme.backgroundElement },
+          !first && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border },
+        ]}>
+        <Pressable
+          onPress={() => {
+            hapticSelection();
+            toggleShoppingItem(item.id);
+          }}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: item.is_checked }}
+          accessibilityLabel={label}
+          hitSlop={4}
+          style={styles.itemMain}>
+          <View
+            style={[
+              styles.checkbox,
+              { borderColor: theme.border },
+              item.is_checked && { backgroundColor: theme.tint, borderColor: theme.tint },
+            ]}>
+            {item.is_checked ? (
+              <ThemedText style={[styles.check, { color: theme.onTint }]}>✓</ThemedText>
+            ) : null}
+          </View>
+          <View style={styles.flex}>
+            <ThemedText numberOfLines={1} style={item.is_checked ? styles.checkedText : undefined}>
+              {label}
+            </ThemedText>
+            {qty ? (
+              <ThemedText type="small" themeColor="textSecondary">
+                {qty}
+              </ThemedText>
+            ) : null}
+          </View>
+        </Pressable>
+        <Pressable
+          onPress={() => onEdit(item.id)}
+          accessibilityRole="button"
+          accessibilityLabel={t('a11y.editItem', { name: label })}
+          hitSlop={8}
+          style={styles.editButton}>
+          <ThemedText type="subtitle" themeColor="textSecondary">
+            ⋯
+          </ThemedText>
+        </Pressable>
+      </View>
+    </SwipeToDelete>
   );
 }
 

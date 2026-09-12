@@ -9,23 +9,15 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "icon": "./assets/expo.icon",
-      "infoPlist": {
-        "NSAppTransportSecurity": {
-          "NSExceptionDomains": {
-            "food-app.test": {
-              "NSExceptionAllowsInsecureHTTPLoads": true,
-              "NSIncludesSubdomains": true
-            }
-          }
-        }
-      },
       "entitlements": {
         "keychain-access-groups": [
           "$(AppIdentifierPrefix)no.handlelistaapp"
         ]
       },
       "bundleIdentifier": "no.handlelistaapp",
-      "associatedDomains": ["applinks:handlelistaapp.no"]
+      "associatedDomains": [
+        "applinks:handlelistaapp.no"
+      ]
     },
     "android": {
       "package": "no.handlelistaapp",
@@ -47,7 +39,10 @@
               "pathPrefix": "/invitations"
             }
           ],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
       ]
     },

@@ -13,6 +13,7 @@ import { useTheme } from '@/hooks/use-theme';
 import { ApiError, apiRequest } from '@/lib/api/client';
 import type { User } from '@/lib/api/types';
 import { authRequestConfig, discovery, redirectUri } from '@/lib/auth/oauth';
+import { takePendingInvite } from '@/lib/auth/pending-invite';
 import { useSession } from '@/lib/auth/session';
 import { isOAuthConfigured, OAUTH_CLIENT_ID } from '@/lib/config';
 import { useT } from '@/lib/i18n';
@@ -100,7 +101,15 @@ export default function SignInScreen() {
           // Reconcile local data with the account before committing the session.
           if (await reconcileLocalData(token.accessToken)) {
             await signIn(token);
-            dismiss(); // connected — return to Settings.
+            // This screen owns the post-sign-in navigation. If the user came from
+            // an invite link (deferred while signed out), resume it now — doing
+            // that from a root effect races with `dismiss()` and loses the token.
+            const invite = takePendingInvite();
+            if (invite) {
+              router.replace({ pathname: '/invitations/[token]', params: { token: invite } });
+            } else {
+              dismiss(); // connected — return to Settings.
+            }
           }
           return;
         }

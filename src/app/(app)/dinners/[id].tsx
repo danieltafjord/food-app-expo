@@ -1,16 +1,17 @@
-import { router, useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
+import { router, useLocalSearchParams, useNavigation } from 'expo-router';
+import { useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, StyleSheet, View } from 'react-native';
 
 import { Button } from '@/components/button';
 import { Card } from '@/components/card';
-import { IngredientPicker } from '@/components/ingredient-picker';
 import { Screen } from '@/components/screen';
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { parseQuantity } from '@/lib/format';
 import { useT } from '@/lib/i18n';
+import { openIngredientPicker } from '@/lib/sheets';
 import {
   deleteDinner,
   getIngredient,
@@ -48,9 +49,15 @@ type EditorItem = {
   unit: string;
 };
 
+/** Snapshot of the editable fields, for a cheap "has anything changed" check. */
+function draftKey(name: string, servings: string, notes: string, items: EditorItem[]): string {
+  return JSON.stringify([name, servings, notes, items]);
+}
+
 function DinnerEditorForm({ dinner }: { dinner: DinnerWithItems }) {
   const t = useT();
   const theme = useTheme();
+  const navigation = useNavigation();
   const [name, setName] = useState(dinner.name);
   const [servings, setServings] = useState(String(dinner.default_servings));
   const [notes, setNotes] = useState(dinner.notes ?? '');
@@ -62,10 +69,34 @@ function DinnerEditorForm({ dinner }: { dinner: DinnerWithItems }) {
       unit: item.unit ?? '',
     })),
   );
-  const [pickerOpen, setPickerOpen] = useState(false);
+  // What the form looked like when it opened; compared against the live draft
+  // to decide whether leaving would lose anything.
+  const [initialKey] = useState(() => draftKey(name, servings, notes, items));
+  const dirty = draftKey(name, servings, notes, items) !== initialKey;
+  // Set by Save / Delete right before they navigate back, so the guard below
+  // lets a deliberate exit through without asking.
+  const leaving = useRef(false);
+
+  // Edits live only in this form until "Save"; the header back button and the
+  // swipe-back gesture would otherwise throw them away silently. Intercept the
+  // removal and ask first.
+  useEffect(() => {
+    if (!dirty) return;
+    return navigation.addListener('beforeRemove', (event) => {
+      if (leaving.current) return;
+      event.preventDefault();
+      Alert.alert(t('dinners.discardTitle'), t('dinners.discardMessage'), [
+        { text: t('dinners.keepEditing'), style: 'cancel' },
+        {
+          text: t('dinners.discard'),
+          style: 'destructive',
+          onPress: () => navigation.dispatch(event.data.action),
+        },
+      ]);
+    });
+  }, [navigation, dirty, t]);
 
   function addIngredient(ingredient: LocalIngredient) {
-    setPickerOpen(false);
     setItems((current) => {
       if (current.some((item) => item.ingredient_id === ingredient.id)) {
         return current;
@@ -101,10 +132,11 @@ function DinnerEditorForm({ dinner }: { dinner: DinnerWithItems }) {
       notes: notes.trim() || null,
       items: items.map((item) => ({
         ingredient_id: item.ingredient_id,
-        quantity: item.quantity.trim() ? Number(item.quantity) : null,
+        quantity: parseQuantity(item.quantity),
         unit: item.unit.trim() || null,
       })),
     });
+    leaving.current = true;
     router.back();
   }
 
@@ -116,6 +148,7 @@ function DinnerEditorForm({ dinner }: { dinner: DinnerWithItems }) {
         style: 'destructive',
         onPress: () => {
           deleteDinner(dinner.id);
+          leaving.current = true;
           router.back();
         },
       },
@@ -174,7 +207,12 @@ function DinnerEditorForm({ dinner }: { dinner: DinnerWithItems }) {
                       placeholder="g"
                     />
                   </View>
-                  <Pressable onPress={() => removeItem(index)} hitSlop={10} style={styles.removeItem}>
+                  <Pressable
+                    onPress={() => removeItem(index)}
+                    accessibilityRole="button"
+                    accessibilityLabel={t('a11y.removeIngredient')}
+                    hitSlop={10}
+                    style={styles.removeItem}>
                     <ThemedText themeColor="textSecondary">✕</ThemedText>
                   </Pressable>
                 </View>
@@ -186,7 +224,7 @@ function DinnerEditorForm({ dinner }: { dinner: DinnerWithItems }) {
           title={t('dinners.addIngredient')}
           variant="secondary"
           size="small"
-          onPress={() => setPickerOpen(true)}
+          onPress={() => openIngredientPicker(addIngredient)}
         />
       </View>
 
@@ -200,12 +238,6 @@ function DinnerEditorForm({ dinner }: { dinner: DinnerWithItems }) {
 
       <Button title={t('dinners.saveDinner')} onPress={onSave} disabled={!name.trim()} />
       <Button title={t('dinners.deleteDinner')} variant="secondary" onPress={onDelete} />
-
-      <IngredientPicker
-        visible={pickerOpen}
-        onClose={() => setPickerOpen(false)}
-        onPick={addIngredient}
-      />
     </Screen>
   );
 }

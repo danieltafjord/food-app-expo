@@ -1,11 +1,8 @@
 import { router } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
-import { useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { DinnerPicker } from '@/components/dinner-picker';
-import { EntryEditor, type EntryEdit } from '@/components/entry-editor';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { WeekBoard } from '@/components/week-board';
@@ -14,18 +11,13 @@ import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/lib/i18n';
 import { setPlannerWeekKey, usePlannerWeekKey } from '@/lib/planner-state';
 import {
-  createPlanEntry,
-  deletePlanEntry,
-  ensurePlanForWeek,
   updatePlanEntry,
   useLocale,
   usePlanEntries,
   usePlanForWeek,
-  type DinnerWithItems,
   type PlanEntryWithDinner,
 } from '@/lib/store';
 import {
-  addDays,
   addWeeks,
   buildWeek,
   dateKeyOf,
@@ -41,11 +33,8 @@ export default function PlansScreen() {
   const locale = useLocale();
   const weekStartKey = usePlannerWeekKey();
   const weekStart = fromDateKey(weekStartKey);
-  const [pickerDate, setPickerDate] = useState<string | null>(null);
-  const [editingEntry, setEditingEntry] = useState<PlanEntryWithDinner | null>(null);
 
   const days = buildWeek(weekStart, locale);
-  const weekEndKey = toDateKey(addDays(weekStart, 6));
   const label = weekLabel(weekStart, locale);
   const isCurrentWeek = weekStartKey === toDateKey(startOfWeek(new Date()));
 
@@ -58,37 +47,18 @@ export default function PlansScreen() {
     (entriesByDate[key] ??= []).push(entry);
   }
 
-  // Create the week's plan lazily, the first time a dinner is added to it.
-  function onPickDinner(dinner: DinnerWithItems) {
-    if (!pickerDate) {
-      return;
-    }
-    const planId = ensurePlanForWeek(weekStartKey, weekEndKey, t('plans.weekOf', { label }));
-    createPlanEntry(planId, {
-      dinner_id: dinner.id,
-      scheduled_date: pickerDate,
-      servings: dinner.default_servings,
-      meal_type: 'dinner',
-    });
-    setPickerDate(null);
-  }
-
   function onMove(entryId: string, toDate: string) {
     updatePlanEntry(entryId, { scheduled_date: toDate });
   }
 
+  // Adding and editing happen in native sheets (root routes) that write to the
+  // store; the board re-renders reactively when they close.
+  function onAdd(date: string) {
+    router.push({ pathname: '/sheets/dinner-picker', params: { date } });
+  }
+
   function onEditEntry(entryId: string) {
-    setEditingEntry(entries.find((e) => e.id === entryId) ?? null);
-  }
-
-  function onSaveEntry(entry: PlanEntryWithDinner, edit: EntryEdit) {
-    updatePlanEntry(entry.id, { servings: edit.servings });
-    setEditingEntry(null);
-  }
-
-  function onRemoveEntry(entry: PlanEntryWithDinner) {
-    deletePlanEntry(entry.id);
-    setEditingEntry(null);
+    router.push({ pathname: '/sheets/entry-editor', params: { entryId } });
   }
 
   return (
@@ -98,6 +68,7 @@ export default function PlansScreen() {
           <View style={styles.weekNav}>
             <NavButton
               label="‹"
+              accessibilityLabel={t('a11y.previousWeek')}
               onPress={() => setPlannerWeekKey(toDateKey(addWeeks(weekStart, -1)))}
             />
             <View style={styles.weekLabel}>
@@ -107,7 +78,7 @@ export default function PlansScreen() {
                 style={({ pressed }) => [styles.weekLabelButton, pressed && styles.pressed]}>
                 <ThemedText type="smallBold">{label}</ThemedText>
                 <SymbolView
-                  name="chevron.down"
+                  name={{ ios: 'chevron.down', android: 'keyboard_arrow_down', web: 'keyboard_arrow_down' }}
                   size={11}
                   tintColor={theme.textSecondary}
                   type="monochrome"
@@ -129,6 +100,7 @@ export default function PlansScreen() {
             </View>
             <NavButton
               label="›"
+              accessibilityLabel={t('a11y.nextWeek')}
               onPress={() => setPlannerWeekKey(toDateKey(addWeeks(weekStart, 1)))}
             />
           </View>
@@ -139,33 +111,29 @@ export default function PlansScreen() {
             days={days}
             entriesByDate={entriesByDate}
             onMove={onMove}
-            onAdd={setPickerDate}
+            onAdd={onAdd}
             onEdit={onEditEntry}
           />
         </View>
       </SafeAreaView>
-
-      <DinnerPicker
-        visible={pickerDate !== null}
-        date={pickerDate}
-        onClose={() => setPickerDate(null)}
-        onPick={onPickDinner}
-      />
-
-      <EntryEditor
-        entry={editingEntry}
-        onClose={() => setEditingEntry(null)}
-        onSave={onSaveEntry}
-        onRemove={onRemoveEntry}
-      />
     </ThemedView>
   );
 }
 
-function NavButton({ label, onPress }: { label: string; onPress: () => void }) {
+function NavButton({
+  label,
+  accessibilityLabel,
+  onPress,
+}: {
+  label: string;
+  accessibilityLabel: string;
+  onPress: () => void;
+}) {
   return (
     <Pressable
       onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
       hitSlop={10}
       style={({ pressed }) => [styles.navButton, pressed && styles.pressed]}>
       <ThemedText type="title" style={styles.navButtonText}>

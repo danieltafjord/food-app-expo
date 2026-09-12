@@ -88,8 +88,23 @@ function v1_categorizeIngredients(data: Json): Json {
   return data;
 }
 
+/**
+ * v2 → v3: the sync cursor became an integer version (`meta.cursor`) and the
+ * device now records which server household it is bound to. The old timestamp
+ * cursor is dropped; a null cursor simply re-runs the first sync, which merges
+ * by uuid and loses nothing.
+ */
+function v2_integerCursor(data: Json): Json {
+  const meta = (data.meta ?? {}) as Json;
+  delete meta.lastSync;
+  if (typeof meta.cursor !== 'number') meta.cursor = null;
+  if (typeof meta.serverHouseholdId !== 'number') meta.serverHouseholdId = null;
+  data.meta = meta;
+  return data;
+}
+
 /** Ordered migrations. Append a new function to bump the schema version by one. */
-const MIGRATIONS: Migration[] = [v0_backfillTimestamps, v1_categorizeIngredients];
+const MIGRATIONS: Migration[] = [v0_backfillTimestamps, v1_categorizeIngredients, v2_integerCursor];
 
 export const CURRENT_SCHEMA_VERSION = MIGRATIONS.length;
 

@@ -57,8 +57,19 @@ export const store$ = observable({
      * outbox survives restarts. Keyed by client collection name
      * (`dinnerItems`, `planEntries`, …).
      */
-    /** Opaque `server_time` cursor from the last successful sync; null = never synced. */
-    lastSync: null as string | null,
+    /**
+     * Integer cursor returned by the last successful sync (the household's
+     * `sync_version` at that point); null = never synced. Every pull asks for
+     * rows above it.
+     */
+    cursor: null as number | null,
+    /**
+     * The server household this device's data is bound to (null until the
+     * first sync). A sync is refused if the account's active household differs,
+     * so one household's rows can never be uploaded into another — the device
+     * is re-bound (local copy wiped and re-pulled) instead. See `engine.ts`.
+     */
+    serverHouseholdId: null as number | null,
     /** Rows with local edits not yet acknowledged by the server: collection → uuid. */
     dirty: {} as Record<string, Record<string, true>>,
     /** Deleted rows awaiting a tombstone push: collection → uuid → deleted_at ISO. */

@@ -122,7 +122,7 @@ export default function WeeksScreen() {
             accessibilityRole="button"
             style={({ pressed }) => pressed && styles.pressed}>
             <SymbolView
-              name="xmark.circle.fill"
+              name={{ ios: 'xmark.circle.fill', android: 'cancel', web: 'cancel' }}
               size={28}
               tintColor={theme.textSecondary}
               type="hierarchical"

@@ -7,6 +7,7 @@ export {
   bindAccount,
   getBoundAccountId,
   resetLocalDataForAccount,
+  resetLocalDataForHousehold,
 } from './account';
 export { newId, nowIso } from './ids';
 export { whenHydrated } from './persistence';

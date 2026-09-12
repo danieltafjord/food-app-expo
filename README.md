@@ -1,56 +1,82 @@
-# Welcome to your Expo app 👋
+# Handlelista (food-app-expo)
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Offline-first meal planner and shopping list for households. Plan dinners for
+the week, keep recipes with ingredients, and generate an aisle-grouped shopping
+list — all on-device with no account. Optionally connect a cloud account to
+share and sync a household across devices.
 
-## Get started
+The backend is the Laravel app in `../food-app` (Passport OAuth, REST + a
+batched `/api/v1/sync` endpoint).
 
-1. Install dependencies
+## Stack
+
+- Expo SDK 56 · React Native 0.85 · React 19 (React Compiler on) · expo-router
+  with native tabs · TypeScript
+- Local store: Legend-State v3 persisted to expo-sqlite (`src/lib/store/`)
+- Cloud sync engine: `src/lib/sync/` · Auth: OAuth2 PKCE via `expo-auth-session`
+- Tests: jest (`npm test`), pure-logic tests under `src/**/*.test.ts`
+
+## Requirements
+
+- A **development build** — the app uses native modules (native tabs, SecureStore,
+  SQLite, haptics) that Expo Go does not ship.
+- Xcode 26 / CocoaPods for iOS. `patches/` carries Swift 6.2 fixes for
+  `expo-modules-core` / `expo-modules-jsi` that `patch-package` applies on
+  `npm install`; keep them until Expo ships a compatible release.
+- Node 22+.
+
+## Run locally
+
+1. Backend: `food-app` served by Laravel Herd at `http://food-app.test`
+   (migrated, with a public Passport client — see below). Invitation e-mails go
+   through the queue: `php artisan queue:work` in `../food-app`.
+2. Copy `.env.example` to `.env` and fill in `EXPO_PUBLIC_OAUTH_CLIENT_ID`.
+3. Build and install the native app (the locale exports are required, or
+   CocoaPods aborts with an encoding error in a non-interactive shell):
 
    ```bash
    npm install
+   export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
+   npx expo run:ios --device "iPhone 17 Pro"
    ```
 
-2. Start the app
+4. Start Metro and open the app: `npx expo start --dev-client`, then press `i`.
 
-   ```bash
-   npx expo start
-   ```
+The app boots straight into the Plans tab. "Connect cloud account" lives under
+the Account tab.
 
-In the output, you'll find options to open the app in a
+## Environment variables
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+| Variable                       | Purpose                                                             |
+| ------------------------------ | ------------------------------------------------------------------- |
+| `EXPO_PUBLIC_API_URL`          | Backend origin. Dev default `http://food-app.test`; required in release builds. |
+| `EXPO_PUBLIC_OAUTH_CLIENT_ID`  | Public Passport client id. Empty or `REPLACE_WITH_…` hides sign-in. |
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+Create the Passport client once per backend environment:
 
 ```bash
-npm run reset-project
+php artisan passport:client --public \
+  --name="Food App Mobile" \
+  --redirect_uri="foodapp://oauth/callback"
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+Per-profile values for EAS builds live in `eas.json`; replace the
+`REPLACE_WITH_*` placeholders (or use EAS secrets) before building `preview` /
+`production`. The iOS ATS exception for `food-app.test` is added by
+`app.config.ts` for every profile except `production`.
 
-### Other setup steps
+## Checks
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+```bash
+npx tsc --noEmit
+npx expo lint
+npm test
+```
 
-## Learn more
+## Gotchas
 
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+- iOS Simulator builds without an Apple team can't use the Keychain; the session
+  then lives in memory only (lost on a full relaunch, kept across Fast Refresh).
+- Physical devices need your machine's LAN IP (or a tunnel) in
+  `EXPO_PUBLIC_API_URL`, not `food-app.test`.
+- Deep links for invitations: see `docs/deep-links.md`.

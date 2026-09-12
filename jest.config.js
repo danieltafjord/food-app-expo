@@ -1,6 +1,8 @@
 /** @type {import('jest').Config} */
 module.exports = {
   testEnvironment: 'node',
+  // React Native defines this at runtime; app code branches on it.
+  globals: { __DEV__: true },
   // Transform app + Legend-State (ESM) via Babel; everything else in node_modules
   // is left as-is. No jest-expo preset — these are pure-logic tests and the preset
   // drags in Expo's winter runtime, which fights jest's module sandbox.
@@ -19,6 +21,7 @@ module.exports = {
     '\\.css$': '<rootDir>/jest/empty.js',
     '^expo-crypto$': '<rootDir>/jest/mock-expo-crypto.js',
     '^expo-localization$': '<rootDir>/jest/mock-expo-localization.js',
+    '^expo/virtual/env$': '<rootDir>/jest/mock-expo-env.js',
   },
   testMatch: ['<rootDir>/src/**/*.test.ts', '<rootDir>/src/**/*.test.tsx'],
 };

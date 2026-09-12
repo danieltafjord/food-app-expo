@@ -47,12 +47,12 @@ export function bindAccount(accountId: number): void {
 }
 
 /**
- * Rebind the device to a different account: wipe every local entity and the sync
- * outbox, reset the sync cursor, seed a fresh local household, and bind to the new
- * account. The wiped data is NOT lost — it was already synced under the previous
- * account and reappears if the user signs back into it.
+ * Wipe every local entity and the sync outbox, reset the cursor, and seed a
+ * fresh local household. The wiped data is NOT lost — it was already synced to
+ * the server and comes back on the next pull for whichever household/account the
+ * device is bound to afterwards.
  */
-export function resetLocalDataForAccount(accountId: number): void {
+function wipeLocalData(): void {
   batch(() => {
     store$.households.set({});
     store$.ingredients.set({});
@@ -65,10 +65,29 @@ export function resetLocalDataForAccount(accountId: number): void {
 
     store$.meta.dirty.set({});
     store$.meta.tombstones.set({});
-    store$.meta.lastSync.set(null);
+    store$.meta.cursor.set(null);
+    store$.meta.serverHouseholdId.set(null);
     store$.meta.localHouseholdId.set('');
-    store$.meta.accountId.set(accountId);
   });
   // Recreate the implicit on-device household so the app always has somewhere to write.
   ensureLocalHousehold();
+}
+
+/**
+ * Rebind the device to a different account: wipe the local copy and bind to the
+ * new account. The data reappears if the user signs back into the previous one.
+ */
+export function resetLocalDataForAccount(accountId: number): void {
+  wipeLocalData();
+  store$.meta.accountId.set(accountId);
+}
+
+/**
+ * Rebind the device to a different server household of the same account (the
+ * user switched, created, or joined one). The previous household's rows stay on
+ * the server; the local copy is wiped and the new household is pulled fresh.
+ */
+export function resetLocalDataForHousehold(householdId: number): void {
+  wipeLocalData();
+  store$.meta.serverHouseholdId.set(householdId);
 }

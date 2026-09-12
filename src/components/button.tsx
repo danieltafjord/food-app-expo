@@ -7,13 +7,14 @@ import {
 } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
-import { Spacing } from '@/constants/theme';
-import { useTheme } from '@/hooks/use-theme';
+import { BadgeColors, Spacing } from '@/constants/theme';
+import { useResolvedScheme, useTheme } from '@/hooks/use-theme';
 
 export type ButtonProps = Omit<PressableProps, 'style'> & {
   title: string;
   loading?: boolean;
-  variant?: 'primary' | 'secondary';
+  /** `danger` is the soft red tint for destructive actions (remove, delete). */
+  variant?: 'primary' | 'secondary' | 'danger';
   size?: 'default' | 'small';
   style?: PressableProps['style'];
 };
@@ -28,8 +29,12 @@ export function Button({
   ...rest
 }: ButtonProps) {
   const theme = useTheme();
+  const danger = BadgeColors[useResolvedScheme()].danger;
   const isPrimary = variant === 'primary';
+  const isDanger = variant === 'danger';
   const isDisabled = disabled || loading;
+  const background = isPrimary ? theme.tint : isDanger ? danger.bg : theme.backgroundSelected;
+  const foreground = isPrimary ? theme.onTint : isDanger ? danger.fg : theme.text;
 
   return (
     <Pressable
@@ -38,19 +43,18 @@ export function Button({
       style={(state: PressableStateCallbackType) => [
         styles.base,
         size === 'small' && styles.small,
-        { backgroundColor: isPrimary ? theme.tint : theme.backgroundSelected },
+        { backgroundColor: background },
         isDisabled && styles.disabled,
         state.pressed && styles.pressed,
         typeof style === 'function' ? style(state) : style,
       ]}
       {...rest}>
       {loading ? (
-        <ActivityIndicator color={isPrimary ? theme.onTint : theme.text} />
+        <ActivityIndicator color={foreground} />
       ) : (
         <ThemedText
           type={size === 'small' ? 'small' : 'default'}
-          style={styles.label}
-          themeColor={isPrimary ? 'onTint' : 'text'}>
+          style={[styles.label, { color: foreground }]}>
           {title}
         </ThemedText>
       )}
