@@ -1,7 +1,7 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useMemo, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
+import { FlatList, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 
 import { SheetScreen } from '@/components/sheet';
 import { TextField } from '@/components/text-field';
@@ -23,8 +23,10 @@ import {
 import { addDays, fromDateKey, startOfWeek, toDateKey, weekLabel } from '@/lib/week';
 
 // Snappy enough that the list still feels instant, long enough to read as motion.
+// Only the single action card and the "recent" strip animate; list rows do not.
+// Exit + layout animations on every row meant a keystroke that narrows a long
+// list kept ~all the dropped rows alive to fade them, while the keyboard was up.
 const SWAP = 140;
-const REFLOW = LinearTransition.duration(SWAP);
 const FADE_IN = FadeIn.duration(SWAP);
 const FADE_OUT = FadeOut.duration(SWAP);
 /** How many recently planned dinners get a one-tap chip above the list. */
@@ -32,11 +34,9 @@ const RECENT_COUNT = 6;
 const DAY_MS = 86_400_000;
 
 /** "Laget for 2 uker siden" / "Planlagt 15. sep." / "Ikke planlagt ennå". */
-function recencyLabel(t: TFunction, lastPlanned: string | null, todayKey: string): string {
+function recencyLabel(t: TFunction, lastPlanned: string | null, todayMs: number): string {
   if (!lastPlanned) return t('dinnerPicker.neverPlanned');
-  const days = Math.round(
-    (fromDateKey(todayKey).getTime() - fromDateKey(lastPlanned).getTime()) / DAY_MS,
-  );
+  const days = Math.round((todayMs - fromDateKey(lastPlanned).getTime()) / DAY_MS);
   if (days < 0) return t('dinnerPicker.plannedOn', { date: formatDay(lastPlanned) });
   if (days === 0) return t('dinnerPicker.madeToday');
   if (days === 1) return t('dinnerPicker.madeYesterday');
@@ -77,7 +77,7 @@ export default function DinnerPickerSheet() {
     () => dinners.filter((d) => d.last_planned).slice(0, RECENT_COUNT),
     [dinners],
   );
-  const todayKey = toDateKey(new Date());
+  const todayMs = fromDateKey(toDateKey(new Date())).getTime();
 
   function schedule(dinner: LocalDinner) {
     if (!date) return;
@@ -221,32 +221,35 @@ export default function DinnerPickerSheet() {
         </Animated.View>
       ) : null}
 
-      <Animated.FlatList
-        layout={REFLOW}
+      <FlatList
         data={results}
         keyExtractor={(dinner) => dinner.id}
         style={styles.list}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
-        itemLayoutAnimation={REFLOW}
+        // The sheet opens at 60% height: mount roughly one screen of rows and
+        // keep the render window tight so a keystroke re-renders a dozen rows,
+        // not the household's whole recipe list.
+        initialNumToRender={12}
+        maxToRenderPerBatch={12}
+        windowSize={5}
+        removeClippedSubviews
         renderItem={({ item: dinner }) => (
-          <Animated.View entering={FADE_IN} exiting={FADE_OUT}>
-            <Pressable
-              onPress={() => schedule(dinner)}
-              accessibilityRole="button"
-              style={({ pressed }) => [
-                styles.row,
-                { borderBottomColor: theme.border },
-                pressed && styles.pressed,
-              ]}>
-              <ThemedText style={styles.flex} numberOfLines={1}>
-                {dinner.name}
-              </ThemedText>
-              <ThemedText type="small" themeColor="textSecondary">
-                {recencyLabel(t, dinner.last_planned, todayKey)}
-              </ThemedText>
-            </Pressable>
-          </Animated.View>
+          <Pressable
+            onPress={() => schedule(dinner)}
+            accessibilityRole="button"
+            style={({ pressed }) => [
+              styles.row,
+              { borderBottomColor: theme.border },
+              pressed && styles.pressed,
+            ]}>
+            <ThemedText style={styles.flex} numberOfLines={1}>
+              {dinner.name}
+            </ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">
+              {recencyLabel(t, dinner.last_planned, todayMs)}
+            </ThemedText>
+          </Pressable>
         )}
         ListEmptyComponent={
           <Animated.View entering={FADE_IN} style={styles.empty}>

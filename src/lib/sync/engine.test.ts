@@ -141,7 +141,12 @@ describe('first sync', () => {
   it('waits when the account has no household yet', async () => {
     const noHousehold = () => ({ current_household: null });
     const server = fakeServer([noHousehold, noHousehold]);
-    await connect(server);
+    setSyncAuth(server.request);
+    await connectCollections();
+    // The launch cycle is deferred past the splash reveal, and runs by itself.
+    expect(server.calls).toHaveLength(0);
+    await jest.advanceTimersByTimeAsync(1500);
+    await syncNow();
     // Both cycles stop at /me: nothing is pushed until a household exists.
     expect(server.calls.map((c) => c.path)).toEqual(['/me', '/me']);
     expect(store$.meta.cursor.get()).toBeNull();

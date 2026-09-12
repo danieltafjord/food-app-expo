@@ -111,12 +111,15 @@ async function removeItem(key: string): Promise<void> {
 }
 
 export async function loadSession(): Promise<StoredSession | null> {
-  const accessToken = await getItem(ACCESS_KEY);
+  // Three keychain round-trips on the launch path — issue them together.
+  const [accessToken, refreshToken, expiresRaw] = await Promise.all([
+    getItem(ACCESS_KEY),
+    getItem(REFRESH_KEY),
+    getItem(EXPIRES_KEY),
+  ]);
   if (!accessToken) {
     return null;
   }
-  const refreshToken = await getItem(REFRESH_KEY);
-  const expiresRaw = await getItem(EXPIRES_KEY);
   const expiresAt = expiresRaw ? Number(expiresRaw) : null;
 
   return {

@@ -27,30 +27,38 @@ import { isStoreHydrated, whenHydrated } from './persistence';
  * Cloud sync is attached separately, by `SessionProvider`, once the user signs
  * in — see `connectCollections()` in `@/lib/sync/engine`.
  */
+/**
+ * Run the boot sequence, returning the error instead of throwing. Idempotent
+ * (`bootStore` latches), so a retry or a second caller is a cheap no-op.
+ */
+function tryBoot(): unknown {
+  try {
+    bootStore();
+    // Track edits into the sync outbox from the very first write, signed in
+    // or not, so a delete made while signed out still reaches the server.
+    ensureChangeTracking();
+    return null;
+  } catch (error) {
+    return error;
+  }
+}
+
 export function StoreProvider({ children }: { children: ReactNode }) {
   const hydrated = useValue(isStoreHydrated);
+  // Hydration is synchronous with the SQLite plugin, so on a normal launch the
+  // store is loaded by the time this first renders: boot (migrations, seeding)
+  // runs right here, before any child can read an un-migrated row. The effect
+  // below covers a plugin that loads asynchronously.
+  const [bootError, setBootError] = useState<unknown>(() => (hydrated ? tryBoot() : null));
   const householdId = useValue(store$.meta.localHouseholdId);
-  const [bootError, setBootError] = useState<unknown>(null);
 
   const runBoot = useCallback(() => {
-    whenHydrated
-      .then(() => {
-        try {
-          bootStore();
-          // Track edits into the sync outbox from the very first write, signed in
-          // or not, so a delete made while signed out still reaches the server.
-          ensureChangeTracking();
-          setBootError(null);
-        } catch (error) {
-          setBootError(error);
-        }
-      })
-      .catch(setBootError);
+    whenHydrated.then(() => setBootError(tryBoot())).catch(setBootError);
   }, []);
 
   useEffect(() => {
-    runBoot();
-  }, [runBoot]);
+    if (!hydrated) runBoot();
+  }, [hydrated, runBoot]);
 
   if (bootError) {
     const error = bootError instanceof Error ? bootError : new Error(String(bootError));

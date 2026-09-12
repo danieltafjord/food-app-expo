@@ -5,7 +5,7 @@
  * is disabled here (same as week-board.tsx).
  */
 /* eslint-disable react-hooks/immutability */
-import { type ReactNode } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
@@ -43,19 +43,29 @@ export function SwipeToDelete({ children, onDelete, label }: SwipeToDeleteProps)
   const translateX = useSharedValue(0);
   const startX = useSharedValue(0);
 
-  const pan = Gesture.Pan()
-    .activeOffsetX([-12, 12])
-    .failOffsetY([-12, 12])
-    .onStart(() => {
-      startX.value = translateX.value;
-    })
-    .onUpdate((event) => {
-      translateX.value = Math.min(0, Math.max(startX.value + event.translationX, -ACTION_WIDTH));
-    })
-    .onEnd(() => {
-      const open = translateX.value < -ACTION_WIDTH / 2;
-      translateX.value = withTiming(open ? -ACTION_WIDTH : 0, { duration: 160 });
-    });
+  // Built once per row: the compiler skips this component, and a rebuilt
+  // gesture on every render means a new handler pushed to the native side for
+  // every row whenever the list re-renders. The only captures are shared values.
+  const pan = useMemo(
+    () =>
+      Gesture.Pan()
+        .activeOffsetX([-12, 12])
+        .failOffsetY([-12, 12])
+        .onStart(() => {
+          startX.value = translateX.value;
+        })
+        .onUpdate((event) => {
+          translateX.value = Math.min(
+            0,
+            Math.max(startX.value + event.translationX, -ACTION_WIDTH),
+          );
+        })
+        .onEnd(() => {
+          const open = translateX.value < -ACTION_WIDTH / 2;
+          translateX.value = withTiming(open ? -ACTION_WIDTH : 0, { duration: 160 });
+        }),
+    [startX, translateX],
+  );
 
   const rowStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: translateX.value }],

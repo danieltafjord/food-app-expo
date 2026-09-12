@@ -1,4 +1,5 @@
 import { useValue } from '@legendapp/state/react';
+import { createContext, use } from 'react';
 
 import { DEFAULT_LOCALE, getDeviceLocale, isLocale, type Locale } from '@/lib/i18n/locale';
 
@@ -30,12 +31,24 @@ export function setThemePreference(theme: ThemePreference): void {
   store$.settings.theme.set(theme);
 }
 
-/** Reactive read of the active language, falling back to the default. */
-export function useLocale(): Locale {
+/**
+ * The active language, resolved once at the root (`useLocaleSource` in
+ * `ThemedRoot`) and shared through context, so `useT()` in every leaf is a
+ * context read rather than a store subscription per component.
+ */
+export const LocaleContext = createContext<Locale | null>(null);
+
+/** The reactive source of the active language. Root only. */
+export function useLocaleSource(): Locale {
   return useValue(() => {
     const stored = store$.settings.locale.get();
     return isLocale(stored) ? stored : DEFAULT_LOCALE;
   });
+}
+
+/** The active language. Outside the provider it is a one-off, non-reactive read. */
+export function useLocale(): Locale {
+  return use(LocaleContext) ?? getLocale();
 }
 
 /** Non-reactive accessor (for use outside React). */

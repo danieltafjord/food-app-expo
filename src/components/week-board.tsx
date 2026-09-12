@@ -12,6 +12,7 @@
  */
 /* eslint-disable react-hooks/immutability */
 import { SymbolView } from 'expo-symbols';
+import { memo } from 'react';
 import {
   Pressable,
   RefreshControl,
@@ -58,6 +59,9 @@ const MAX_SCROLL_SPEED = 14;
  * never during the drag, which moves cards via transforms, not layout.
  */
 const REFLOW = LinearTransition.springify().damping(24).stiffness(200).mass(0.7);
+
+/** Shared empty list so a day with no dinners gets the same prop every render. */
+const NO_ENTRIES: PlanEntryWithDinner[] = [];
 
 type ScrollRef = ReturnType<typeof useAnimatedRef<Animated.ScrollView>>;
 /** Per-day [top, height] within the scroll content, filled by each section's onLayout. */
@@ -170,7 +174,7 @@ export function WeekBoard({ days, entriesByDate, onMove, onAdd, onEdit }: WeekBo
           day={day}
           index={index}
           dayDates={dayDates}
-          entries={entriesByDate[day.date] ?? []}
+          entries={entriesByDate[day.date] ?? NO_ENTRIES}
           scrollRef={scrollRef}
           scrollOffset={scrollOffset}
           layouts={layouts}
@@ -331,7 +335,15 @@ type DraggableDinnerCardProps = {
   onEdit: (entryId: string) => void;
 };
 
-function DraggableDinnerCard({
+/**
+ * Memoised by hand: the React Compiler skips this component (it writes to
+ * shared values it receives as props), so without `memo` every render of the
+ * board — a pull-to-refresh toggle, a plan change on another week — rebuilt
+ * every card's gestures and pushed new handlers to the native side. Its props
+ * are all referentially stable between real changes (shared values, callbacks,
+ * and the entry object from the cached plan selector).
+ */
+const DraggableDinnerCard = memo(function DraggableDinnerCard({
   entry,
   sourceIndex,
   dayDates,
@@ -454,7 +466,7 @@ function DraggableDinnerCard({
       </Animated.View>
     </GestureDetector>
   );
-}
+});
 
 const styles = StyleSheet.create({
   scroll: {

@@ -1,8 +1,12 @@
 import { translate } from '@/lib/i18n';
+import { dateFormatter, numberFormatter } from '@/lib/intl';
 import { getLocale } from '@/lib/store/settings';
 import { fromDateKey } from '@/lib/week';
 
 const DATE_KEY = /^\d{4}-\d{2}-\d{2}$/;
+
+const SHORT_DATE: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric', year: 'numeric' };
+const SHORT_DAY: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' };
 
 /**
  * Format an ISO-8601 datetime or a `YYYY-MM-DD` date key as a short date in the
@@ -19,7 +23,7 @@ export function formatDate(iso: string | null | undefined): string {
   if (Number.isNaN(date.getTime())) {
     return iso;
   }
-  return date.toLocaleDateString(getLocale(), { month: 'short', day: 'numeric', year: 'numeric' });
+  return dateFormatter(getLocale(), SHORT_DATE).format(date);
 }
 
 /** Like `formatDate` but without the year — for dates near today ("12. sep."). */
@@ -31,7 +35,7 @@ export function formatDay(iso: string | null | undefined): string {
   if (Number.isNaN(date.getTime())) {
     return iso;
   }
-  return date.toLocaleDateString(getLocale(), { month: 'short', day: 'numeric' });
+  return dateFormatter(getLocale(), SHORT_DAY).format(date);
 }
 
 /** Render a plan's date range, tolerating missing ends. */
@@ -65,7 +69,7 @@ export function parseQuantity(text: string): number | null {
 /** "2 kg", "200 g", "1,5 l" (nb) / "1.5 l" (en), or "" when both are missing. */
 export function formatQuantity(quantity: number | null, unit: string | null): string {
   const amount =
-    quantity != null && Number.isFinite(quantity) ? quantity.toLocaleString(getLocale()) : '';
+    quantity != null && Number.isFinite(quantity) ? numberFormatter(getLocale()).format(quantity) : '';
   return [amount, unit ?? ''].filter(Boolean).join(' ');
 }
 

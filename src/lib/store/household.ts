@@ -63,8 +63,7 @@ export function useLocalHousehold(): LocalHousehold | undefined {
 export function renameLocalHousehold(name: string): void {
   const id = store$.meta.localHouseholdId.get();
   if (!id) return;
-  store$.households[id].name.set(name);
-  store$.households[id].updated_at.set(nowIso());
+  store$.households[id].assign({ name, updated_at: nowIso() });
 }
 
 /** Reactive read of the household's default servings, with a sane fallback. */
@@ -87,8 +86,9 @@ export function getHouseholdDefaultServings(): number {
 export function setHouseholdDefaultServings(servings: number): void {
   const id = store$.meta.localHouseholdId.get();
   if (!id) return;
-  store$.households[id].default_servings.set(servings);
-  store$.households[id].updated_at.set(nowIso());
+  const household$ = store$.households[id];
+  if (household$.default_servings.get() === servings) return; // nothing to write
+  household$.assign({ default_servings: servings, updated_at: nowIso() });
 }
 
 /**

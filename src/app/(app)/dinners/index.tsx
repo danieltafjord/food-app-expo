@@ -22,21 +22,6 @@ export default function DinnersScreen() {
   const t = useT();
   const dinners = useDinners();
   const { refreshing, onRefresh } = useSyncRefresh();
-  const [name, setName] = useState('');
-  // Guards against a keyboard "done" + button tap both firing one create; reset
-  // when the user starts typing the next name (the field is always visible here).
-  const submitted = useRef(false);
-
-  function onCreate() {
-    const trimmed = name.trim();
-    if (!trimmed || submitted.current) {
-      return;
-    }
-    submitted.current = true;
-    const id = createDinner({ name: trimmed });
-    setName('');
-    router.push({ pathname: '/dinners/[id]', params: { id } });
-  }
 
   function openDinner(id: string) {
     router.push({ pathname: '/dinners/[id]', params: { id } });
@@ -60,26 +45,7 @@ export default function DinnersScreen() {
         automaticallyAdjustKeyboardInsets
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         contentContainerStyle={styles.content}
-        ListHeaderComponent={
-          <View style={styles.header}>
-            <Card>
-              <ThemedText type="smallBold">{t('dinners.newDinner')}</ThemedText>
-              <TextField
-                label={t('dinners.name')}
-                placeholder={t('dinners.namePlaceholder')}
-                value={name}
-                onChangeText={(text) => {
-                  submitted.current = false;
-                  setName(text);
-                }}
-                autoCapitalize="sentences"
-                returnKeyType="done"
-                onSubmitEditing={onCreate}
-              />
-              <Button title={t('dinners.createAndAdd')} onPress={onCreate} disabled={!name.trim()} />
-            </Card>
-          </View>
-        }
+        ListHeaderComponent={<NewDinnerCard />}
         ListEmptyComponent={
           <ThemedText themeColor="textSecondary">{t('dinners.empty')}</ThemedText>
         }
@@ -88,6 +54,50 @@ export default function DinnersScreen() {
         style={styles.flex}
       />
     </ThemedView>
+  );
+}
+
+/**
+ * The "new dinner" form owns its own draft state, so a keystroke re-renders
+ * this card only — not the list owner above it and every mounted row with it.
+ */
+function NewDinnerCard() {
+  const t = useT();
+  const [name, setName] = useState('');
+  // Guards against a keyboard "done" + button tap both firing one create; reset
+  // when the user starts typing the next name (the field is always visible here).
+  const submitted = useRef(false);
+
+  function onCreate() {
+    const trimmed = name.trim();
+    if (!trimmed || submitted.current) {
+      return;
+    }
+    submitted.current = true;
+    const id = createDinner({ name: trimmed });
+    setName('');
+    router.push({ pathname: '/dinners/[id]', params: { id } });
+  }
+
+  return (
+    <View style={styles.header}>
+      <Card>
+        <ThemedText type="smallBold">{t('dinners.newDinner')}</ThemedText>
+        <TextField
+          label={t('dinners.name')}
+          placeholder={t('dinners.namePlaceholder')}
+          value={name}
+          onChangeText={(text) => {
+            submitted.current = false;
+            setName(text);
+          }}
+          autoCapitalize="sentences"
+          returnKeyType="done"
+          onSubmitEditing={onCreate}
+        />
+        <Button title={t('dinners.createAndAdd')} onPress={onCreate} disabled={!name.trim()} />
+      </Card>
+    </View>
   );
 }
 

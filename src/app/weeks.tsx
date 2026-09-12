@@ -1,7 +1,6 @@
 import { router } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
-import { useRef } from 'react';
-import { Pressable, ScrollView, StyleSheet, View, type LayoutChangeEvent } from 'react-native';
+import { FlatList, Pressable, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
@@ -9,6 +8,7 @@ import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/lib/i18n';
+import { dateFormatter } from '@/lib/intl';
 import { setPlannerWeekKey, usePlannerWeekKey } from '@/lib/planner-state';
 import { useLocale, useWeekFill } from '@/lib/store';
 import { addDays, addWeeks, fromDateKey, startOfWeek, toDateKey, weekLabel } from '@/lib/week';
@@ -20,16 +20,31 @@ const WINDOW_AFTER = 8;
 const MAX_BEFORE = 52;
 const MAX_AFTER = 104;
 
+/**
+ * Fixed row heights so the list can be virtualised AND opened directly at the
+ * selected week (`getItemLayout` + `initialScrollIndex`) — no mounting a
+ * hundred-plus rows of dots and then jumping once they have laid out.
+ */
+const WEEK_ROW_HEIGHT = 56;
+const WEEK_ROW_GAP = Spacing.two;
+const WEEK_ITEM_HEIGHT = WEEK_ROW_HEIGHT + WEEK_ROW_GAP;
+const MONTH_ITEM_HEIGHT = 40;
+const MONTH_LONG: Intl.DateTimeFormatOptions = { month: 'long', year: 'numeric' };
+const WEEKDAY_NARROW: Intl.DateTimeFormatOptions = { weekday: 'narrow' };
+
 type WeekRow = {
+  kind: 'week';
   key: string;
-  date: Date;
   label: string;
-  /** Set only on the first week of each month, to print a month header above it. */
-  monthLabel: string | null;
   dayKeys: string[];
   isCurrent: boolean;
   isSelected: boolean;
 };
+
+/** Printed above the first week of each month. */
+type MonthRow = { kind: 'month'; key: string; label: string };
+
+type Row = WeekRow | MonthRow;
 
 /**
  * Full-screen overview of weeks as a grid (rows of weeks × the seven weekdays).
@@ -44,8 +59,6 @@ export default function WeeksScreen() {
   const locale = useLocale();
   const fill = useWeekFill();
   const selectedKey = usePlannerWeekKey();
-  const scrollRef = useRef<ScrollView>(null);
-  const didScroll = useRef(false);
 
   const todayWeek = startOfWeek(new Date());
   const todayKey = toDateKey(todayWeek);
@@ -66,26 +79,39 @@ export default function WeeksScreen() {
   if (min < hardMin) min = hardMin;
   if (max > hardMax) max = hardMax;
 
-  const rows: WeekRow[] = [];
+  const rows: Row[] = [];
+  // Cumulative y of each row, for `getItemLayout` (rows have two fixed heights).
+  const offsets: number[] = [];
+  let selectedIndex = 0;
   let prevMonth = '';
+  let y = 0;
+  const monthOf = dateFormatter(locale, MONTH_LONG);
   for (let d = startOfWeek(min); d <= max; d = addWeeks(d, 1)) {
     const key = toDateKey(d);
-    const month = d.toLocaleDateString(locale, { month: 'long', year: 'numeric' });
+    const month = monthOf.format(d);
+    if (month !== prevMonth) {
+      offsets.push(y);
+      rows.push({ kind: 'month', key: `m:${key}`, label: titleCase(month) });
+      y += MONTH_ITEM_HEIGHT;
+      prevMonth = month;
+    }
+    if (key === selectedKey) selectedIndex = rows.length;
+    offsets.push(y);
     rows.push({
+      kind: 'week',
       key,
-      date: new Date(d),
       label: weekLabel(d, locale),
-      monthLabel: month !== prevMonth ? titleCase(month) : null,
       dayKeys: Array.from({ length: 7 }, (_, i) => toDateKey(addDays(d, i))),
       isCurrent: key === todayKey,
       isSelected: key === selectedKey,
     });
-    prevMonth = month;
+    y += WEEK_ITEM_HEIGHT;
   }
 
   // Localized single-letter weekday headers, Monday→Sunday.
+  const weekdayOf = dateFormatter(locale, WEEKDAY_NARROW);
   const weekdayInitials = Array.from({ length: 7 }, (_, i) =>
-    addDays(todayWeek, i).toLocaleDateString(locale, { weekday: 'narrow' }).toUpperCase(),
+    weekdayOf.format(addDays(todayWeek, i)).toUpperCase(),
   );
 
   // Normally pushed from the Plans tab, so `back()` returns there. Fall back to
@@ -104,12 +130,18 @@ export default function WeeksScreen() {
     dismiss();
   }
 
-  function onSelectedLayout(event: LayoutChangeEvent) {
-    if (didScroll.current) return;
-    didScroll.current = true;
-    const y = event.nativeEvent.layout.y;
-    scrollRef.current?.scrollTo({ y: Math.max(0, y - Spacing.six), animated: false });
+  function getItemLayout(_: ArrayLike<Row> | null | undefined, index: number) {
+    const row = rows[index];
+    return {
+      length: row?.kind === 'month' ? MONTH_ITEM_HEIGHT : WEEK_ITEM_HEIGHT,
+      offset: offsets[index] ?? 0,
+      index,
+    };
   }
+
+  // Open with the selected week a little below the top; its month header
+  // (the row before it) is included when there is one.
+  const initialIndex = Math.max(0, rows[selectedIndex - 1]?.kind === 'month' ? selectedIndex - 1 : selectedIndex);
 
   return (
     <ThemedView style={styles.container}>
@@ -146,21 +178,27 @@ export default function WeeksScreen() {
           </View>
         </View>
 
-        <ScrollView
-          ref={scrollRef}
+        <FlatList
+          data={rows}
+          keyExtractor={(row) => row.key}
+          getItemLayout={getItemLayout}
+          initialScrollIndex={initialIndex}
+          initialNumToRender={16}
+          windowSize={7}
           style={styles.list}
           contentContainerStyle={styles.listContent}
-          showsVerticalScrollIndicator={false}>
-          {rows.map((row) => (
-            <View key={row.key} onLayout={row.isSelected ? onSelectedLayout : undefined}>
-              {row.monthLabel ? (
-                <ThemedText type="smallBold" themeColor="textSecondary" style={styles.month}>
-                  {row.monthLabel}
+          showsVerticalScrollIndicator={false}
+          renderItem={({ item: row }) =>
+            row.kind === 'month' ? (
+              <View style={styles.month}>
+                <ThemedText type="smallBold" themeColor="textSecondary">
+                  {row.label}
                 </ThemedText>
-              ) : null}
+              </View>
+            ) : (
               <Pressable
                 onPress={() => onSelect(row.key)}
-                style={({ pressed }) => pressed && styles.pressed}>
+                style={({ pressed }) => [styles.weekItem, pressed && styles.pressed]}>
                 <ThemedView
                   type={row.isSelected ? 'backgroundSelected' : 'backgroundElement'}
                   style={[styles.weekRow, row.isCurrent && { borderColor: theme.tint }]}>
@@ -188,9 +226,9 @@ export default function WeeksScreen() {
                   </View>
                 </ThemedView>
               </Pressable>
-            </View>
-          ))}
-        </ScrollView>
+            )
+          }
+        />
       </SafeAreaView>
     </ThemedView>
   );
@@ -234,20 +272,24 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing.five,
   },
   month: {
-    marginTop: Spacing.three,
-    marginBottom: Spacing.one,
+    height: MONTH_ITEM_HEIGHT,
+    justifyContent: 'flex-end',
+    paddingBottom: Spacing.one,
     paddingHorizontal: Spacing.one,
   },
+  weekItem: {
+    height: WEEK_ITEM_HEIGHT,
+    paddingBottom: WEEK_ROW_GAP,
+  },
   weekRow: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.two,
     borderRadius: Spacing.three,
     borderWidth: 2,
     borderColor: 'transparent',
-    paddingVertical: Spacing.two,
     paddingHorizontal: Spacing.three,
-    marginBottom: Spacing.two,
   },
   labelCol: {
     width: 88,

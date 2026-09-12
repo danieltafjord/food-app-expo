@@ -1,17 +1,23 @@
 import { useValue } from '@legendapp/state/react';
 
 import { categorize, type CategoryId } from '@/lib/categorize';
+import { nameCollator } from '@/lib/intl';
 
 import { store$ } from './collections';
+import { derived } from './derived';
 import { getLocalHouseholdId } from './household';
 import { newId, nowIso } from './ids';
+import { getLocale } from './settings';
 import type { LocalIngredient } from './schema';
 
-/** The local ingredient catalogue, alphabetised. */
+/** The local ingredient catalogue, alphabetised. Cached until an ingredient changes. */
+const ingredients$ = derived(() => {
+  const { compare } = nameCollator(getLocale());
+  return Object.values(store$.ingredients.get()).sort((a, b) => compare(a.name, b.name));
+});
+
 export function useIngredients(): LocalIngredient[] {
-  return useValue(() =>
-    Object.values(store$.ingredients.get()).sort((a, b) => a.name.localeCompare(b.name)),
-  );
+  return useValue(ingredients$);
 }
 
 export function useIngredient(id: string): LocalIngredient | undefined {

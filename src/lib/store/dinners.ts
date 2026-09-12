@@ -1,9 +1,12 @@
 import { useValue } from '@legendapp/state/react';
 
+import { nameCollator } from '@/lib/intl';
 import { dateKeyOf } from '@/lib/week';
 import { store$ } from './collections';
+import { derived } from './derived';
 import { getHouseholdDefaultServings, getLocalHouseholdId } from './household';
 import { compareIso, newId, nowIso } from './ids';
+import { getLocale } from './settings';
 import type { DinnerWithItems, LocalDinner, LocalDinnerItem, LocalPlanEntry } from './schema';
 
 function itemsForDinner(
@@ -15,23 +18,26 @@ function itemsForDinner(
     .sort((a, b) => compareIso(a.created_at, b.created_at));
 }
 
-/** All dinners (recipes) with their items, alphabetised. */
+/** All dinners (recipes) with their items, alphabetised. Cached until a dinner/item changes. */
+const dinners$ = derived((): DinnerWithItems[] => {
+  // One pass over the items, grouped by dinner, instead of a scan per dinner.
+  const byDinner = new Map<string, LocalDinnerItem[]>();
+  for (const it of Object.values(store$.dinnerItems.get())) {
+    const bucket = byDinner.get(it.dinner_id);
+    if (bucket) bucket.push(it);
+    else byDinner.set(it.dinner_id, [it]);
+  }
+  const { compare } = nameCollator(getLocale());
+  return Object.values(store$.dinners.get())
+    .map((d) => ({
+      ...d,
+      items: (byDinner.get(d.id) ?? []).sort((a, b) => compareIso(a.created_at, b.created_at)),
+    }))
+    .sort((a, b) => compare(a.name, b.name));
+});
+
 export function useDinners(): DinnerWithItems[] {
-  return useValue(() => {
-    // One pass over the items, grouped by dinner, instead of a scan per dinner.
-    const byDinner = new Map<string, LocalDinnerItem[]>();
-    for (const it of Object.values(store$.dinnerItems.get())) {
-      const bucket = byDinner.get(it.dinner_id);
-      if (bucket) bucket.push(it);
-      else byDinner.set(it.dinner_id, [it]);
-    }
-    return Object.values(store$.dinners.get())
-      .map((d) => ({
-        ...d,
-        items: (byDinner.get(d.id) ?? []).sort((a, b) => compareIso(a.created_at, b.created_at)),
-      }))
-      .sort((a, b) => a.name.localeCompare(b.name));
-  });
+  return useValue(dinners$);
 }
 
 /** A dinner as the picker lists it: no items, plus when it was last on a plan. */
@@ -51,6 +57,7 @@ export type DinnerOption = LocalDinner & {
 export function rankByRecency(
   dinners: readonly LocalDinner[],
   entries: readonly LocalPlanEntry[],
+  compareNames: (a: string, b: string) => number = (a, b) => a.localeCompare(b),
 ): DinnerOption[] {
   const last = new Map<string, string>();
   for (const entry of entries) {
@@ -66,7 +73,7 @@ export function rankByRecency(
         if (!b.last_planned) return -1;
         return b.last_planned.localeCompare(a.last_planned);
       }
-      return a.name.localeCompare(b.name);
+      return compareNames(a.name, b.name);
     });
 }
 
@@ -74,10 +81,16 @@ export function rankByRecency(
  * Dinners without their items, most recently planned first — for pickers that
  * only show the name and recency, so they don't join the items collection.
  */
+const dinnerOptions$ = derived(() =>
+  rankByRecency(
+    Object.values(store$.dinners.get()),
+    Object.values(store$.planEntries.get()),
+    nameCollator(getLocale()).compare,
+  ),
+);
+
 export function useDinnerOptions(): DinnerOption[] {
-  return useValue(() =>
-    rankByRecency(Object.values(store$.dinners.get()), Object.values(store$.planEntries.get())),
-  );
+  return useValue(dinnerOptions$);
 }
 
 /** A single dinner with its items, or undefined if it doesn't exist. */

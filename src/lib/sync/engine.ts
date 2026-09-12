@@ -78,6 +78,13 @@ const REQUEST_TIMEOUT_MS = 20_000;
  * an earlier chunk. Must not exceed the server's batch cap (1000).
  */
 const CHUNK_ROWS = 300;
+/**
+ * How long after sign-in / launch the first push-pull waits. The splash reveal
+ * and the first screen's layout are still on the JS thread right then; folding
+ * a pull response into the store at that moment is what a user feels as a
+ * stutter on their first tap. A manual `syncNow()` cancels the wait.
+ */
+const INITIAL_SYNC_DELAY_MS = 1200;
 
 /** The seven syncable collections, mapped to their server payload keys, in dependency order. */
 export const SYNCABLE = [
@@ -139,6 +146,7 @@ let appStateSub: NativeEventSubscription | null = null;
 let pollTimer: ReturnType<typeof setTimeout> | null = null;
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 let retryTimer: ReturnType<typeof setTimeout> | null = null;
+let initialTimer: ReturnType<typeof setTimeout> | null = null;
 
 // Dynamic collection access — the seven syncable maps are keyed by name.
 const node = (collection: string): any => (store$ as any)[collection];
@@ -185,7 +193,10 @@ export async function connectCollections(): Promise<void> {
   schedulePoll();
 
   updatePending();
-  void pushPull();
+  initialTimer = setTimeout(() => {
+    initialTimer = null;
+    void pushPull();
+  }, INITIAL_SYNC_DELAY_MS);
 }
 
 /**
@@ -196,6 +207,10 @@ export async function connectCollections(): Promise<void> {
  */
 export async function syncNow(): Promise<void> {
   bumpActivity();
+  if (initialTimer) {
+    clearTimeout(initialTimer);
+    initialTimer = null;
+  }
   if (inFlight) {
     rerun = true;
     await inFlight.catch(() => undefined);
@@ -246,7 +261,8 @@ export function disconnectCollections(): void {
   if (pollTimer) clearTimeout(pollTimer);
   if (debounceTimer) clearTimeout(debounceTimer);
   if (retryTimer) clearTimeout(retryTimer);
-  pollTimer = debounceTimer = retryTimer = null;
+  if (initialTimer) clearTimeout(initialTimer);
+  pollTimer = debounceTimer = retryTimer = initialTimer = null;
   retryAttempt = 0;
   rerun = false;
 }
@@ -269,28 +285,32 @@ function handleStoreChange(params: ListenerParams): void {
   if (applyingRemote || params.isFromPersist) return;
 
   let touched = false;
-  for (const change of params.changes) {
-    const collection = change.path[0];
-    const uuid = change.path[1];
-    if (!collection || collection === 'meta' || !uuid || !BY_COLLECTION.has(collection)) {
-      continue;
-    }
+  // One notification for all the outbox writes of this change set, instead of
+  // one per row (each would re-run every subscribed selector synchronously).
+  batch(() => {
+    for (const change of params.changes) {
+      const collection = change.path[0];
+      const uuid = change.path[1];
+      if (!collection || collection === 'meta' || !uuid || !BY_COLLECTION.has(collection)) {
+        continue;
+      }
 
-    const isRowDelete = change.path.length === 2 && change.valueAtPath == null;
-    if (isRowDelete) {
-      store$.meta.tombstones[collection][uuid].set(nowIso());
-      if (store$.meta.dirty[collection][uuid].get()) {
-        store$.meta.dirty[collection][uuid].delete();
+      const isRowDelete = change.path.length === 2 && change.valueAtPath == null;
+      if (isRowDelete) {
+        store$.meta.tombstones[collection][uuid].set(nowIso());
+        if (store$.meta.dirty[collection][uuid].get()) {
+          store$.meta.dirty[collection][uuid].delete();
+        }
+      } else {
+        store$.meta.dirty[collection][uuid].set(true);
+        // A row re-created under a deleted id supersedes its tombstone.
+        if (store$.meta.tombstones[collection][uuid].get()) {
+          store$.meta.tombstones[collection][uuid].delete();
+        }
       }
-    } else {
-      store$.meta.dirty[collection][uuid].set(true);
-      // A row re-created under a deleted id supersedes its tombstone.
-      if (store$.meta.tombstones[collection][uuid].get()) {
-        store$.meta.tombstones[collection][uuid].delete();
-      }
+      touched = true;
     }
-    touched = true;
-  }
+  });
 
   if (touched) {
     bumpActivity();
@@ -430,8 +450,9 @@ async function runCycle(request: SyncRequest): Promise<void> {
     }
 
     retryAttempt = 0; // connectivity restored — reset the backoff
-    quietPulls = hasPush || received > 0 ? 0 : quietPulls + 1;
-    markSynced(rejected);
+    const moved = hasPush || received > 0;
+    quietPulls = moved ? 0 : quietPulls + 1;
+    markSynced(rejected, moved);
   } catch (error) {
     if (!started) return;
     if (error instanceof ApiError && error.status === 409 && isHouseholdMismatch(error.body)) {
@@ -663,6 +684,11 @@ function applyRemote(changes: Record<string, ServerRow[]>): number {
           const local: Record<string, unknown> = { ...row };
           delete local.deleted_at;
           if (household) local.household_id = getLocalHouseholdId();
+          // The server echoes the rows this device just pushed. Writing an
+          // identical copy back would still count as a change (a new object),
+          // re-persisting the row and re-rendering everything showing it.
+          const existing = node(collection)[uuid].peek() as Record<string, unknown> | undefined;
+          if (existing && sameRow(existing, local)) continue;
           node(collection)[uuid].set(local);
         }
       }
@@ -671,6 +697,16 @@ function applyRemote(changes: Record<string, ServerRow[]>): number {
     applyingRemote = false;
   }
   return received;
+}
+
+/** Field-by-field equality for flat rows (every column is a primitive). */
+function sameRow(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
+  const keys = Object.keys(b);
+  if (keys.length !== Object.keys(a).length) return false;
+  for (const key of keys) {
+    if (a[key] !== b[key]) return false;
+  }
+  return true;
 }
 
 /* ---- pending bookkeeping ------------------------------------------------- */

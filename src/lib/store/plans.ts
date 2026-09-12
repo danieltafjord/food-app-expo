@@ -2,15 +2,18 @@ import { useValue } from '@legendapp/state/react';
 
 import { dateKeyOf } from '@/lib/week';
 import { store$ } from './collections';
+import { derived, derivedById } from './derived';
 import { getLocalHouseholdId } from './household';
 import { compareIso, newId, nowIso } from './ids';
 import type { LocalDinnerPlan, MealType, PlanEntryWithDinner } from './schema';
 
 /** All dinner plans, newest first. */
+const plans$ = derived(() =>
+  Object.values(store$.dinnerPlans.get()).sort((a, b) => compareIso(b.created_at, a.created_at)),
+);
+
 export function usePlans(): LocalDinnerPlan[] {
-  return useValue(() =>
-    Object.values(store$.dinnerPlans.get()).sort((a, b) => compareIso(b.created_at, a.created_at)),
-  );
+  return useValue(plans$);
 }
 
 /** The plan whose week starts on `weekStartKey` (a local YYYY-MM-DD), if any. */
@@ -24,16 +27,35 @@ export function usePlan(id: string | undefined): LocalDinnerPlan | undefined {
   return useValue(() => (id ? store$.dinnerPlans.get()[id] : undefined));
 }
 
+const NO_ENTRIES: PlanEntryWithDinner[] = [];
+
+/**
+ * Per-plan cache of the last joined entries keyed by their content. The
+ * computed re-runs on any entry/dinner change (another week, a synced rename),
+ * but returns the previous array while THIS plan's rows are unchanged — so the
+ * week board, whose cards rebuild their gestures on every render, stays put.
+ */
+const planEntriesCache = new Map<string, { key: string; value: PlanEntryWithDinner[] }>();
+
+const planEntriesFor = derivedById((planId): PlanEntryWithDinner[] => {
+  const dinners = store$.dinners.get();
+  const entries = Object.values(store$.planEntries.get())
+    .filter((e) => e.dinner_plan_id === planId)
+    .map((e) => ({ ...e, dinner_name: dinners[e.dinner_id]?.name ?? null }))
+    .sort((a, b) => compareIso(a.created_at, b.created_at));
+
+  const key = entries
+    .map((e) => `${e.id}|${e.scheduled_date}|${e.servings}|${e.meal_type}|${e.dinner_id}|${e.dinner_name}|${e.notes ?? ''}`)
+    .join(';');
+  const cached = planEntriesCache.get(planId);
+  if (cached && cached.key === key) return cached.value;
+  planEntriesCache.set(planId, { key, value: entries });
+  return entries;
+});
+
 /** Entries for a plan, joined with their dinner's name, in creation order. */
 export function usePlanEntries(planId: string | undefined): PlanEntryWithDinner[] {
-  return useValue(() => {
-    if (!planId) return [];
-    const dinners = store$.dinners.get();
-    return Object.values(store$.planEntries.get())
-      .filter((e) => e.dinner_plan_id === planId)
-      .map((e) => ({ ...e, dinner_name: dinners[e.dinner_id]?.name ?? null }))
-      .sort((a, b) => compareIso(a.created_at, b.created_at));
-  });
+  return useValue(() => (planId ? planEntriesFor(planId).get() : NO_ENTRIES));
 }
 
 /** One entry joined with its dinner's name (undefined once deleted). */
@@ -52,20 +74,22 @@ export function usePlanEntry(entryId: string | undefined): PlanEntryWithDinner |
  * the planner's week-overview grid (which weeks, and which days within them,
  * are filled).
  */
+const weekFill$ = derived(() => {
+  const weekByPlan: Record<string, string> = {};
+  for (const plan of Object.values(store$.dinnerPlans.get())) {
+    if (plan.start_date) weekByPlan[plan.id] = plan.start_date;
+  }
+  const fill: Record<string, Set<string>> = {};
+  for (const entry of Object.values(store$.planEntries.get())) {
+    const week = weekByPlan[entry.dinner_plan_id];
+    if (!week) continue;
+    (fill[week] ??= new Set<string>()).add(dateKeyOf(entry.scheduled_date));
+  }
+  return fill;
+});
+
 export function useWeekFill(): Record<string, Set<string>> {
-  return useValue(() => {
-    const weekByPlan: Record<string, string> = {};
-    for (const plan of Object.values(store$.dinnerPlans.get())) {
-      if (plan.start_date) weekByPlan[plan.id] = plan.start_date;
-    }
-    const fill: Record<string, Set<string>> = {};
-    for (const entry of Object.values(store$.planEntries.get())) {
-      const week = weekByPlan[entry.dinner_plan_id];
-      if (!week) continue;
-      (fill[week] ??= new Set<string>()).add(dateKeyOf(entry.scheduled_date));
-    }
-    return fill;
-  });
+  return useValue(weekFill$);
 }
 
 export type CreateDinnerPlanInput = {

@@ -4,8 +4,10 @@
  * `categorize(name)` maps a raw item line ("2 l lettmelk", "Kyllingfilet",
  * "rødløk") to a stable aisle {@link CategoryId}, or `null` when it can't place
  * it (the caller then falls back to `'other'`). Everything here is pure,
- * synchronous, offline, and dependency-free — it runs on the device, never on a
- * render hot path (only when an item/ingredient is created or recategorized).
+ * synchronous, offline, and dependency-free — it runs on the device. Results
+ * are memoized per normalized name, so the read paths that fall back to it for
+ * uncategorized items (shopping list sections) pay a map lookup, not the
+ * head-match/fuzzy passes, on every selector run.
  *
  * Matching pipeline, fail-cheap-first:
  *   1. exact      — normalized key in the dictionary (most hits land here)
@@ -117,11 +119,12 @@ function boundedLevenshtein(a: string, b: string, cap: number): number {
 
 /** Step 3: a dictionary word is a prefix/suffix/whole word of the query. */
 function headMatch(folded: string): CategoryId | null {
+  const words = folded.includes(' ') ? folded.split(' ') : null;
   for (const { key, category } of FOLDED_KEYS) {
     if (key.length > folded.length || key === folded) {
       continue;
     }
-    if (folded.startsWith(key) || folded.endsWith(key) || folded.split(' ').includes(key)) {
+    if (folded.startsWith(key) || folded.endsWith(key) || (words !== null && words.includes(key))) {
       return category;
     }
   }
@@ -164,10 +167,28 @@ export function categorize(rawName: string): CategoryId | null {
   if (exact) {
     return exact;
   }
-  const folded = fold(norm);
-  const exactFolded = EXACT_FOLDED.get(folded);
-  if (exactFolded) {
-    return exactFolded;
+  const cached = MEMO.get(norm);
+  if (cached !== undefined) {
+    return cached;
   }
-  return headMatch(folded) ?? fuzzyMatch(folded);
+  const folded = fold(norm);
+  const result = EXACT_FOLDED.get(folded) ?? headMatch(folded) ?? fuzzyMatch(folded);
+  remember(norm, result);
+  return result;
+}
+
+/**
+ * Names that missed the exact table, with their (possibly null) answer. The
+ * slow passes are deterministic, so caching is safe; the cap keeps a device
+ * with a long history from growing it without bound (insertion order = FIFO).
+ */
+const MEMO = new Map<string, CategoryId | null>();
+const MEMO_MAX = 2000;
+
+function remember(key: string, value: CategoryId | null): void {
+  if (MEMO.size >= MEMO_MAX) {
+    const oldest = MEMO.keys().next().value;
+    if (oldest !== undefined) MEMO.delete(oldest);
+  }
+  MEMO.set(key, value);
 }

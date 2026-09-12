@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { FlatList, Pressable, StyleSheet } from 'react-native';
 
 import { Button } from '@/components/button';
 import { SheetScreen } from '@/components/sheet';
@@ -9,6 +9,7 @@ import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/lib/i18n';
+import { findExact, indexByName, searchIndex } from '@/lib/search';
 import { cancelSheet, resolveSheet } from '@/lib/sheets';
 import { createIngredient, getIngredient, useIngredients, type LocalIngredient } from '@/lib/store';
 
@@ -30,10 +31,11 @@ export default function IngredientPickerSheet() {
   useEffect(() => () => cancelSheet(request), [request]);
 
   const trimmed = query.trim();
-  const filtered = trimmed
-    ? all.filter((item) => item.name.toLowerCase().includes(trimmed.toLowerCase()))
-    : all;
-  const exactMatch = all.some((item) => item.name.toLowerCase() === trimmed.toLowerCase());
+  // Fold every name once per catalogue change, not once per keystroke; the same
+  // ranked, diacritic-insensitive search the dinner picker uses.
+  const index = useMemo(() => indexByName(all, (item) => item.name), [all]);
+  const filtered = useMemo(() => searchIndex(index, trimmed), [index, trimmed]);
+  const exactMatch = useMemo(() => findExact(index, trimmed) !== undefined, [index, trimmed]);
 
   function pick(ingredient: LocalIngredient) {
     resolveSheet(request, ingredient);
@@ -70,34 +72,44 @@ export default function IngredientPickerSheet() {
         <Button title={t('ingredientPicker.create', { name: trimmed })} onPress={onCreate} />
       ) : null}
 
-      <ScrollView style={styles.list} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
-        {filtered.length > 0 ? (
-          filtered.map((ingredient) => (
-            <Pressable
-              key={ingredient.id}
-              onPress={() => pick(ingredient)}
-              accessibilityRole="button"
-              style={({ pressed }) => [
-                styles.row,
-                { borderBottomColor: theme.border },
-                pressed && styles.pressed,
-              ]}>
-              <ThemedText style={styles.flex} numberOfLines={1}>
-                {ingredient.name}
+      {/* Virtualised: the catalogue holds every ingredient the household ever
+          used, and mounting all of them while the sheet slides up and the
+          keyboard animates is exactly the frame budget we don't have. */}
+      <FlatList
+        data={filtered}
+        keyExtractor={(ingredient) => ingredient.id}
+        style={styles.list}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        initialNumToRender={12}
+        maxToRenderPerBatch={12}
+        windowSize={5}
+        removeClippedSubviews
+        renderItem={({ item: ingredient }) => (
+          <Pressable
+            onPress={() => pick(ingredient)}
+            accessibilityRole="button"
+            style={({ pressed }) => [
+              styles.row,
+              { borderBottomColor: theme.border },
+              pressed && styles.pressed,
+            ]}>
+            <ThemedText style={styles.flex} numberOfLines={1}>
+              {ingredient.name}
+            </ThemedText>
+            {ingredient.default_unit ? (
+              <ThemedText type="small" themeColor="textSecondary">
+                {ingredient.default_unit}
               </ThemedText>
-              {ingredient.default_unit ? (
-                <ThemedText type="small" themeColor="textSecondary">
-                  {ingredient.default_unit}
-                </ThemedText>
-              ) : null}
-            </Pressable>
-          ))
-        ) : (
+            ) : null}
+          </Pressable>
+        )}
+        ListEmptyComponent={
           <ThemedText type="small" themeColor="textSecondary">
             {trimmed ? t('ingredientPicker.noMatches') : t('ingredientPicker.empty')}
           </ThemedText>
-        )}
-      </ScrollView>
+        }
+      />
     </SheetScreen>
   );
 }

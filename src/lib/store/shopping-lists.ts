@@ -1,3 +1,4 @@
+import { batch } from '@legendapp/state';
 import { useValue } from '@legendapp/state/react';
 
 import {
@@ -9,6 +10,7 @@ import {
 import { translate } from '@/lib/i18n';
 
 import { store$ } from './collections';
+import { derived, derivedById } from './derived';
 import { getLocale } from './settings';
 import { getLocalHouseholdId } from './household';
 import { compareIso, newId, nowIso } from './ids';
@@ -64,22 +66,24 @@ export type ShoppingListSummary = LocalShoppingList & {
 };
 
 /** All shopping lists, newest first, with item/checked counts. */
-export function useShoppingLists(): ShoppingListSummary[] {
-  return useValue(() => {
-    const counts = new Map<string, { item_count: number; checked_count: number }>();
-    for (const it of Object.values(store$.shoppingListItems.get())) {
-      let c = counts.get(it.shopping_list_id);
-      if (!c) {
-        c = { item_count: 0, checked_count: 0 };
-        counts.set(it.shopping_list_id, c);
-      }
-      c.item_count += 1;
-      if (it.is_checked) c.checked_count += 1;
+const shoppingLists$ = derived((): ShoppingListSummary[] => {
+  const counts = new Map<string, { item_count: number; checked_count: number }>();
+  for (const it of Object.values(store$.shoppingListItems.get())) {
+    let c = counts.get(it.shopping_list_id);
+    if (!c) {
+      c = { item_count: 0, checked_count: 0 };
+      counts.set(it.shopping_list_id, c);
     }
-    return Object.values(store$.shoppingLists.get())
-      .map((list) => ({ ...list, ...(counts.get(list.id) ?? { item_count: 0, checked_count: 0 }) }))
-      .sort((a, b) => compareIso(b.created_at, a.created_at));
-  });
+    c.item_count += 1;
+    if (it.is_checked) c.checked_count += 1;
+  }
+  return Object.values(store$.shoppingLists.get())
+    .map((list) => ({ ...list, ...(counts.get(list.id) ?? { item_count: 0, checked_count: 0 }) }))
+    .sort((a, b) => compareIso(b.created_at, a.created_at));
+});
+
+export function useShoppingLists(): ShoppingListSummary[] {
+  return useValue(shoppingLists$);
 }
 
 /**
@@ -106,17 +110,19 @@ export function useShoppingList(id: string): LocalShoppingList | undefined {
  * A list's items, joined with the ingredient name (resolved at read time,
  * matching the server DTO). Unchecked items first, then by creation order.
  */
+const listItemsFor = derivedById((listId): ShoppingListItemWithIngredient[] => {
+  const ingredients = store$.ingredients.get();
+  return Object.values(store$.shoppingListItems.get())
+    .filter((it) => it.shopping_list_id === listId)
+    .map((it) => toItemWithIngredient(it, lookupIngredient(ingredients, it)))
+    .sort(
+      (a, b) =>
+        Number(a.is_checked) - Number(b.is_checked) || compareIso(a.created_at, b.created_at),
+    );
+});
+
 export function useShoppingListItems(listId: string): ShoppingListItemWithIngredient[] {
-  return useValue(() => {
-    const ingredients = store$.ingredients.get();
-    return Object.values(store$.shoppingListItems.get())
-      .filter((it) => it.shopping_list_id === listId)
-      .map((it) => toItemWithIngredient(it, lookupIngredient(ingredients, it)))
-      .sort(
-        (a, b) =>
-          Number(a.is_checked) - Number(b.is_checked) || compareIso(a.created_at, b.created_at),
-      );
-  });
+  return useValue(listItemsFor(listId));
 }
 
 /**
@@ -162,46 +168,48 @@ const sectionsCache = new Map<string, { key: string; value: ShoppingListSections
  * creation order. Returns ids only — see {@link ShoppingSection.itemIds}. All
  * derivation happens inside the selector (Legend-State + React-Compiler safe).
  */
+const sectionsFor = derivedById((listId): ShoppingListSections => {
+  const ingredients = store$.ingredients.get();
+  const byCategory = new Map<CategoryId, ShoppingListItemWithIngredient[]>();
+  let total = 0;
+  let checked = 0;
+  for (const it of Object.values(store$.shoppingListItems.get())) {
+    if (it.shopping_list_id !== listId) continue;
+    total += 1;
+    if (it.is_checked) checked += 1;
+    const item = toItemWithIngredient(it, lookupIngredient(ingredients, it));
+    const bucket = byCategory.get(item.category);
+    if (bucket) {
+      bucket.push(item);
+    } else {
+      byCategory.set(item.category, [item]);
+    }
+  }
+
+  const sections: ShoppingSection[] = [];
+  const keyParts: string[] = [];
+  for (const id of CATEGORY_ORDER) {
+    const items = byCategory.get(id);
+    if (!items) continue;
+    items.sort(
+      (a, b) =>
+        Number(a.is_checked) - Number(b.is_checked) || compareIso(a.created_at, b.created_at),
+    );
+    const itemIds = items.map((it) => it.id);
+    sections.push({ id, itemIds });
+    keyParts.push(`${id}:${itemIds.join(',')}`);
+  }
+
+  const key = `${total}/${checked}|${keyParts.join(';')}`;
+  const cached = sectionsCache.get(listId);
+  if (cached && cached.key === key) return cached.value;
+  const value = { sections, total, checked };
+  sectionsCache.set(listId, { key, value });
+  return value;
+});
+
 export function useShoppingListSections(listId: string): ShoppingListSections {
-  return useValue(() => {
-    const ingredients = store$.ingredients.get();
-    const byCategory = new Map<CategoryId, ShoppingListItemWithIngredient[]>();
-    let total = 0;
-    let checked = 0;
-    for (const it of Object.values(store$.shoppingListItems.get())) {
-      if (it.shopping_list_id !== listId) continue;
-      total += 1;
-      if (it.is_checked) checked += 1;
-      const item = toItemWithIngredient(it, lookupIngredient(ingredients, it));
-      const bucket = byCategory.get(item.category);
-      if (bucket) {
-        bucket.push(item);
-      } else {
-        byCategory.set(item.category, [item]);
-      }
-    }
-
-    const sections: ShoppingSection[] = [];
-    const keyParts: string[] = [];
-    for (const id of CATEGORY_ORDER) {
-      const items = byCategory.get(id);
-      if (!items) continue;
-      items.sort(
-        (a, b) =>
-          Number(a.is_checked) - Number(b.is_checked) || compareIso(a.created_at, b.created_at),
-      );
-      const itemIds = items.map((it) => it.id);
-      sections.push({ id, itemIds });
-      keyParts.push(`${id}:${itemIds.join(',')}`);
-    }
-
-    const key = `${total}/${checked}|${keyParts.join(';')}`;
-    const cached = sectionsCache.get(listId);
-    if (cached && cached.key === key) return cached.value;
-    const value = { sections, total, checked };
-    sectionsCache.set(listId, { key, value });
-    return value;
-  });
+  return useValue(sectionsFor(listId));
 }
 
 export type ShoppingSuggestion = {
@@ -223,8 +231,7 @@ export type ShoppingSuggestion = {
  * Non-reactive on purpose: it walks every item ever created, and the add
  * screen snapshots it once on open (`useState(buildShoppingSuggestions)`) so
  * the catalogue doesn't reorder under the finger — and isn't rebuilt — on
- * every tap. `useShoppingSuggestions` is the reactive wrapper for callers that
- * do want live updates.
+ * every tap.
  */
 export function buildShoppingSuggestions(): ShoppingSuggestion[] {
   const ingredients = store$.ingredients.get();
@@ -264,11 +271,6 @@ export function buildShoppingSuggestions(): ShoppingSuggestion[] {
   );
 }
 
-/** Reactive variant of {@link buildShoppingSuggestions}. */
-export function useShoppingSuggestions(): ShoppingSuggestion[] {
-  return useValue(buildShoppingSuggestions);
-}
-
 /** Fallback name for an unnamed list, in the active language. */
 function defaultListName(): string {
   return translate(getLocale(), 'shopping.defaultListName');
@@ -295,12 +297,15 @@ export function renameShoppingList(id: string, name: string): void {
 }
 
 export function deleteShoppingList(id: string): void {
-  for (const it of Object.values(store$.shoppingListItems.get()).filter(
-    (i) => i.shopping_list_id === id,
-  )) {
-    store$.shoppingListItems[it.id].delete();
-  }
-  store$.shoppingLists[id].delete();
+  // One notification for the whole delete: every subscriber (sections, list
+  // counts, sync outbox) would otherwise re-run once per row.
+  batch(() => {
+    for (const it of Object.values(store$.shoppingListItems.get())) {
+      if (it.shopping_list_id === id) store$.shoppingListItems[it.id].delete();
+    }
+    store$.shoppingLists[id].delete();
+  });
+  sectionsCache.delete(id);
 }
 
 export type ShoppingItemInput = {
@@ -368,19 +373,23 @@ export function removeShoppingItem(itemId: string): void {
 
 /** Delete every checked-off item in a list (e.g. after a shop). */
 export function clearCheckedItems(listId: string): void {
-  for (const it of Object.values(store$.shoppingListItems.get())) {
-    if (it.shopping_list_id === listId && it.is_checked) {
-      store$.shoppingListItems[it.id].delete();
+  batch(() => {
+    for (const it of Object.values(store$.shoppingListItems.get())) {
+      if (it.shopping_list_id === listId && it.is_checked) {
+        store$.shoppingListItems[it.id].delete();
+      }
     }
-  }
+  });
 }
 
 /** Reset every checkbox in a list back to unchecked, to reuse it. */
 export function uncheckAllItems(listId: string): void {
   const ts = nowIso();
-  for (const it of Object.values(store$.shoppingListItems.get())) {
-    if (it.shopping_list_id === listId && it.is_checked) {
-      store$.shoppingListItems[it.id].assign({ is_checked: false, updated_at: ts });
+  batch(() => {
+    for (const it of Object.values(store$.shoppingListItems.get())) {
+      if (it.shopping_list_id === listId && it.is_checked) {
+        store$.shoppingListItems[it.id].assign({ is_checked: false, updated_at: ts });
+      }
     }
-  }
+  });
 }

@@ -3,6 +3,7 @@
  * `YYYY-MM-DD` strings (never UTC), matching what we send to / slice from the API.
  */
 
+import { dateFormatter } from '@/lib/intl';
 import { getLocale } from '@/lib/store/settings';
 
 export type WeekDay = {
@@ -52,14 +53,18 @@ export function startOfWeek(date: Date): Date {
   return addDays(d, deltaToMonday);
 }
 
+const WEEKDAY_SHORT: Intl.DateTimeFormatOptions = { weekday: 'short' };
+const MONTH_SHORT: Intl.DateTimeFormatOptions = { month: 'short' };
+
 export function buildWeek(weekStart: Date, locale: string = getLocale()): WeekDay[] {
   const todayKey = toDateKey(new Date());
+  const weekday = dateFormatter(locale, WEEKDAY_SHORT);
   return Array.from({ length: 7 }, (_, index) => {
     const day = addDays(weekStart, index);
     const date = toDateKey(day);
     return {
       date,
-      weekday: day.toLocaleDateString(locale, { weekday: 'short' }),
+      weekday: weekday.format(day),
       dayOfMonth: day.getDate(),
       isToday: date === todayKey,
     };
@@ -69,8 +74,9 @@ export function buildWeek(weekStart: Date, locale: string = getLocale()): WeekDa
 /** Human label for the week, e.g. "Jun 1 – 7" or "Jun 30 – Jul 6", in the app's language. */
 export function weekLabel(weekStart: Date, locale: string = getLocale()): string {
   const weekEnd = addDays(weekStart, 6);
-  const startMonth = weekStart.toLocaleDateString(locale, { month: 'short' });
-  const endMonth = weekEnd.toLocaleDateString(locale, { month: 'short' });
+  const month = dateFormatter(locale, MONTH_SHORT);
+  const startMonth = month.format(weekStart);
+  const endMonth = month.format(weekEnd);
   if (startMonth === endMonth) {
     return `${startMonth} ${weekStart.getDate()} – ${weekEnd.getDate()}`;
   }

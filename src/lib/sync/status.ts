@@ -34,9 +34,17 @@ export const syncStatus$ = observable<SyncStatus>({
   rejected: 0,
 });
 
-/** Reactive read of the sync status. */
+/**
+ * Reactive read of the sync status. Reads the fields individually so that an
+ * idle poll (which touches nothing) never re-renders the banner/indicator.
+ */
 export function useSyncStatus(): SyncStatus {
-  return useValue(() => syncStatus$.get());
+  const phase = useValue(syncStatus$.phase);
+  const lastSyncedAt = useValue(syncStatus$.lastSyncedAt);
+  const pending = useValue(syncStatus$.pending);
+  const error = useValue(syncStatus$.error);
+  const rejected = useValue(syncStatus$.rejected);
+  return { phase, lastSyncedAt, pending, error, rejected };
 }
 
 /* ---- Setters the Phase-2 sync engine calls -------------------------------- */
@@ -45,8 +53,14 @@ export function markSyncing(): void {
   syncStatus$.assign({ phase: 'syncing', error: null });
 }
 
-export function markSynced(rejected = 0): void {
-  syncStatus$.assign({ phase: 'idle', lastSyncedAt: nowIso(), pending: 0, error: null, rejected });
+/**
+ * @param moved whether the cycle actually exchanged rows; an empty poll keeps
+ *   the previous `lastSyncedAt` so the status stays referentially quiet.
+ */
+export function markSynced(rejected = 0, moved = true): void {
+  const patch: Partial<SyncStatus> = { phase: 'idle', pending: 0, error: null, rejected };
+  if (moved || syncStatus$.lastSyncedAt.get() === null) patch.lastSyncedAt = nowIso();
+  syncStatus$.assign(patch);
 }
 
 export function markSyncError(message: string): void {

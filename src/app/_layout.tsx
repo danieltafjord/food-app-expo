@@ -5,10 +5,12 @@ import { type ComponentProps, type ReactNode } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
-import { useResolvedScheme, useTheme } from '@/hooks/use-theme';
+import { SchemeContext, useResolvedSchemeSource } from '@/hooks/use-theme';
+import { Colors } from '@/constants/theme';
 import { queryClient } from '@/lib/api/query-client';
 import { SessionProvider } from '@/lib/auth/session';
 import { StoreProvider } from '@/lib/store';
+import { LocaleContext, useLocaleSource } from '@/lib/store/settings';
 
 // Re-exported so Expo Router renders it instead of a white screen when any route
 // in the tree throws during render. See `@/components/error-boundary`.
@@ -33,12 +35,14 @@ export default function RootLayout() {
 
 /**
  * Lives inside `StoreProvider` so it can resolve the user's theme preference
- * (light / dark / system). Themes the navigation chrome + status bar to match
- * the app's neutral palette.
+ * (light / dark / system) and language. Themes the navigation chrome + status
+ * bar to match the app's neutral palette, and is the ONE place that subscribes
+ * to those settings: everything below reads them from context.
  */
 function ThemedRoot({ children }: { children: ReactNode }) {
-  const scheme = useResolvedScheme();
-  const theme = useTheme();
+  const scheme = useResolvedSchemeSource();
+  const locale = useLocaleSource();
+  const theme = Colors[scheme];
   const base = scheme === 'dark' ? DarkTheme : DefaultTheme;
   const navTheme = {
     ...base,
@@ -53,10 +57,14 @@ function ThemedRoot({ children }: { children: ReactNode }) {
   };
 
   return (
-    <ThemeProvider value={navTheme}>
-      <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
-      {children}
-    </ThemeProvider>
+    <SchemeContext value={scheme}>
+      <LocaleContext value={locale}>
+        <ThemeProvider value={navTheme}>
+          <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
+          {children}
+        </ThemeProvider>
+      </LocaleContext>
+    </SchemeContext>
   );
 }
 
@@ -92,7 +100,10 @@ function RootNavigator() {
   // sign-in is an opt-in "connect cloud account" flow presented from Settings;
   // invitations stay reachable via the foodapp://invitations/<token> deep link.
   return (
-    <Stack screenOptions={{ headerShown: false }}>
+    // `freezeOnBlur`: a screen underneath a pushed one (the lists screen under
+    // a list, the whole app under a sheet) stops re-rendering on store changes
+    // until it is on top again — it catches up in one render on return.
+    <Stack screenOptions={{ headerShown: false, freezeOnBlur: true }}>
       <Stack.Screen name="(app)" />
       <Stack.Screen name="sign-in" options={{ presentation: 'modal' }} />
       <Stack.Screen name="weeks" options={{ presentation: 'modal' }} />
