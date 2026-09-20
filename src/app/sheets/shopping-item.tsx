@@ -12,7 +12,7 @@ import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { type CategoryId } from '@/lib/categorize';
 import { useT } from '@/lib/i18n';
-import { amountText, parseAmount } from '@/lib/parse-line';
+import { amountText, isAmountValid, parseAmount } from '@/lib/parse-line';
 import {
   recategorizeShoppingItem,
   removeShoppingItem,
@@ -48,7 +48,9 @@ function ItemForm({ item }: { item: ShoppingListItemWithIngredient }) {
   const parsed = parseAmount(amount);
 
   // A free-text item must keep a name; an ingredient-backed one keeps its ingredient.
-  const canSave = !isFreeText || !!name.trim();
+  // An amount we can't read ("ca 2 dl") would be saved as no amount at all.
+  const amountOk = isAmountValid(amount);
+  const canSave = (!isFreeText || !!name.trim()) && amountOk;
 
   function pickUnit(unit: string) {
     // Replace the unit, keep the number: "500 g" + "kg" → "500 kg".
@@ -96,6 +98,7 @@ function ItemForm({ item }: { item: ShoppingListItemWithIngredient }) {
           placeholder={t('shoppingItemEditor.amountPlaceholder')}
           autoCapitalize="none"
           autoCorrect={false}
+          error={amountOk ? null : t('shoppingItemEditor.amountInvalid')}
         />
         <UnitChips value={parsed.unit} onPick={pickUnit} />
       </View>

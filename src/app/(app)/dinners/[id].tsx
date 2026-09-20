@@ -13,7 +13,7 @@ import { UnitChips } from '@/components/unit-chips';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/lib/i18n';
-import { amountText, parseAmount } from '@/lib/parse-line';
+import { amountText, isAmountValid, parseAmount } from '@/lib/parse-line';
 import { openIngredientPicker, type IngredientPick } from '@/lib/sheets';
 import {
   deleteDinner,
@@ -52,6 +52,8 @@ type EditorItem = {
   ingredient_name: string;
   /** Quantity + unit as typed: "500 g", "2", "dl". Parsed when saved. */
   amount: string;
+  /** The last amount text that parsed — what is saved while `amount` is unreadable. */
+  savedAmount: string;
 };
 
 /** Snapshot of the editable fields, so saves only happen when something changed. */
@@ -75,6 +77,7 @@ function DinnerEditorForm({ dinner }: { dinner: DinnerWithItems }) {
       ingredient_id: item.ingredient_id,
       ingredient_name: getIngredient(item.ingredient_id)?.name ?? t('common.ingredientFallback'),
       amount: amountText(item.quantity, item.unit),
+      savedAmount: amountText(item.quantity, item.unit),
     })),
   );
   // Which amount field was last focused — the unit chips apply to that row.
@@ -98,7 +101,10 @@ function DinnerEditorForm({ dinner }: { dinner: DinnerWithItems }) {
         default_servings: servings,
         notes: notes.trim() || null,
         items: items.map((item) => {
-          const { quantity, unit } = parseAmount(item.amount);
+          // An amount we can't read ("ca 2 dl", or "1 1/" mid-typing) keeps the
+          // last saved one rather than wiping it; the field is flagged below.
+          const source = isAmountValid(item.amount) ? item.amount : item.savedAmount;
+          const { quantity, unit } = parseAmount(source);
           return { ingredient_id: item.ingredient_id, quantity, unit };
         }),
       });
@@ -123,6 +129,7 @@ function DinnerEditorForm({ dinner }: { dinner: DinnerWithItems }) {
           ingredient_id: ingredient.id,
           ingredient_name: ingredient.name,
           amount: amountText(quantity, unit),
+          savedAmount: amountText(quantity, unit),
         },
       ];
     });
@@ -130,7 +137,11 @@ function DinnerEditorForm({ dinner }: { dinner: DinnerWithItems }) {
 
   function updateAmount(ingredientId: string, amount: string) {
     setItems((current) =>
-      current.map((item) => (item.ingredient_id === ingredientId ? { ...item, amount } : item)),
+      current.map((item) =>
+        item.ingredient_id === ingredientId
+          ? { ...item, amount, savedAmount: isAmountValid(amount) ? amount : item.savedAmount }
+          : item,
+      ),
     );
   }
 
@@ -140,7 +151,8 @@ function DinnerEditorForm({ dinner }: { dinner: DinnerWithItems }) {
       current.map((item) => {
         if (item.ingredient_id !== focusedItem) return item;
         const { quantity, unit: currentUnit } = parseAmount(item.amount);
-        return { ...item, amount: amountText(quantity, currentUnit === unit ? null : unit) };
+        const amount = amountText(quantity, currentUnit === unit ? null : unit);
+        return { ...item, amount, savedAmount: amount };
       }),
     );
   }
@@ -228,6 +240,7 @@ function DinnerEditorForm({ dinner }: { dinner: DinnerWithItems }) {
                     style={[
                       styles.amount,
                       { backgroundColor: theme.backgroundSelected, color: theme.text },
+                      !isAmountValid(item.amount) && { borderWidth: 1, borderColor: theme.danger },
                     ]}
                   />
                   <Pressable
@@ -242,6 +255,11 @@ function DinnerEditorForm({ dinner }: { dinner: DinnerWithItems }) {
               ))
             )}
           </Card>
+          {items.some((item) => !isAmountValid(item.amount)) ? (
+            <ThemedText type="small" style={{ color: theme.danger }}>
+              {t('dinners.amountInvalid')}
+            </ThemedText>
+          ) : null}
           {focused ? <UnitChips value={focusedUnit} onPick={pickUnit} /> : null}
           <Button
             title={t('dinners.addIngredient')}

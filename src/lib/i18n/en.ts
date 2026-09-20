@@ -144,6 +144,7 @@ export const en = {
     editItem: 'Edit item',
     amount: 'Amount',
     amountPlaceholder: 'e.g. 500 g',
+    amountInvalid: 'Enter a number and a unit, e.g. "500 g" or "1 1/2 dl".',
     category: 'Category',
   },
   categories: {
@@ -183,6 +184,7 @@ export const en = {
     noIngredients: 'No ingredients yet. Add some so this dinner can feed a shopping list.',
     amount: 'Amount',
     amountPlaceholder: '500 g',
+    amountInvalid: 'This amount was not understood and is not saved. Try "500 g".',
     addIngredient: 'Add ingredient',
     notes: 'Notes (optional)',
     notesPlaceholder: 'Anything worth remembering',

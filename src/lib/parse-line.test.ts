@@ -1,4 +1,4 @@
-import { amountText, normalizeUnit, parseAmount, parseItemLine } from '@/lib/parse-line';
+import { amountText, isAmountValid, normalizeUnit, parseAmount, parseItemLine } from '@/lib/parse-line';
 
 describe('parseItemLine', () => {
   it('reads "<qty> <unit> <name>"', () => {
@@ -79,5 +79,34 @@ describe('normalizeUnit / amountText', () => {
     expect(amountText(null, 'dl')).toBe('dl');
     expect(amountText(null, null)).toBe('');
     expect(parseAmount(amountText(1.5, 'l'))).toEqual({ quantity: 1.5, unit: 'l' });
+  });
+});
+
+describe('mixed fractions and unreadable amounts', () => {
+  it('reads "1 1/2" as one number', () => {
+    expect(parseItemLine('1 1/2 dl fløte')).toEqual({ name: 'fløte', quantity: 1.5, unit: 'dl' });
+    expect(parseItemLine('fløte 1 1/2 dl')).toEqual({ name: 'fløte', quantity: 1.5, unit: 'dl' });
+    expect(parseAmount('1 1/2 dl')).toEqual({ quantity: 1.5, unit: 'dl' });
+    expect(parseAmount('2 1/4')).toEqual({ quantity: 2.25, unit: null });
+  });
+
+  it('still reads a plain count before a name', () => {
+    expect(parseItemLine('2 store løk')).toEqual({ name: 'store løk', quantity: 2, unit: null });
+    expect(parseItemLine('1/2 agurk')).toEqual({ name: 'agurk', quantity: 0.5, unit: null });
+  });
+
+  it('flags amount text that would be saved as nothing', () => {
+    expect(isAmountValid('')).toBe(true);
+    expect(isAmountValid('500 g')).toBe(true);
+    expect(isAmountValid('dl')).toBe(true);
+    expect(isAmountValid('ca 2 dl')).toBe(false);
+    expect(isAmountValid('1-2')).toBe(false);
+    expect(isAmountValid('1 1/')).toBe(false);
+  });
+
+  it('rounds float noise out of the editable text', () => {
+    expect(amountText(1 / 3, 'dl')).toBe('0,333 dl');
+    expect(amountText(0.1 + 0.2, 'l')).toBe('0,3 l');
+    expect(amountText(1.5, null)).toBe('1,5');
   });
 });

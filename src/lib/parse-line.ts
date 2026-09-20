@@ -68,10 +68,14 @@ function isKnownUnit(token: string): boolean {
 
 const VULGAR: Record<string, number> = { '½': 0.5, '¼': 0.25, '¾': 0.75, '⅓': 1 / 3, '⅔': 2 / 3 };
 
-/** "1,5" / "1.5" / "1/2" / "½" / "1 ½" → number, or null. */
+/** "1,5" / "1.5" / "1/2" / "½" / "1 ½" / "1 1/2" → number, or null. */
 function parseNumber(token: string): number | null {
   const t = token.trim();
   if (t in VULGAR) return VULGAR[t];
+  const mixedFrac = t.match(/^(\d+)\s+(\d+)\s*\/\s*(\d+)$/);
+  if (mixedFrac && Number(mixedFrac[3]) !== 0) {
+    return Number(mixedFrac[1]) + Number(mixedFrac[2]) / Number(mixedFrac[3]);
+  }
   const mixed = t.match(/^(\d+)\s*([½¼¾⅓⅔])$/);
   if (mixed) return Number(mixed[1]) + VULGAR[mixed[2]];
   const frac = t.match(/^(\d+)\s*\/\s*(\d+)$/);
@@ -79,8 +83,9 @@ function parseNumber(token: string): number | null {
   return parseQuantity(t);
 }
 
-// A number: 2, 1,5, 1.5, 1/2, ½, 1 ½
-const NUM = '(?:\\d+(?:[.,]\\d+)?(?:\\s*\\/\\s*\\d+)?(?:\\s*[½¼¾⅓⅔])?|[½¼¾⅓⅔])';
+// A number: 2, 1,5, 1.5, 1/2, ½, 1 ½, 1 1/2 (the mixed fraction first, so
+// "1 1/2 dl" is not read as 1 × "1/2 dl").
+const NUM = '(?:\\d+\\s+\\d+\\s*\\/\\s*\\d+|\\d+(?:[.,]\\d+)?(?:\\s*\\/\\s*\\d+)?(?:\\s*[½¼¾⅓⅔])?|[½¼¾⅓⅔])';
 // A unit token: letters only (so "2l" and "500g" split cleanly).
 const UNIT = '([\\p{L}]+\\.?)';
 
@@ -142,8 +147,23 @@ export function parseAmount(text: string): ParsedAmount {
   return { quantity: null, unit: null };
 }
 
+/**
+ * True when an amount field's text can be saved as typed: empty, or something
+ * `parseAmount` understands. "ca 2 dl" or "1-2" are not — saving those would
+ * silently store no amount at all, so the forms flag them instead.
+ */
+export function isAmountValid(text: string): boolean {
+  if (!text.trim()) return true;
+  const { quantity, unit } = parseAmount(text);
+  return quantity != null || unit != null;
+}
+
 /** The editable text for an amount field: "500 g", "2", "g" or "". */
 export function amountText(quantity: number | null, unit: string | null): string {
-  const qty = quantity != null && Number.isFinite(quantity) ? String(quantity).replace('.', ',') : '';
+  // Three decimals at most: 1/3 shows as "0,333", not "0,3333333333333333".
+  const qty =
+    quantity != null && Number.isFinite(quantity)
+      ? String(Math.round(quantity * 1000) / 1000).replace('.', ',')
+      : '';
   return [qty, unit ?? ''].filter(Boolean).join(' ');
 }

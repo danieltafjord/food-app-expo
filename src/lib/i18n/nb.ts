@@ -140,6 +140,7 @@ export const nb: Dictionary = {
     editItem: 'Rediger vare',
     amount: 'Mengde',
     amountPlaceholder: 'f.eks. 500 g',
+    amountInvalid: 'Skriv et tall og en enhet, f.eks. «500 g» eller «1 1/2 dl».',
     category: 'Kategori',
   },
   categories: {
@@ -179,6 +180,7 @@ export const nb: Dictionary = {
     noIngredients: 'Ingen ingredienser ennå. Legg til noen så middagen kan fylle en handleliste.',
     amount: 'Mengde',
     amountPlaceholder: '500 g',
+    amountInvalid: 'Mengden ble ikke forstått og lagres ikke. Skriv f.eks. «500 g».',
     addIngredient: 'Legg til ingrediens',
     notes: 'Notater (valgfritt)',
     notesPlaceholder: 'Noe verdt å huske',
