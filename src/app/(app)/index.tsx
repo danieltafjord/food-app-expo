@@ -1,4 +1,3 @@
-import { router } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useRef } from 'react';
 import { Alert, Pressable, StyleSheet, View } from 'react-native';
@@ -10,6 +9,7 @@ import { WeekBoard } from '@/components/week-board';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/lib/i18n';
+import { pushOnce } from '@/lib/navigation';
 import { setPlannerWeekKey, usePlannerWeekKey } from '@/lib/planner-state';
 import { createShoppingListFromPlan, dinnersWithoutIngredients } from '@/lib/shopping/generate';
 import {
@@ -62,15 +62,15 @@ export default function PlansScreen() {
   // Adding and editing happen in native sheets (root routes) that write to the
   // store; the board re-renders reactively when they close.
   function onAdd(date: string) {
-    router.push({ pathname: '/sheets/dinner-picker', params: { date } });
+    pushOnce({ pathname: '/sheets/dinner-picker', params: { date } });
   }
 
   function onEditEntry(entryId: string) {
-    router.push({ pathname: '/sheets/entry-editor', params: { entryId } });
+    pushOnce({ pathname: '/sheets/entry-editor', params: { entryId } });
   }
 
   function openList(id: string) {
-    router.push({ pathname: '/shopping/[id]', params: { id } });
+    pushOnce({ pathname: '/shopping/[id]', params: { id } });
   }
 
   // Build this week's list from its dinners. Dinners without ingredients add
@@ -114,7 +114,7 @@ export default function PlansScreen() {
             />
             <View style={styles.weekLabel}>
               <Pressable
-                onPress={() => router.push('/weeks')}
+                onPress={() => pushOnce('/weeks')}
                 hitSlop={8}
                 style={({ pressed }) => [styles.weekLabelButton, pressed && styles.pressed]}>
                 <ThemedText type="smallBold">{label}</ThemedText>

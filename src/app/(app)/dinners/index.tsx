@@ -1,4 +1,3 @@
-import { router } from 'expo-router';
 import { useMemo, useRef, useState } from 'react';
 import { Alert, FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
@@ -11,6 +10,7 @@ import { BadgeColors, BottomTabInset, MaxContentWidth, Spacing } from '@/constan
 import { useSyncRefresh } from '@/hooks/use-sync-refresh';
 import { useResolvedScheme, useTheme } from '@/hooks/use-theme';
 import { useT } from '@/lib/i18n';
+import { pushOnce } from '@/lib/navigation';
 import { findExact, indexByName, searchIndex } from '@/lib/search';
 import { createDinner, deleteDinner, useDinners, type DinnerWithItems } from '@/lib/store';
 
@@ -44,7 +44,7 @@ export default function DinnersScreen() {
   const idle = action === 'idle';
 
   function openDinner(id: string) {
-    router.push({ pathname: '/dinners/[id]', params: { id } });
+    pushOnce({ pathname: '/dinners/[id]', params: { id } });
   }
 
   function onCreate() {

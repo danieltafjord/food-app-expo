@@ -10,6 +10,7 @@ import { BadgeColors, Spacing } from '@/constants/theme';
 import { useResolvedScheme, useTheme } from '@/hooks/use-theme';
 import { hapticSelection } from '@/lib/haptics';
 import { useT } from '@/lib/i18n';
+import { pushOnce } from '@/lib/navigation';
 import {
   deletePlanEntry,
   updatePlanEntry,
@@ -62,7 +63,7 @@ function EntryForm({ entry }: { entry: PlanEntryWithDinner }) {
   function editDinner() {
     // Leave the sheet, then push the recipe onto the Dinners tab.
     router.back();
-    router.push({ pathname: '/dinners/[id]', params: { id: entry.dinner_id } });
+    pushOnce({ pathname: '/dinners/[id]', params: { id: entry.dinner_id } });
   }
 
   function remove() {

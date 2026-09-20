@@ -1,5 +1,5 @@
-import { router } from 'expo-router';
 
+import { pushOnce } from '@/lib/navigation';
 import type { LocalIngredient } from '@/lib/store';
 
 /**
@@ -47,5 +47,11 @@ export type IngredientPick = {
 /** Open the ingredient picker sheet; `onPick` runs when the user chooses one. */
 export function openIngredientPicker(onPick: (pick: IngredientPick) => void): void {
   const request = requestSheet(onPick);
-  router.push({ pathname: '/sheets/ingredient-picker', params: { request } });
+  // The request id is new on every call, so name the destination for the
+  // double-tap check — and release the callback if the push was dropped.
+  const pushed = pushOnce(
+    { pathname: '/sheets/ingredient-picker', params: { request } },
+    '/sheets/ingredient-picker',
+  );
+  if (!pushed) cancelSheet(request);
 }

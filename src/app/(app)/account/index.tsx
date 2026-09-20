@@ -1,4 +1,3 @@
-import { router } from 'expo-router';
 import { useState } from 'react';
 import { Alert, StyleSheet, View } from 'react-native';
 
@@ -16,6 +15,7 @@ import { useUpdateSettings } from '@/lib/api/settings';
 import type { HouseholdRole } from '@/lib/api/types';
 import { useSession } from '@/lib/auth/session';
 import { LOCALE_LABELS, LOCALES, useT, type Locale } from '@/lib/i18n';
+import { pushOnce } from '@/lib/navigation';
 import {
   setHouseholdDefaultServings,
   setLocale,
@@ -150,7 +150,7 @@ export default function AccountScreen() {
                     title={t('household.invitePeople')}
                     variant="secondary"
                     size="small"
-                    onPress={() => router.push('/account/invite')}
+                    onPress={() => pushOnce('/account/invite')}
                   />
                 ) : (
                   <ThemedText type="small" themeColor="textSecondary">
@@ -160,7 +160,7 @@ export default function AccountScreen() {
                 <Button
                   title={t('household.manage')}
                   variant="secondary"
-                  onPress={() => router.push('/account/households')}
+                  onPress={() => pushOnce('/account/households')}
                 />
               </Card>
             ) : (
@@ -170,12 +170,12 @@ export default function AccountScreen() {
                 </ThemedText>
                 <Button
                   title={t('household.createHousehold')}
-                  onPress={() => router.push('/account/create')}
+                  onPress={() => pushOnce('/account/create')}
                 />
                 <Button
                   title={t('household.joinWithLink')}
                   variant="secondary"
-                  onPress={() => router.push('/account/join')}
+                  onPress={() => pushOnce('/account/join')}
                 />
               </Card>
             )}
@@ -209,7 +209,7 @@ export default function AccountScreen() {
             <ThemedText type="small" themeColor="textSecondary">
               {t('account.dataLocal')}
             </ThemedText>
-            <Button title={t('account.connect')} onPress={() => router.push('/sign-in')} />
+            <Button title={t('account.connect')} onPress={() => pushOnce('/sign-in')} />
           </Card>
         </View>
       )}

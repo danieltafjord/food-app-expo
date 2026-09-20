@@ -1,4 +1,3 @@
-import { router } from 'expo-router';
 import { Alert, Pressable, StyleSheet, View } from 'react-native';
 
 import { Fab } from '@/components/fab';
@@ -9,6 +8,7 @@ import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { formatDay } from '@/lib/format';
 import { useT } from '@/lib/i18n';
+import { pushOnce } from '@/lib/navigation';
 import { createShoppingList, deleteShoppingList, useShoppingLists } from '@/lib/store';
 import { toDateKey } from '@/lib/week';
 
@@ -22,7 +22,7 @@ export default function ShoppingListsScreen() {
   function openCreate() {
     const name = `${t('shopping.defaultListName')} ${formatDay(toDateKey(new Date()))}`;
     const id = createShoppingList(name);
-    router.push({ pathname: '/shopping/[id]', params: { id } });
+    pushOnce({ pathname: '/shopping/[id]', params: { id } });
   }
 
   function confirmDelete(id: string) {
@@ -46,7 +46,7 @@ export default function ShoppingListsScreen() {
                 label={t('common.delete')}
                 onDelete={() => confirmDelete(list.id)}>
                 <Pressable
-                  onPress={() => router.push({ pathname: '/shopping/[id]', params: { id: list.id } })}
+                  onPress={() => pushOnce({ pathname: '/shopping/[id]', params: { id: list.id } })}
                   accessibilityRole="button"
                   style={({ pressed }) => [
                     styles.row,

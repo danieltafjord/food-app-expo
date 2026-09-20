@@ -14,6 +14,7 @@ import { CATEGORY_EMOJI } from '@/lib/categorize';
 import { formatQuantity } from '@/lib/format';
 import { hapticSelection } from '@/lib/haptics';
 import { useT } from '@/lib/i18n';
+import { pushOnce } from '@/lib/navigation';
 import { updateShoppingListFromPlan, usePlanListDrift } from '@/lib/shopping/generate';
 import {
   clearCheckedItems,
@@ -53,7 +54,7 @@ export default function ShoppingListScreen() {
   const listId = list.id;
 
   function onEditItem(itemId: string) {
-    router.push({ pathname: '/sheets/shopping-item', params: { itemId } });
+    pushOnce({ pathname: '/sheets/shopping-item', params: { itemId } });
   }
 
   function onClearChecked() {
@@ -83,7 +84,7 @@ export default function ShoppingListScreen() {
       <HeaderMenu>
         <MenuAction
           icon="pencil"
-          onPress={() => router.push({ pathname: '/sheets/rename-list', params: { listId } })}>
+          onPress={() => pushOnce({ pathname: '/sheets/rename-list', params: { listId } })}>
           {t('shopping.renameList')}
         </MenuAction>
         <MenuAction icon="circle" disabled={checked === 0} onPress={() => uncheckAllItems(listId)}>
@@ -102,7 +103,7 @@ export default function ShoppingListScreen() {
         overlay={
           <Fab
             accessibilityLabel={t('shopping.addItems')}
-            onPress={() => router.push({ pathname: '/shopping/add', params: { listId } })}
+            onPress={() => pushOnce({ pathname: '/shopping/add', params: { listId } })}
           />
         }>
         <ThemedText type="small" themeColor="textSecondary">

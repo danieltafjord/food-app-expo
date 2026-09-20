@@ -1,4 +1,3 @@
-import { router } from 'expo-router';
 import { ActivityIndicator, Alert, StyleSheet, View } from 'react-native';
 
 import { Badge } from '@/components/badge';
@@ -12,6 +11,7 @@ import { useMembers } from '@/lib/api/members';
 import type { HouseholdRole } from '@/lib/api/types';
 import { useTheme } from '@/hooks/use-theme';
 import { useT } from '@/lib/i18n';
+import { pushOnce } from '@/lib/navigation';
 import { SyncPendingError } from '@/lib/sync/engine';
 
 function roleTone(role: HouseholdRole) {
@@ -43,7 +43,7 @@ export default function HouseholdsScreen() {
             {isOwner ? (
               <Button
                 title={t('household.invitePeople')}
-                onPress={() => router.push('/account/invite')}
+                onPress={() => pushOnce('/account/invite')}
               />
             ) : (
               <ThemedText type="small" themeColor="textSecondary">
@@ -90,12 +90,12 @@ export default function HouseholdsScreen() {
           </ThemedText>
           <Button
             title={t('household.createHousehold')}
-            onPress={() => router.push('/account/create')}
+            onPress={() => pushOnce('/account/create')}
           />
           <Button
             title={t('household.joinWithLink')}
             variant="secondary"
-            onPress={() => router.push('/account/join')}
+            onPress={() => pushOnce('/account/join')}
           />
         </Card>
       )}
@@ -150,12 +150,12 @@ export default function HouseholdsScreen() {
           <Button
             title={t('household.createAnother')}
             variant="secondary"
-            onPress={() => router.push('/account/create')}
+            onPress={() => pushOnce('/account/create')}
           />
           <Button
             title={t('household.joinWithLink')}
             variant="secondary"
-            onPress={() => router.push('/account/join')}
+            onPress={() => pushOnce('/account/join')}
           />
         </View>
       ) : null}
