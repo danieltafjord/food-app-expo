@@ -59,7 +59,8 @@ export default function InviteScreen() {
 
   async function onInvite() {
     const trimmed = email.trim();
-    if (!trimmed) {
+    // The return key can fire again while the request is still in flight.
+    if (!trimmed || inviteMember.isPending) {
       return;
     }
     setFieldError(null);

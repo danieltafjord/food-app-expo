@@ -32,9 +32,18 @@ export function Stepper({
     <ThemedView
       type="backgroundElement"
       style={styles.group}
+      // One adjustable element for VoiceOver: swipe up/down steps the value.
+      // Without `accessible` the role and label were ignored, and without the
+      // actions an adjustable element cannot be changed at all.
+      accessible
       accessibilityRole="adjustable"
       accessibilityLabel={accessibilityLabel}
-      accessibilityValue={{ min, max, now: value }}>
+      accessibilityValue={{ min, max, now: value, text: unit ? `${value} ${unit}` : String(value) }}
+      accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
+      onAccessibilityAction={(event) => {
+        if (event.nativeEvent.actionName === 'increment') clampTo(value + step);
+        if (event.nativeEvent.actionName === 'decrement') clampTo(value - step);
+      }}>
       <StepButton label="−" disabled={value <= min} onPress={() => clampTo(value - step)} />
       <View style={styles.valueWrap}>
         <ThemedText style={styles.value}>{value}</ThemedText>

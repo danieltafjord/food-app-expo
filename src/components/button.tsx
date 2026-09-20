@@ -39,6 +39,9 @@ export function Button({
   return (
     <Pressable
       accessibilityRole="button"
+      // The title is replaced by a spinner while loading; keep the name for VoiceOver.
+      accessibilityLabel={title}
+      accessibilityState={{ disabled: !!isDisabled, busy: loading }}
       disabled={isDisabled}
       style={(state: PressableStateCallbackType) => [
         styles.base,

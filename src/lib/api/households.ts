@@ -56,15 +56,22 @@ export function useCreateHousehold() {
  * instantly; this mirrors the change to the server household so the rest of the
  * household sees it. On success we re-adopt the server's canonical value.
  */
+// The newest household update started. Responses to older ones are stale: the
+// local value has already moved on (three quick stepper taps), and applying
+// them would make it jump backwards.
+let latestHouseholdUpdate = 0;
+
 export function useUpdateHousehold() {
   const { request } = useSession();
   return useMutation({
+    onMutate: () => ({ seq: ++latestHouseholdUpdate }),
     mutationFn: (input: { id: number; name: string; default_servings: number }) =>
       request<Household>(`/households/${input.id}`, {
         method: 'PATCH',
         body: { name: input.name, default_servings: input.default_servings },
       }),
-    onSuccess: (household) => {
+    onSuccess: (household, _input, context) => {
+      if (context?.seq !== latestHouseholdUpdate) return;
       applyServerHouseholdSettings(household.default_servings);
     },
   });

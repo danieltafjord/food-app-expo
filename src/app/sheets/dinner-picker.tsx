@@ -65,6 +65,7 @@ export default function DinnerPickerSheet() {
   // One create per typed name — a "done" + tap double-fire would otherwise
   // create two dinners with the same name.
   const created = useRef(false);
+  const scheduled = useRef(false);
 
   // Fold every name once per store change, not once per keystroke.
   const index = useMemo(() => indexByName(dinners, (dinner) => dinner.name), [dinners]);
@@ -80,7 +81,10 @@ export default function DinnerPickerSheet() {
   const todayMs = fromDateKey(toDateKey(new Date())).getTime();
 
   function schedule(dinner: LocalDinner) {
-    if (!date) return;
+    // Once per sheet: a "done" + tap double-fire would otherwise plan the dinner
+    // twice and pop two screens.
+    if (!date || scheduled.current) return;
+    scheduled.current = true;
     const weekStart = startOfWeek(fromDateKey(date));
     const planId = ensurePlanForWeek(
       toDateKey(weekStart),
@@ -147,7 +151,7 @@ export default function DinnerPickerSheet() {
         autoCapitalize="sentences"
         autoCorrect={false}
         returnKeyType="done"
-        blurOnSubmit={false}
+        submitBehavior="submit"
         onSubmitEditing={onSubmit}
       />
 

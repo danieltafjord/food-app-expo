@@ -124,6 +124,8 @@ export default function HouseholdsScreen() {
                   size="small"
                   variant="secondary"
                   loading={switchHousehold.isPending && switchHousehold.variables === item.id}
+                  // One switch at a time: a second would race the first's data swap.
+                  disabled={switchHousehold.isPending}
                   onPress={() =>
                     switchHousehold.mutate(item.id, {
                       onError: (error) => {

@@ -81,7 +81,11 @@ export default function PlansScreen() {
     const create = () => {
       creating.current = true;
       openList(createShoppingListFromPlan(planId));
-      creating.current = false;
+      // Released after the push has landed — resetting it on the same tick
+      // guarded nothing, since creating the list is synchronous.
+      setTimeout(() => {
+        creating.current = false;
+      }, 1000);
     };
     const missing = dinnersWithoutIngredients(planId);
     if (missing.length === 0) {

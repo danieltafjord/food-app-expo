@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { Pressable, StyleSheet } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
@@ -14,11 +15,20 @@ type FabProps = {
 /** A circular floating action button pinned to the bottom-right, clearing the tab bar. */
 export function Fab({ onPress, icon = '＋', accessibilityLabel }: FabProps) {
   const theme = useTheme();
+  // The FAB creates things (a new list) and then navigates; a double tap lands
+  // before the push does and would create two. Ignore presses in quick succession.
+  const lastPress = useRef(0);
+  function press() {
+    const now = Date.now();
+    if (now - lastPress.current < 600) return;
+    lastPress.current = now;
+    onPress();
+  }
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
-      onPress={onPress}
+      onPress={press}
       style={({ pressed }) => [
         styles.fab,
         { backgroundColor: theme.tint },

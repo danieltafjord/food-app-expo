@@ -11,12 +11,18 @@ import { applyServerSettings, type ThemePreference } from '@/lib/store';
  * change to the user's account so it follows them across devices. On success we
  * re-apply the server's canonical values.
  */
+// The newest settings update started; responses to older ones are stale and
+// would flip the theme or language back to a choice the user already left.
+let latestSettingsUpdate = 0;
+
 export function useUpdateSettings() {
   const { request } = useSession();
   return useMutation({
+    onMutate: () => ({ seq: ++latestSettingsUpdate }),
     mutationFn: (input: { theme: ThemePreference; locale: Locale }) =>
       request<User>('/me/settings', { method: 'PATCH', body: input }),
-    onSuccess: (user) => {
+    onSuccess: (user, _input, context) => {
+      if (context?.seq !== latestSettingsUpdate) return;
       applyServerSettings(user.theme, user.locale);
     },
   });

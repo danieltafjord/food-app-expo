@@ -116,7 +116,7 @@ export default function DinnersScreen() {
               autoCapitalize="sentences"
               autoCorrect={false}
               returnKeyType="done"
-              blurOnSubmit={false}
+              submitBehavior="submit"
               onSubmitEditing={onSubmit}
             />
             <View style={styles.actionSlot}>

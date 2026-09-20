@@ -35,6 +35,7 @@ export default function IngredientPickerSheet() {
   const [query, setQuery] = useState('');
   // One create per typed query — guards a "done" + button tap firing twice.
   const created = useRef(false);
+  const picked = useRef(false);
 
   // Dismissed without picking: release the opener's callback.
   useEffect(() => () => cancelSheet(request), [request]);
@@ -50,6 +51,9 @@ export default function IngredientPickerSheet() {
   const action: 'idle' | 'create' | 'add' = !name ? 'idle' : exact ? 'add' : 'create';
 
   function pick(ingredient: LocalIngredient) {
+    // Once per sheet: a "done" + tap double-fire would otherwise pop two screens.
+    if (picked.current) return;
+    picked.current = true;
     resolveSheet(request, {
       ingredient,
       quantity: parsed.quantity,
@@ -98,7 +102,7 @@ export default function IngredientPickerSheet() {
         autoCapitalize="none"
         autoCorrect={false}
         returnKeyType="done"
-        blurOnSubmit={false}
+        submitBehavior="submit"
         onSubmitEditing={onSubmit}
       />
 

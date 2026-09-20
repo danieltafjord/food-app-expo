@@ -47,6 +47,7 @@ export default function ShoppingListsScreen() {
                 onDelete={() => confirmDelete(list.id)}>
                 <Pressable
                   onPress={() => router.push({ pathname: '/shopping/[id]', params: { id: list.id } })}
+                  accessibilityRole="button"
                   style={({ pressed }) => [
                     styles.row,
                     { backgroundColor: theme.backgroundElement },

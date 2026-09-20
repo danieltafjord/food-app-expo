@@ -20,7 +20,8 @@ export default function CreateHouseholdScreen() {
 
   async function onSubmit() {
     const trimmed = name.trim();
-    if (!trimmed) {
+    // The return key can fire again while the request is still in flight.
+    if (!trimmed || createHousehold.isPending) {
       return;
     }
     setFieldError(null);

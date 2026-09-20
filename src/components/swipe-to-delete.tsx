@@ -5,7 +5,7 @@
  * is disabled here (same as week-board.tsx).
  */
 /* eslint-disable react-hooks/immutability */
-import { useMemo, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
@@ -13,6 +13,7 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from 'react-native-reanimated';
+import { scheduleOnRN } from 'react-native-worklets';
 
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
@@ -46,6 +47,10 @@ export function SwipeToDelete({ children, onDelete, label, secondary }: SwipeToD
   const translateX = useSharedValue(0);
   const startX = useSharedValue(0);
   const revealWidth = ACTION_WIDTH * (secondary ? 2 : 1);
+  // Mirrors the settled position on the JS side: while the actions are revealed
+  // a tap on the row should close it, not reach the row's own press handler
+  // (which would tick a shopping item the user only meant to put back).
+  const [open, setOpen] = useState(false);
 
   // Built once per row: the compiler skips this component, and a rebuilt
   // gesture on every render means a new handler pushed to the native side for
@@ -65,8 +70,9 @@ export function SwipeToDelete({ children, onDelete, label, secondary }: SwipeToD
           );
         })
         .onEnd(() => {
-          const open = translateX.value < -revealWidth / 2;
-          translateX.value = withTiming(open ? -revealWidth : 0, { duration: 160 });
+          const reveal = translateX.value < -revealWidth / 2;
+          translateX.value = withTiming(reveal ? -revealWidth : 0, { duration: 160 });
+          scheduleOnRN(setOpen, reveal);
         }),
     [startX, translateX, revealWidth],
   );
@@ -75,8 +81,15 @@ export function SwipeToDelete({ children, onDelete, label, secondary }: SwipeToD
     transform: [{ translateX: translateX.value }],
   }));
 
+  // Hidden until the row actually moves: rows dim with opacity while pressed,
+  // and the red action would otherwise show through a resting row.
+  const actionsStyle = useAnimatedStyle(() => ({
+    opacity: translateX.value < 0 ? 1 : 0,
+  }));
+
   function close() {
     translateX.value = withTiming(0, { duration: 120 });
+    setOpen(false);
   }
 
   function remove() {
@@ -91,7 +104,7 @@ export function SwipeToDelete({ children, onDelete, label, secondary }: SwipeToD
 
   return (
     <View style={styles.container}>
-      <View style={[styles.actions, { width: revealWidth }]}>
+      <Animated.View style={[styles.actions, { width: revealWidth }, actionsStyle]}>
         {secondary ? (
           <Pressable
             accessibilityRole="button"
@@ -118,9 +131,14 @@ export function SwipeToDelete({ children, onDelete, label, secondary }: SwipeToD
             {label}
           </ThemedText>
         </Pressable>
-      </View>
+      </Animated.View>
       <GestureDetector gesture={pan}>
-        <Animated.View style={rowStyle}>{children}</Animated.View>
+        <Animated.View style={rowStyle}>
+          {children}
+          {open ? (
+            <Pressable onPress={close} accessible={false} style={StyleSheet.absoluteFill} />
+          ) : null}
+        </Animated.View>
       </GestureDetector>
     </View>
   );

@@ -30,6 +30,8 @@ export function UnitChips({ value, onPick }: UnitChipsProps) {
           <Pressable
             key={unit}
             onPress={() => onPick(unit)}
+            // The chip is ~28pt tall; extend the touch target towards 44pt.
+            hitSlop={{ top: 8, bottom: 8, left: 2, right: 2 }}
             accessibilityRole="button"
             accessibilityState={{ selected }}
             style={({ pressed }) => [
