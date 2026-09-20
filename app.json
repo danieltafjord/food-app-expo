@@ -17,7 +17,10 @@
       "bundleIdentifier": "no.handlelistaapp",
       "associatedDomains": [
         "applinks:handlelistaapp.no"
-      ]
+      ],
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "no.handlelistaapp",
@@ -80,6 +83,12 @@
         "projectId": "67101dcc-34fa-4b10-8449-b47e773710a2"
       }
     },
-    "owner": "daniel-tafjords-organization"
+    "owner": "daniel-tafjords-organization",
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/67101dcc-34fa-4b10-8449-b47e773710a2"
+    }
   }
 }

@@ -10,7 +10,7 @@ batched `/api/v1/sync` endpoint).
 
 ## Stack
 
-- Expo SDK 56 · React Native 0.85 · React 19 (React Compiler on) · expo-router
+- Expo SDK 57 · React Native 0.86 · React 19 (React Compiler on) · expo-router
   with native tabs · TypeScript
 - Local store: Legend-State v3 persisted to expo-sqlite (`src/lib/store/`)
 - Cloud sync engine: `src/lib/sync/` · Auth: OAuth2 PKCE via `expo-auth-session`

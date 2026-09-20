@@ -10,21 +10,24 @@
       "env": {
         "EXPO_PUBLIC_API_URL": "http://food-app.test",
         "EXPO_PUBLIC_OAUTH_CLIENT_ID": "REPLACE_WITH_DEV_PASSPORT_CLIENT_ID"
-      }
+      },
+      "channel": "development"
     },
     "preview": {
       "distribution": "internal",
       "env": {
         "EXPO_PUBLIC_API_URL": "https://api.staging.handlelistaapp.no",
         "EXPO_PUBLIC_OAUTH_CLIENT_ID": "REPLACE_WITH_STAGING_PASSPORT_CLIENT_ID"
-      }
+      },
+      "channel": "preview"
     },
     "production": {
       "autoIncrement": true,
       "env": {
         "EXPO_PUBLIC_API_URL": "https://api.handlelistaapp.no",
         "EXPO_PUBLIC_OAUTH_CLIENT_ID": "REPLACE_WITH_PRODUCTION_PASSPORT_CLIENT_ID"
-      }
+      },
+      "channel": "production"
     }
   },
   "submit": {
