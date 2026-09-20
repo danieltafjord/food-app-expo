@@ -19,7 +19,9 @@ import { fold } from '@/lib/categorize/normalize';
 
 /** The comparable form of a name or query. */
 export function searchKey(s: string): string {
-  return fold(s).toLowerCase().replace(/\s+/g, ' ').trim();
+  // Lowercase first: `fold` only knows the lowercase ø/æ, so "Øl" must become
+  // "øl" before folding or it would keep its ø and never match the query "øl".
+  return fold(s.toLowerCase()).replace(/\s+/g, ' ').trim();
 }
 
 export type Indexed<T> = { item: T; key: string };

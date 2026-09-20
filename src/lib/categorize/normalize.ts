@@ -83,5 +83,5 @@ export function normalize(raw: string): string {
 
 /** Diacritic-fold for fuzzy matching: å→a, ø→o, æ→ae, é→e, etc. */
 export function fold(s: string): string {
-  return s.normalize('NFD').replace(COMBINING_MARKS, '').replace(/ø/g, 'o').replace(/æ/g, 'ae');
+  return s.normalize('NFD').replace(COMBINING_MARKS, '').replace(/ø/g, 'o').replace(/Ø/g, 'O').replace(/æ/g, 'ae').replace(/Æ/g, 'AE');
 }

@@ -1,5 +1,5 @@
 import { useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, View } from 'react-native';
 
 import { TextField } from '@/components/text-field';
@@ -10,6 +10,7 @@ import { useTheme } from '@/hooks/use-theme';
 import { formatQuantity } from '@/lib/format';
 import { useT } from '@/lib/i18n';
 import { parseItemLine } from '@/lib/parse-line';
+import { findExact, indexByName, searchIndex } from '@/lib/search';
 import {
   addShoppingItem,
   buildShoppingSuggestions,
@@ -43,13 +44,14 @@ export default function AddShoppingItemsScreen() {
 
   const parsed = parseItemLine(query);
   const name = parsed.name;
-  const lowerName = name.toLowerCase();
   const hasAmount = parsed.quantity != null || parsed.unit != null;
   const amount = formatQuantity(parsed.quantity, parsed.unit);
-  const filtered = lowerName
-    ? suggestions.filter((s) => s.name.toLowerCase().includes(lowerName))
-    : suggestions;
-  const exactMatch = suggestions.some((s) => s.name.toLowerCase() === lowerName);
+  // The same ranked, diacritic- and case-insensitive search as the pickers, so
+  // "rodlok" finds "Rødløk" and "ø" finds "Øl".
+  const index = useMemo(() => indexByName(suggestions, (s) => s.name), [suggestions]);
+  const filtered = useMemo(() => searchIndex(index, name), [index, name]);
+  const exact = useMemo(() => findExact(index, name), [index, name]);
+  const exactMatch = !!exact;
 
   const onListIngredientIds = new Set(
     items.map((it) => it.ingredient_id).filter((id): id is string => !!id),
@@ -124,9 +126,8 @@ export default function AddShoppingItemsScreen() {
   // one (and it isn't already on the list), otherwise create it. Then reset.
   function submit() {
     if (!name) return;
-    const match = suggestions.find((s) => s.name.toLowerCase() === lowerName);
-    if (match) {
-      if (!isOnList(match)) add(match);
+    if (exact) {
+      if (!isOnList(exact)) add(exact);
       setQuery('');
     } else {
       addNew();

@@ -17,6 +17,21 @@ describe('searchKey', () => {
     expect(searchKey('  Kjøtt   Boller ')).toBe('kjott boller');
     expect(searchKey('Blåbær')).toBe('blabaer');
   });
+
+  it('folds capital Ø, Æ and Å the same as lowercase', () => {
+    expect(searchKey('Øl')).toBe(searchKey('øl'));
+    expect(searchKey('Ærter')).toBe(searchKey('ærter'));
+    expect(searchKey('Ål')).toBe(searchKey('ål'));
+    expect(searchKey('RØDLØK')).toBe('rodlok');
+  });
+
+  it('finds names starting with a capital Norwegian letter', () => {
+    const nordic = indexByName(['Øl', 'Rødløk', 'Ærter', 'Ål'], (n) => n);
+    expect(searchIndex(nordic, 'ø')).toEqual(['Øl', 'Rødløk']);
+    expect(searchIndex(nordic, 'Ø')).toEqual(['Øl', 'Rødløk']);
+    expect(searchIndex(nordic, 'æ')).toEqual(['Ærter']);
+    expect(searchIndex(nordic, 'ål')).toEqual(['Ål']);
+  });
 });
 
 describe('searchIndex', () => {
