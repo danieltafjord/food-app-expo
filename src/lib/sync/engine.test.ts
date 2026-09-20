@@ -21,7 +21,9 @@ import {
   connectCollections,
   disconnectCollections,
   ensureChangeTracking,
+  ensureSyncedBeforeRebind,
   hasPending,
+  SyncPendingError,
   syncNow,
   type SyncResponse,
 } from '@/lib/sync/engine';
@@ -354,6 +356,32 @@ describe('failures and state transitions', () => {
     const last = server.calls.at(-1)!;
     expect(last.body.cursor).toBeNull();
     expect(last.body.household_id).toBe(9);
+  });
+
+  it('refuses to rebind while a bound device has changes it cannot push', async () => {
+    ensureChangeTracking();
+    const server = fakeServer();
+    await connect(server);
+    createDinner({ name: 'Unsynced' });
+
+    server.handlers.push(() => {
+      throw new Error('Network request failed');
+    });
+    await expect(ensureSyncedBeforeRebind()).rejects.toBeInstanceOf(SyncPendingError);
+    expect(hasPending()).toBe(true);
+
+    // Back online: the outbox drains and the rebind may go ahead.
+    await expect(ensureSyncedBeforeRebind()).resolves.toBeUndefined();
+    expect(hasPending()).toBe(false);
+  });
+
+  it('lets an unbound device rebind with pending rows, since they upload into the new household', async () => {
+    ensureChangeTracking();
+    createDinner({ name: 'Made before signing in' });
+    expect(store$.meta.serverHouseholdId.get()).toBeNull();
+
+    await expect(ensureSyncedBeforeRebind()).resolves.toBeUndefined();
+    expect(hasPending()).toBe(true);
   });
 
   it('ignores a response that lands after sign-out', async () => {

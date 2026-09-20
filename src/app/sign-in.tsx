@@ -17,6 +17,7 @@ import { takePendingInvite } from '@/lib/auth/pending-invite';
 import { useSession } from '@/lib/auth/session';
 import { isOAuthConfigured, OAUTH_CLIENT_ID } from '@/lib/config';
 import { useT } from '@/lib/i18n';
+import { hasPending } from '@/lib/sync/engine';
 import { accountTransitionFor, bindAccount, resetLocalDataForAccount } from '@/lib/store';
 
 // Required so the auth popup/redirect can settle the pending session (web + native).
@@ -47,10 +48,15 @@ export default function SignInScreen() {
   }
 
   function confirmAccountSwitch(email: string): Promise<boolean> {
+    // Unsynced edits belong to the other account and cannot be uploaded from
+    // here, so the usual "they stay safe" promise would be untrue for them.
+    const message = hasPending()
+      ? `${t('auth.switchAccountMessage', { email })}\n\n${t('auth.switchAccountUnsynced')}`
+      : t('auth.switchAccountMessage', { email });
     return new Promise((resolve) => {
       Alert.alert(
         t('auth.switchAccountTitle'),
-        t('auth.switchAccountMessage', { email }),
+        message,
         [
           { text: t('common.cancel'), style: 'cancel', onPress: () => resolve(false) },
           {

@@ -12,6 +12,7 @@ import { useAcceptInvitation, useDeclineInvitation } from '@/lib/api/invitations
 import { setPendingInvite } from '@/lib/auth/pending-invite';
 import { useSession } from '@/lib/auth/session';
 import { useT } from '@/lib/i18n';
+import { SyncPendingError } from '@/lib/sync/engine';
 
 export default function AcceptInvitationScreen() {
   const t = useT();
@@ -36,7 +37,13 @@ export default function AcceptInvitationScreen() {
       setHouseholdName(household.name);
       setOutcome('accepted');
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : t('invitation.acceptError'));
+      setError(
+        err instanceof SyncPendingError
+          ? t('household.switchBlockedPending')
+          : err instanceof ApiError
+            ? err.message
+            : t('invitation.acceptError'),
+      );
     }
   }
 

@@ -25,6 +25,7 @@ import {
   useThemePreference,
   type ThemePreference,
 } from '@/lib/store';
+import { flushPendingChanges } from '@/lib/sync/engine';
 
 function roleTone(role: HouseholdRole) {
   return role === 'owner' ? 'brand' : 'neutral';
@@ -81,6 +82,10 @@ export default function AccountScreen() {
   async function onSignOut() {
     setSigningOut(true);
     try {
+      // Best effort: get unsynced edits to the account before detaching. They
+      // stay queued on the device either way, but only this account can upload
+      // them — signing in as someone else afterwards would discard them.
+      await flushPendingChanges().catch(() => false);
       await signOut();
     } finally {
       setSigningOut(false);

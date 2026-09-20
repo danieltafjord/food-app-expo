@@ -9,6 +9,7 @@ import { useTheme } from '@/hooks/use-theme';
 import { ApiError } from '@/lib/api/client';
 import { useCreateHousehold } from '@/lib/api/households';
 import { useT } from '@/lib/i18n';
+import { SyncPendingError } from '@/lib/sync/engine';
 
 export default function CreateHouseholdScreen() {
   const t = useT();
@@ -35,6 +36,8 @@ export default function CreateHouseholdScreen() {
         if (!err.errors?.name) {
           setFormError(err.message);
         }
+      } else if (err instanceof SyncPendingError) {
+        setFormError(t('household.switchBlockedPending'));
       } else {
         setFormError(err instanceof ApiError ? err.message : t('common.somethingWrong'));
       }

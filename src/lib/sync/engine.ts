@@ -229,6 +229,20 @@ export async function flushPendingChanges(): Promise<boolean> {
 }
 
 /**
+ * Call before an action that makes a different server household active
+ * (create, join). `adoptServerHousehold` then wipes the local copy, and once
+ * the server has switched it refuses pushes for the old household — so anything
+ * still in the outbox has to go up first. A device not yet bound to a household
+ * keeps its rows and uploads them into the new one, so there is nothing to flush.
+ */
+export async function ensureSyncedBeforeRebind(): Promise<void> {
+  if (store$.meta.serverHouseholdId.get() == null) return;
+  if (!(await flushPendingChanges())) {
+    throw new SyncPendingError();
+  }
+}
+
+/**
  * Bind this device to the given server household after the user switched,
  * created, or joined one. Binding to a different household than before wipes
  * the local copy (its rows stay on the server under the old household) and

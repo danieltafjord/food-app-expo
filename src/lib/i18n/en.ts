@@ -317,6 +317,8 @@ export const en = {
     switchAccountTitle: 'Switch account?',
     switchAccountMessage:
       'The dinners, plans, and shopping lists on this device are linked to another account. Sign in as {email} and they’ll be removed from this device — they stay safe in your other account and come back if you sign into it again.',
+    switchAccountUnsynced:
+      'Note: some changes on this device have not synced yet and will be lost if you switch now. Sign into the previous account first to save them.',
     switchAccountConfirm: 'Switch account',
   },
   invitation: {

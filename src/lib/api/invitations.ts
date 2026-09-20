@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Household, Invitation, HouseholdRole } from '@/lib/api/types';
 import { queryKeys } from '@/lib/api/keys';
 import { useSession } from '@/lib/auth/session';
-import { adoptServerHousehold } from '@/lib/sync/engine';
+import { adoptServerHousehold, ensureSyncedBeforeRebind } from '@/lib/sync/engine';
 
 /** Invitations for the active household. Owner-only on the backend. */
 export function useInvitations(enabled: boolean) {
@@ -43,8 +43,13 @@ export function useAcceptInvitation() {
   const { request, refreshUser } = useSession();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (token: string) =>
-      request<Household>(`/invitations/${encodeURIComponent(token)}/accept`, { method: 'POST' }),
+    mutationFn: async (token: string) => {
+      // The joined household becomes active and replaces the local copy.
+      await ensureSyncedBeforeRebind();
+      return request<Household>(`/invitations/${encodeURIComponent(token)}/accept`, {
+        method: 'POST',
+      });
+    },
     onSuccess: async (household) => {
       await refreshUser();
       await queryClient.invalidateQueries();

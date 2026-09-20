@@ -313,6 +313,8 @@ export const nb: Dictionary = {
     switchAccountTitle: 'Bytte konto?',
     switchAccountMessage:
       'Middagene, planene og handlelistene på denne enheten er knyttet til en annen konto. Logger du inn som {email}, fjernes de fra denne enheten – de er trygt lagret på den andre kontoen og kommer tilbake hvis du logger inn på den igjen.',
+    switchAccountUnsynced:
+      'Obs: Noen endringer på denne enheten er ikke synkronisert ennå, og de går tapt hvis du bytter konto nå. Logg inn på den forrige kontoen først for å lagre dem.',
     switchAccountConfirm: 'Bytt konto',
   },
   invitation: {

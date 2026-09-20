@@ -4,7 +4,12 @@ import type { Household, HouseholdMembership, HouseholdRole } from '@/lib/api/ty
 import { queryKeys } from '@/lib/api/keys';
 import { useSession } from '@/lib/auth/session';
 import { applyServerHouseholdSettings } from '@/lib/store';
-import { adoptServerHousehold, flushPendingChanges, SyncPendingError } from '@/lib/sync/engine';
+import {
+  adoptServerHousehold,
+  ensureSyncedBeforeRebind,
+  flushPendingChanges,
+  SyncPendingError,
+} from '@/lib/sync/engine';
 
 /** Households the user belongs to, each with the caller's role. */
 export function useHouseholds() {
@@ -37,8 +42,11 @@ export function useCreateHousehold() {
   const { request, refreshUser } = useSession();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: { name: string }) =>
-      request<Household>('/households', { method: 'POST', body: input }),
+    mutationFn: async (input: { name: string }) => {
+      // The new household becomes active and replaces the local copy.
+      await ensureSyncedBeforeRebind();
+      return request<Household>('/households', { method: 'POST', body: input });
+    },
     onSuccess: async (household) => {
       // Creating a household makes it active — refresh /me and everything scoped to it.
       await refreshUser();
