@@ -243,6 +243,9 @@ export const en = {
     accountSection: 'Account',
     signedInAs: 'Signed in as',
     signOut: 'Sign out',
+    deleteAccount: 'Delete account',
+    deleteAccountHint:
+      'Opens your profile on the web, where you can permanently delete your account and its data.',
     syncFailedTitle: 'Couldn’t save to your account',
     syncFailedMessage:
       'Your change is saved on this device but couldn’t sync to your account. We’ll try again automatically.',

@@ -239,6 +239,9 @@ export const nb: Dictionary = {
     accountSection: 'Konto',
     signedInAs: 'Innlogget som',
     signOut: 'Logg ut',
+    deleteAccount: 'Slett konto',
+    deleteAccountHint:
+      'Åpner profilen din på nettet, der du kan slette kontoen og dataene dine permanent.',
     syncFailedTitle: 'Kunne ikke lagre til kontoen din',
     syncFailedMessage:
       'Endringen er lagret på denne enheten, men kunne ikke synkroniseres til kontoen din. Vi prøver igjen automatisk.',

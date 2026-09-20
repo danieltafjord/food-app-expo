@@ -1,3 +1,4 @@
+import * as WebBrowser from 'expo-web-browser';
 import { useState } from 'react';
 import { Alert, StyleSheet, View } from 'react-native';
 
@@ -14,6 +15,7 @@ import { useActiveHousehold, useUpdateHousehold } from '@/lib/api/households';
 import { useUpdateSettings } from '@/lib/api/settings';
 import type { HouseholdRole } from '@/lib/api/types';
 import { useSession } from '@/lib/auth/session';
+import { API_BASE_URL } from '@/lib/config';
 import { LOCALE_LABELS, LOCALES, useT, type Locale } from '@/lib/i18n';
 import { pushOnce } from '@/lib/navigation';
 import {
@@ -33,7 +35,7 @@ function roleTone(role: HouseholdRole) {
 
 export default function AccountScreen() {
   const t = useT();
-  const { user, signOut, isAuthenticated } = useSession();
+  const { user, signOut, refreshUser, isAuthenticated } = useSession();
   const { household, role, isOwner } = useActiveHousehold();
 
   const themePreference = useThemePreference();
@@ -90,6 +92,14 @@ export default function AccountScreen() {
     } finally {
       setSigningOut(false);
     }
+  }
+
+  // Deletion lives on the web profile page (it needs a password confirmation the
+  // token-based API can't do). Once the browser closes, re-fetch `/me`: a deleted
+  // account answers 401, which clears the session like any other revoked token.
+  async function onDeleteAccount() {
+    await WebBrowser.openBrowserAsync(`${API_BASE_URL}/settings/profile`);
+    await refreshUser().catch(() => {});
   }
 
   const themeOptions: Option<ThemePreference>[] = [
@@ -200,6 +210,10 @@ export default function AccountScreen() {
               loading={signingOut}
               onPress={onSignOut}
             />
+            <Button title={t('account.deleteAccount')} variant="danger" onPress={onDeleteAccount} />
+            <ThemedText type="small" themeColor="textSecondary">
+              {t('account.deleteAccountHint')}
+            </ThemedText>
           </View>
         </>
       ) : (
