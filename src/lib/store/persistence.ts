@@ -2,7 +2,7 @@ import { when, type ObservableParam } from '@legendapp/state';
 import { syncObservable } from '@legendapp/state/sync';
 import { openDatabaseSync, type SQLiteDatabase } from 'expo-sqlite';
 import Storage from 'expo-sqlite/kv-store';
-import { AppState } from 'react-native';
+import { AppState, Platform } from 'react-native';
 
 import { store$ } from './collections';
 import { PERSIST_PREFIX, PERSISTED_KEYS, splitLegacyBlob, type KvStorage } from './persistence-layout';
@@ -63,20 +63,28 @@ class SqliteRowStore implements RowStore {
   }
 
   async writeAsync(clear: readonly string[], ops: readonly RowOp[]): Promise<void> {
-    await this.db.withExclusiveTransactionAsync(async (txn) => {
-      for (const tbl of clear) await txn.runAsync('DELETE FROM rows WHERE tbl = ?', tbl);
-      const upsert = await txn.prepareAsync('INSERT OR REPLACE INTO rows (tbl, key, json) VALUES (?, ?, ?)');
-      const remove = await txn.prepareAsync('DELETE FROM rows WHERE tbl = ? AND key = ?');
-      try {
-        for (const op of ops) {
-          if (op.json === null) await remove.executeAsync(op.tbl, op.key);
-          else await upsert.executeAsync(op.tbl, op.key, op.json);
-        }
-      } finally {
-        await upsert.finalizeAsync();
-        await remove.finalizeAsync();
+    // Exclusive transactions are not supported on web, where the database has
+    // a single connection anyway.
+    if (Platform.OS === 'web') {
+      await this.db.withTransactionAsync(() => this.applyAsync(this.db, clear, ops));
+      return;
+    }
+    await this.db.withExclusiveTransactionAsync((txn) => this.applyAsync(txn, clear, ops));
+  }
+
+  private async applyAsync(db: SQLiteDatabase, clear: readonly string[], ops: readonly RowOp[]): Promise<void> {
+    for (const tbl of clear) await db.runAsync('DELETE FROM rows WHERE tbl = ?', tbl);
+    const upsert = await db.prepareAsync('INSERT OR REPLACE INTO rows (tbl, key, json) VALUES (?, ?, ?)');
+    const remove = await db.prepareAsync('DELETE FROM rows WHERE tbl = ? AND key = ?');
+    try {
+      for (const op of ops) {
+        if (op.json === null) await remove.executeAsync(op.tbl, op.key);
+        else await upsert.executeAsync(op.tbl, op.key, op.json);
       }
-    });
+    } finally {
+      await upsert.finalizeAsync();
+      await remove.finalizeAsync();
+    }
   }
 }
 
