@@ -470,7 +470,6 @@ export const DICTIONARY: DictGroup[] = [
       'barberblader',
       'bind',
       'tamponger',
-      'bleier',
       'våtservietter',
       'q-tips',
       'bomullspinner',
@@ -480,6 +479,21 @@ export const DICTIONARY: DictGroup[] = [
       'paracet',
       'ibux',
       'vitaminer',
+    ],
+  },
+  {
+    category: 'pets',
+    words: [
+      'hundefôr', 'hundemat', 'kattefôr', 'kattemat', 'kattesand',
+      'hundegodbiter', 'kattegodbiter', 'tyggebein', 'fuglefrø', 'fiskefôr',
+    ],
+  },
+  {
+    category: 'baby',
+    words: [
+      'bleie', 'bleier', 'babybleier', 'babyservietter', 'våtservietter til baby',
+      'barnemat', 'babymat', 'babygrøt', 'barnegrøt', 'morsmelkerstatning',
+      'babymelk', 'smokk', 'tåteflaske',
     ],
   },
 ];
@@ -507,4 +521,12 @@ export const DICTIONARY_EN: DictGroup[] = [
   { category: 'beverages', words: ['water', 'soda', 'juice', 'coffee', 'tea', 'beer', 'wine'] },
   { category: 'household', words: ['toilet paper', 'paper towels', 'dish soap', 'detergent'] },
   { category: 'personal_care', words: ['toothpaste', 'shampoo', 'soap', 'deodorant'] },
+  {
+    category: 'pets',
+    words: ['pet food', 'dog food', 'cat food', 'cat litter', 'dog treats', 'cat treats', 'bird seed', 'fish food'],
+  },
+  {
+    category: 'baby',
+    words: ['diaper', 'diapers', 'nappy', 'nappies', 'baby wipes', 'baby food', 'baby cereal', 'infant formula', 'baby formula', 'baby milk', 'pacifier', 'baby bottle'],
+  },
 ];

@@ -84,6 +84,7 @@ function ItemForm({ item }: { item: ShoppingListItemWithIngredient }) {
       {isFreeText ? (
         <TextField
           label={t('shopping.item')}
+          maxLength={255}
           value={name}
           onChangeText={setName}
           autoCapitalize="sentences"

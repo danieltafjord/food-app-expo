@@ -4,7 +4,7 @@ import type { StoredSession } from './token-storage';
 type Dependencies = {
   save: (session: StoredSession) => Promise<void>;
   clear: () => Promise<void>;
-  refresh: (token: string) => Promise<StoredSession>;
+  refresh: (token: string, signal?: AbortSignal) => Promise<StoredSession>;
   request: <T>(path: string, options: RequestOptions) => Promise<T>;
   onChange: (session: StoredSession | null) => void;
 };
@@ -66,7 +66,15 @@ export class SessionController {
     const token = this.session?.refreshToken;
     if (!token) return Promise.reject(new ApiError(401, 'Session expired'));
 
-    const pending = this.dependencies.refresh(token).then(async (next) => {
+    const abort = new AbortController();
+    let timer: ReturnType<typeof setTimeout>;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        reject(new ApiError(503, 'Session refresh timed out. Please retry.'));
+        abort.abort();
+      }, 15_000);
+    });
+    const pending = Promise.race([this.dependencies.refresh(token, abort.signal), timeout]).then(async (next) => {
       this.assertCurrent(revision);
       this.session = next;
       await this.persist(() => this.dependencies.save(next));
@@ -76,6 +84,7 @@ export class SessionController {
       if (revision === this.generation && isInvalidSession(error)) await this.set(null);
       throw error;
     }).finally(() => {
+      clearTimeout(timer);
       if (this.refreshing === pending) this.refreshing = null;
     });
     this.refreshing = pending;
@@ -83,11 +92,12 @@ export class SessionController {
   }
 
   async request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+    if (options.signal?.aborted) throw abortError();
     const revision = this.generation;
     this.assertCurrent(revision);
     let session = this.session!;
     if (session.refreshToken && session.expiresAt != null && session.expiresAt - 60_000 <= Date.now()) {
-      session = await this.refresh(revision);
+      session = await abortable(this.refresh(revision), options.signal);
     }
     this.assertCurrent(revision);
     try {
@@ -104,7 +114,7 @@ export class SessionController {
       // Another request may already have rotated the rejected access token.
       const refreshed = this.session.accessToken !== session.accessToken
         ? this.session
-        : await this.refresh(revision);
+        : await abortable(this.refresh(revision), options.signal);
       this.assertCurrent(revision);
       try {
         const result = await this.dependencies.request<T>(path, { ...options, accessToken: refreshed.accessToken });
@@ -131,4 +141,21 @@ export class SessionController {
       clearTimeout(timeout);
     }
   }
+}
+
+function abortError(): Error {
+  const error = new Error('Request aborted');
+  error.name = 'AbortError';
+  return error;
+}
+
+/** Cancelling one request must not cancel a refresh shared by other callers. */
+function abortable<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return promise;
+  if (signal.aborted) return Promise.reject(abortError());
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => reject(abortError());
+    signal.addEventListener('abort', abort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort));
+  });
 }

@@ -104,7 +104,8 @@ type WeekBoardProps = {
 /**
  * A Monday→Sunday list of day rows: the date in a rail on the left, the day's
  * dinners to its right. An empty day shows an Add row; once a dinner is scheduled
- * its card replaces the row, and a small "Add" appears below for additional dinners.
+ * its card replaces the row; a second dinner for the same day is added from the
+ * card's editor sheet.
  * Long-press a dinner card to lift and drag it onto another day (the list
  * auto-scrolls when you drag near an edge); a quick tap opens the editor.
  */
@@ -301,24 +302,6 @@ function DaySection({
               onEdit={onEdit}
             />
           ))
-        ) : null}
-        {hasEntries ? (
-          <Pressable
-            onPress={() => onAdd(day.date)}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel={t('weekBoard.addDinner')}
-            style={({ pressed }) => [styles.addAnother, pressed && styles.pressed]}>
-            <SymbolView
-              name={{ ios: 'plus', android: 'add', web: 'add' }}
-              size={12}
-              tintColor={theme.textSecondary}
-              type="monochrome"
-            />
-            <ThemedText type="small" themeColor="textSecondary">
-              {t('weekBoard.add')}
-            </ThemedText>
-          </Pressable>
         ) : (
           <Pressable
             onPress={() => onAdd(day.date)}
@@ -540,14 +523,6 @@ const styles = StyleSheet.create({
     lineHeight: 26,
     fontWeight: '700',
     fontVariant: ['tabular-nums'],
-  },
-  addAnother: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    gap: Spacing.one,
-    paddingVertical: Spacing.half,
-    paddingHorizontal: Spacing.two,
   },
   dropZone: {
     flex: 1,

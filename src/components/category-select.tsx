@@ -21,7 +21,7 @@ const SWAP = 160;
 /**
  * A select-style category field: shows only the current aisle as a tappable
  * row; tapping unfolds the full chip grid beneath it, and picking a chip (or
- * tapping the row again) folds it back. Keeps the edit sheet short — sixteen
+ * tapping the row again) folds it back. Keeps the edit sheet short — category
  * chips are only on screen while the user is actually changing the aisle.
  */
 export function CategorySelect({

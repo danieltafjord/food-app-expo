@@ -11,6 +11,14 @@ describe('categorize — exact dictionary hits', () => {
     ['tannkrem', 'personal_care'],
     ['olivenolje', 'spices'],
     ['knekkebrød', 'bakery'],
+    ['hundefôr', 'pets'],
+    ['kattesand', 'pets'],
+    ['dog food', 'pets'],
+    ['cat treats', 'pets'],
+    ['bleier', 'baby'],
+    ['morsmelkerstatning', 'baby'],
+    ['baby wipes', 'baby'],
+    ['infant formula', 'baby'],
   ])('%s → %s', (input, expected) => {
     expect(categorize(input)).toBe(expected);
   });
@@ -43,6 +51,8 @@ describe('categorize — compounds and multiword (head match)', () => {
 
   it('finds a known word inside a multiword line', () => {
     expect(categorize('økologiske bananer')).toBe('produce');
+    expect(categorize('dog food with chicken')).toBe('pets');
+    expect(categorize('økologisk babygrøt')).toBe('baby');
   });
 });
 

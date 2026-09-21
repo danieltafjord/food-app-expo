@@ -16,6 +16,8 @@ import { batch } from '@legendapp/state';
 import { useValue } from '@legendapp/state/react';
 
 import { translate } from '@/lib/i18n';
+import { uniqueDinnerItems } from '@/lib/store/dinners';
+import { planIdsForWeekOf } from '@/lib/store/plans';
 import { store$ } from '@/lib/store/collections';
 import { getLocalHouseholdId } from '@/lib/store/household';
 import { newId, nowIso } from '@/lib/store/ids';
@@ -42,11 +44,12 @@ export function normalizeUnit(unit: string | null | undefined): string | null {
 }
 
 export function aggregatePlanItems(planId: string): AggregatedItem[] {
+  const planIds = planIdsForWeekOf(planId);
   const entries = Object.values(store$.planEntries.get()).filter(
-    (e) => e.dinner_plan_id === planId,
+    (e) => planIds.has(e.dinner_plan_id),
   );
   const dinners = store$.dinners.get();
-  const allItems = Object.values(store$.dinnerItems.get());
+  const allItems = uniqueDinnerItems(Object.values(store$.dinnerItems.get()));
   const bucket = new Map<string, AggregatedItem>();
 
   for (const entry of entries) {
@@ -82,8 +85,9 @@ export function dinnersWithoutIngredients(planId: string): string[] {
   for (const it of Object.values(store$.dinnerItems.get())) withItems.add(it.dinner_id);
   const dinners = store$.dinners.get();
   const names = new Set<string>();
+  const planIds = planIdsForWeekOf(planId);
   for (const entry of Object.values(store$.planEntries.get())) {
-    if (entry.dinner_plan_id !== planId || withItems.has(entry.dinner_id)) continue;
+    if (!planIds.has(entry.dinner_plan_id) || withItems.has(entry.dinner_id)) continue;
     const name = dinners[entry.dinner_id]?.name;
     if (name) names.add(name);
   }
@@ -109,6 +113,7 @@ function addAggregatedRow(listId: string, row: AggregatedItem, ts: string): void
     quantity: row.quantity,
     unit: row.unit,
     is_checked: false,
+    is_generated: true,
     created_at: ts,
     updated_at: ts,
   });
@@ -135,59 +140,60 @@ export function createShoppingListFromPlan(planId: string): string {
   return id;
 }
 
-export type UpdateFromPlanResult = { added: number; updated: number };
+export type UpdateFromPlanResult = { added: number; updated: number; removed: number };
 
-const NO_CHANGES: UpdateFromPlanResult = { added: 0, updated: 0 };
+const NO_CHANGES: UpdateFromPlanResult = { added: 0, updated: 0, removed: 0 };
 
 type PlanDiff = UpdateFromPlanResult & {
   adds: AggregatedItem[];
   quantityUpdates: { itemId: string; quantity: number | null }[];
+  removals: string[];
 };
 
-/**
- * What {@link updateShoppingListFromPlan} would change, without changing it.
- *
- * Matching is by `ingredient_id | unit`, the same key the aggregation uses.
- * For each aggregated row:
- *   - no matching item → added (unchecked);
- *   - an unchecked match → its quantity is set to the plan's total (the plan
- *     is the source of truth for plan-derived quantities);
- *   - a checked match → left alone: it has been bought.
- * Items on the list that the plan no longer produces are kept — there is no
- * way to tell a stale generated row from something the user added by hand.
- */
+/** Bought quantities and manual additions count toward the plan and are never rewritten. */
 function diffPlan(listId: string, planId: string): PlanDiff {
-  const existing = new Map<string, LocalShoppingListItem>();
-  for (const it of Object.values(store$.shoppingListItems.get())) {
-    if (it.shopping_list_id !== listId || !it.ingredient_id) continue;
-    // First match wins, so a duplicate line isn't touched twice.
-    const key = `${it.ingredient_id}|${normalizeUnit(it.unit) ?? ''}`;
-    if (!existing.has(key)) existing.set(key, it);
+  const existing = new Map<string, LocalShoppingListItem[]>();
+  for (const item of Object.values(store$.shoppingListItems.get())) {
+    if (item.shopping_list_id !== listId || !item.ingredient_id) continue;
+    const key = `${item.ingredient_id}|${normalizeUnit(item.unit) ?? ''}`;
+    existing.set(key, [...(existing.get(key) ?? []), item]);
   }
-  const diff: PlanDiff = { added: 0, updated: 0, adds: [], quantityUpdates: [] };
+  const diff: PlanDiff = { added: 0, updated: 0, removed: 0, adds: [], quantityUpdates: [], removals: [] };
   for (const row of aggregatePlanItems(planId)) {
-    const match = existing.get(`${row.ingredient_id}|${row.unit ?? ''}`);
-    if (!match) {
-      diff.adds.push(row);
-      diff.added += 1;
+    const key = `${row.ingredient_id}|${row.unit ?? ''}`;
+    const matches = existing.get(key) ?? [];
+    existing.delete(key);
+    const reserved = matches.filter((item) => item.is_checked || !item.is_generated);
+    const generated = matches.filter((item) => !item.is_checked && item.is_generated).sort((a, b) => a.id.localeCompare(b.id));
+    const covered = reserved.reduce((sum, item) => sum + (item.quantity ?? 0), 0);
+    const quantity = row.quantity == null ? (reserved.length ? 0 : null) : Math.max(0, Math.round((row.quantity - covered) * 100) / 100);
+    if (quantity === 0) {
+      diff.removals.push(...generated.map((item) => item.id));
       continue;
     }
-    if (match.is_checked || match.quantity === row.quantity) continue;
-    diff.quantityUpdates.push({ itemId: match.id, quantity: row.quantity });
-    diff.updated += 1;
+    const match = generated[0];
+    if (!match) diff.adds.push({ ...row, quantity });
+    else if (match.quantity !== quantity) diff.quantityUpdates.push({ itemId: match.id, quantity });
+    diff.removals.push(...generated.slice(1).map((item) => item.id));
   }
+  for (const matches of existing.values()) {
+    diff.removals.push(...matches.filter((item) => item.is_generated && !item.is_checked).map((item) => item.id));
+  }
+  diff.added = diff.adds.length;
+  diff.updated = diff.quantityUpdates.length;
+  diff.removed = diff.removals.length;
   return diff;
 }
 
 /** Counts of what updating `listId` from `planId` would add/change (no writes). */
 export function diffShoppingListFromPlan(listId: string, planId: string): UpdateFromPlanResult {
-  const { added, updated } = diffPlan(listId, planId);
-  return { added, updated };
+  const { added, updated, removed } = diffPlan(listId, planId);
+  return { added, updated, removed };
 }
 
 /**
  * Reactive: how far the list generated from `planId` has drifted from the
- * plan. `{0, 0}` (a shared constant, so it never re-renders on its own) when
+ * plan. `{0, 0, 0}` (a shared constant, so it never re-renders on its own) when
  * they agree or when the list wasn't generated from a plan.
  */
 export function usePlanListDrift(
@@ -196,8 +202,8 @@ export function usePlanListDrift(
 ): UpdateFromPlanResult {
   return useValue(() => {
     if (!planId) return NO_CHANGES;
-    const { added, updated } = diffPlan(listId, planId);
-    return added === 0 && updated === 0 ? NO_CHANGES : { added, updated };
+    const { added, updated, removed } = diffPlan(listId, planId);
+    return added === 0 && updated === 0 && removed === 0 ? NO_CHANGES : { added, updated, removed };
   });
 }
 
@@ -213,9 +219,10 @@ export function updateShoppingListFromPlan(listId: string, planId: string): Upda
     for (const { itemId, quantity } of diff.quantityUpdates) {
       store$.shoppingListItems[itemId].assign({ quantity, updated_at: ts });
     }
-    if (diff.added > 0 || diff.updated > 0) {
+    for (const id of diff.removals) store$.shoppingListItems[id].delete();
+    if (diff.added > 0 || diff.updated > 0 || diff.removed > 0) {
       store$.shoppingLists[listId].updated_at.set(ts);
     }
   });
-  return { added: diff.added, updated: diff.updated };
+  return { added: diff.added, updated: diff.updated, removed: diff.removed };
 }

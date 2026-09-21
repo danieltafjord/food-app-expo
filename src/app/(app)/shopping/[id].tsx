@@ -38,7 +38,7 @@ export default function ShoppingListScreen() {
   // afterwards. Offer to catch up instead of making a second list.
   const drift = usePlanListDrift(params.id, list?.dinner_plan_id);
   const planId = list?.dinner_plan_id;
-  const drifted = drift.added > 0 || drift.updated > 0;
+  const drifted = drift.added > 0 || drift.updated > 0 || drift.removed > 0;
 
   if (!list) {
     return (
@@ -117,7 +117,7 @@ export default function ShoppingListScreen() {
                 {t('shopping.planChangedTitle')}
               </ThemedText>
               <ThemedText type="small" style={{ color: brand.fg }}>
-                {t('shopping.planChangedCounts', { added: drift.added, updated: drift.updated })}
+                {t('shopping.planChangedCounts', { added: drift.added, updated: drift.updated, removed: drift.removed })}
                 {' · '}
                 {t('shopping.planChangedMessage')}
               </ThemedText>

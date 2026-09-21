@@ -16,7 +16,7 @@ function setup() {
   const dependencies = {
     save: jest.fn(async (_session: StoredSession) => {}),
     clear: jest.fn(async () => {}),
-    refresh: jest.fn(async (_token: string) => rotated),
+    refresh: jest.fn(async (_token: string, _signal?: AbortSignal) => rotated),
     request: jest.fn<Promise<any>, [string, any]>(async () => ({ ok: true })),
     onChange: jest.fn(),
   };
@@ -109,4 +109,43 @@ it('does not keep using credentials when Keychain persistence fails', async () =
   await expect(controller.set(session)).rejects.toThrow('Keychain unavailable');
   expect(onChange).toHaveBeenLastCalledWith(null);
   await expect(controller.request('/me')).rejects.toThrow('Session changed');
+});
+
+
+it('times out a stalled refresh, aborts its transport, and allows a fresh retry', async () => {
+  jest.useFakeTimers();
+  try {
+    const { controller, refresh, save, clear } = setup();
+    const pending = deferred<StoredSession>();
+    refresh.mockReturnValueOnce(pending.promise);
+    await controller.set({ ...session, expiresAt: 0 });
+    const assertion = expect(controller.request('/me')).rejects.toThrow('Session refresh timed out');
+    await jest.advanceTimersByTimeAsync(15_000);
+    await assertion;
+    expect(refresh.mock.calls[0][1]?.aborted).toBe(true);
+    expect(clear).not.toHaveBeenCalled();
+    await expect(controller.request('/me')).resolves.toEqual({ ok: true });
+    pending.resolve({ ...rotated, accessToken: 'late' });
+    await Promise.resolve();
+    expect(save).toHaveBeenLastCalledWith(rotated);
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+it('cancels one refresh waiter without interrupting another request', async () => {
+  const { controller, refresh, request } = setup();
+  const pending = deferred<StoredSession>();
+  refresh.mockReturnValueOnce(pending.promise);
+  await controller.set({ ...session, expiresAt: 0 });
+  const abort = new AbortController();
+  const first = controller.request('/cancelled', { signal: abort.signal });
+  const second = controller.request('/me');
+  const assertion = expect(first).rejects.toMatchObject({ name: 'AbortError' });
+  abort.abort();
+  await assertion;
+  expect(refresh.mock.calls[0][1]?.aborted).toBe(false);
+  pending.resolve(rotated);
+  await expect(second).resolves.toEqual({ ok: true });
+  expect(request.mock.calls.map(([path]) => path)).toEqual(['/me']);
 });

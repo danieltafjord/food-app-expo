@@ -16,8 +16,7 @@ export type SyncStatus = {
   error: string | null;
   /**
    * Rows the server refused in the last sync (invalid data, unknown parent).
-   * They stay on this device but are no longer queued; surfaced once so the
-   * user knows, cleared by the next clean sync.
+   * They stay on this device until corrected or deleted and block data resets.
    */
   rejected: number;
 };
@@ -75,4 +74,8 @@ export function markSyncError(message: string): void {
 /** Number of local changes queued to push (drives the "N pending" hint). */
 export function setPendingCount(count: number): void {
   syncStatus$.pending.set(count);
+}
+
+export function setRejectedCount(count: number): void {
+  syncStatus$.rejected.set(count);
 }

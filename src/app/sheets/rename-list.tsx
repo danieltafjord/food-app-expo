@@ -28,7 +28,8 @@ export default function RenameListSheet() {
       <TextField
         label={t('shopping.name')}
         placeholder={t('shopping.namePlaceholder')}
-        value={name}
+        maxLength={255}
+          value={name}
         onChangeText={setName}
         autoCapitalize="sentences"
         autoFocus

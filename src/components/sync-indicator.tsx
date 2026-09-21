@@ -1,5 +1,6 @@
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 
+import { showSyncFailures } from '@/components/sync-failures';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { useSession } from '@/lib/auth/session';
@@ -87,7 +88,8 @@ export function SyncIndicator() {
         ? { label: t('sync.onThisDevice'), detail: t('sync.finishInvitation'), color: COLORS.local, busy: false }
         : { label: t('sync.settingUp'), detail: null, color: COLORS.syncing, busy: true };
   const retry = isAuthenticated && setupPhase === 'error' ? retrySetup
-    : isAuthenticated && status.phase === 'error' ? syncNow : undefined;
+    : isAuthenticated && status.rejected > 0 ? () => showSyncFailures(t)
+      : isAuthenticated && status.phase === 'error' ? syncNow : undefined;
 
   return (
     <Pressable

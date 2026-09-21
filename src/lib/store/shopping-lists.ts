@@ -9,6 +9,7 @@ import {
 } from '@/lib/categorize';
 import { translate } from '@/lib/i18n';
 
+import { planIdsForWeekOf } from './plans';
 import { store$ } from './collections';
 import { derived, derivedById } from './derived';
 import { getLocale } from './settings';
@@ -93,10 +94,11 @@ export function useShoppingLists(): ShoppingListSummary[] {
 export function useShoppingListForPlan(planId: string | undefined): LocalShoppingList | undefined {
   return useValue(() => {
     if (!planId) return undefined;
+    const planIds = planIdsForWeekOf(planId);
     let newest: LocalShoppingList | undefined;
     for (const list of Object.values(store$.shoppingLists.get())) {
-      if (list.dinner_plan_id !== planId) continue;
-      if (!newest || compareIso(list.created_at, newest.created_at) > 0) newest = list;
+      if (!list.dinner_plan_id || !planIds.has(list.dinner_plan_id)) continue;
+      if (!newest || (compareIso(list.created_at, newest.created_at) || list.id.localeCompare(newest.id)) > 0) newest = list;
     }
     return newest;
   });
@@ -336,6 +338,7 @@ export function addShoppingItem(listId: string, input: ShoppingItemInput): strin
     quantity: input.quantity ?? null,
     unit: input.unit ?? null,
     is_checked: false,
+    is_generated: false,
     created_at: ts,
     updated_at: ts,
   });
@@ -345,7 +348,7 @@ export function addShoppingItem(listId: string, input: ShoppingItemInput): strin
 export function updateShoppingItem(itemId: string, patch: ShoppingItemInput): void {
   const item$ = store$.shoppingListItems[itemId];
   if (!item$.get()) return;
-  item$.assign({ ...patch, updated_at: nowIso() });
+  item$.assign({ ...patch, is_generated: false, updated_at: nowIso() });
 }
 
 /**

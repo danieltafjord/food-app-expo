@@ -1,4 +1,5 @@
 import { aggregatePlanItems, updateShoppingListFromPlan } from '@/lib/shopping/generate';
+import { createDinnerPlan, findPlanForWeek } from '@/lib/store/plans';
 import { store$ } from '@/lib/store/collections';
 import type {
   LocalDinner,
@@ -52,6 +53,7 @@ function seed(opts: {
 }
 
 function reset() {
+  store$.dinnerPlans.set({});
   store$.dinners.set({});
   store$.dinnerItems.set({});
   store$.planEntries.set({});
@@ -61,6 +63,29 @@ beforeEach(reset);
 afterAll(reset);
 
 describe('aggregatePlanItems', () => {
+  it('includes meals from concurrently created plans for the same week', () => {
+    const first = createDinnerPlan({ name: 'Week', start_date: '2026-06-01' });
+    const second = createDinnerPlan({ name: 'Week', start_date: '2026-06-01' });
+    const other = createDinnerPlan({ name: 'Next week', start_date: '2026-06-08' });
+    seed({ dinners: [dinner({ id: 'd1' })],
+      items: [item({ id: 'i1', dinner_id: 'd1', ingredient_id: 'rice', quantity: 100, unit: 'g' })],
+      entries: [first, second, other].map((plan, i) => entry({ id: `e${i}`, dinner_plan_id: plan, dinner_id: 'd1' })),
+    });
+    expect(findPlanForWeek('2026-06-01')?.id).toBe([first, second].sort()[0]);
+    expect(aggregatePlanItems(first)).toEqual([{ ingredient_id: 'rice', quantity: 200, unit: 'g' }]);
+    expect(aggregatePlanItems(second)).toEqual(aggregatePlanItems(first));
+  });
+
+  it('counts concurrent copies of a recipe ingredient once using the latest quantity', () => {
+    seed({ dinners: [dinner({ id: 'd1' })],
+      items: [
+        item({ id: 'old', dinner_id: 'd1', ingredient_id: 'rice', quantity: 100, unit: 'G' }),
+        item({ id: 'new', dinner_id: 'd1', ingredient_id: 'rice', quantity: 200, unit: ' g ', updated_at: '2026-02-01T00:00:00Z' }),
+      ], entries: [entry({ id: 'e1', dinner_plan_id: 'p1', dinner_id: 'd1' })],
+    });
+    expect(aggregatePlanItems('p1')).toEqual([{ ingredient_id: 'rice', quantity: 200, unit: 'g' }]);
+  });
+
   it('scales quantities by servings / default_servings', () => {
     seed({
       dinners: [dinner({ id: 'd1', default_servings: 4 })],
@@ -189,6 +214,7 @@ describe('updateShoppingListFromPlan', () => {
               quantity: null,
               unit: null,
               is_checked: false,
+              is_generated: true,
               created_at: LIST_TS,
               updated_at: LIST_TS,
               ...it,
@@ -219,9 +245,28 @@ describe('updateShoppingListFromPlan', () => {
     store$.shoppingListItems.set({});
   });
 
+  it('removes obsolete generated rows but preserves manual and bought items', () => {
+    seedList([
+      { id: 'generated', ingredient_id: 'beef', quantity: 400, unit: 'g' },
+      { id: 'bought', ingredient_id: 'onion', quantity: 1, unit: 'stk', is_checked: true },
+      { id: 'manual', ingredient_id: 'rice', quantity: 500, unit: 'g', is_generated: false },
+    ]);
+    store$.planEntries.set({});
+    expect(updateShoppingListFromPlan('l1', 'p1')).toEqual({ added: 0, updated: 0, removed: 1 });
+    expect(listItems().map((item) => item.id).sort()).toEqual(['bought', 'manual']);
+  });
+
+  it('counts manual quantities toward the requirement without rewriting them', () => {
+    seedList([{ id: 'manual', ingredient_id: 'beef', quantity: 300, unit: 'g', is_generated: false }]);
+    expect(updateShoppingListFromPlan('l1', 'p1')).toEqual({ added: 2, updated: 0, removed: 0 });
+    expect(store$.shoppingListItems.manual.quantity.get()).toBe(300);
+    expect(listItems()).toContainEqual(expect.objectContaining({ ingredient_id: 'beef', quantity: 100, is_generated: true }));
+    expect(updateShoppingListFromPlan('l1', 'p1')).toEqual({ added: 0, updated: 0, removed: 0 });
+  });
+
   it('adds rows the list is missing and reports the count', () => {
     seedList();
-    expect(updateShoppingListFromPlan('l1', 'p1')).toEqual({ added: 2, updated: 0 });
+    expect(updateShoppingListFromPlan('l1', 'p1')).toEqual({ added: 2, updated: 0, removed: 0 });
     expect(listItems().map((it) => [it.ingredient_id, it.quantity, it.unit])).toEqual(
       expect.arrayContaining([
         ['beef', 400, 'g'],
@@ -232,17 +277,19 @@ describe('updateShoppingListFromPlan', () => {
 
   it('updates an unchecked row to the plan quantity instead of duplicating it', () => {
     seedList([{ id: 's1', ingredient_id: 'beef', quantity: 200, unit: 'g' }]);
-    expect(updateShoppingListFromPlan('l1', 'p1')).toEqual({ added: 1, updated: 1 });
+    expect(updateShoppingListFromPlan('l1', 'p1')).toEqual({ added: 1, updated: 1, removed: 0 });
     const beef = listItems().filter((it) => it.ingredient_id === 'beef');
     expect(beef).toHaveLength(1);
     expect(beef[0].quantity).toBe(400);
   });
 
-  it('leaves a checked row alone', () => {
+  it('retains bought quantities and adds only the extra amount needed', () => {
     seedList([{ id: 's1', ingredient_id: 'beef', quantity: 200, unit: 'g', is_checked: true }]);
-    expect(updateShoppingListFromPlan('l1', 'p1')).toEqual({ added: 1, updated: 0 });
+    expect(updateShoppingListFromPlan('l1', 'p1')).toEqual({ added: 2, updated: 0, removed: 0 });
     expect(store$.shoppingListItems.s1.quantity.get()).toBe(200);
     expect(store$.shoppingListItems.s1.is_checked.get()).toBe(true);
+    expect(listItems()).toContainEqual(expect.objectContaining({ ingredient_id: 'beef', quantity: 200, is_checked: false }));
+    expect(updateShoppingListFromPlan('l1', 'p1')).toEqual({ added: 0, updated: 0, removed: 0 });
   });
 
   it('matches units case-insensitively and keeps manual rows', () => {
@@ -250,7 +297,7 @@ describe('updateShoppingListFromPlan', () => {
       { id: 's1', ingredient_id: 'beef', quantity: 400, unit: 'G' },
       { id: 's2', name: 'Toalettpapir' },
     ]);
-    expect(updateShoppingListFromPlan('l1', 'p1')).toEqual({ added: 1, updated: 0 });
+    expect(updateShoppingListFromPlan('l1', 'p1')).toEqual({ added: 1, updated: 0, removed: 0 });
     expect(listItems()).toHaveLength(3);
     expect(store$.shoppingListItems.s2.name.get()).toBe('Toalettpapir');
   });
@@ -260,7 +307,7 @@ describe('updateShoppingListFromPlan', () => {
       { id: 's1', ingredient_id: 'beef', quantity: 400, unit: 'g' },
       { id: 's2', ingredient_id: 'onion', quantity: 1, unit: 'stk' },
     ]);
-    expect(updateShoppingListFromPlan('l1', 'p1')).toEqual({ added: 0, updated: 0 });
+    expect(updateShoppingListFromPlan('l1', 'p1')).toEqual({ added: 0, updated: 0, removed: 0 });
     expect(store$.shoppingLists.l1.updated_at.get()).toBe(LIST_TS);
   });
 });

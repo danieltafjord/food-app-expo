@@ -24,7 +24,8 @@ import { buildWeek, dateKeyOf, fromDateKey, startOfWeek } from '@/lib/week';
  * A scheduled dinner (`entryId`). Everything here saves as you go, like the
  * rest of the board: the servings stepper writes on each tap, the day chips
  * move the dinner (dragging the card on the board does the same), and the
- * "Edit dinner" row opens the recipe itself. Removing the dinner from the
+ * "Edit dinner" row opens the recipe itself, and "Add another dinner" opens the
+ * picker for the same day. Removing the dinner from the
  * plan is a separate red action below a divider.
  */
 export default function EntryEditorSheet() {
@@ -64,6 +65,12 @@ function EntryForm({ entry }: { entry: PlanEntryWithDinner }) {
     // Leave the sheet, then push the recipe onto the Dinners tab.
     router.back();
     pushOnce({ pathname: '/dinners/[id]', params: { id: entry.dinner_id } });
+  }
+
+  function addAnother() {
+    // Leave the sheet, then open the picker for this dinner's day.
+    router.back();
+    pushOnce({ pathname: '/sheets/dinner-picker', params: { date: scheduled } });
   }
 
   function remove() {
@@ -144,6 +151,28 @@ function EntryForm({ entry }: { entry: PlanEntryWithDinner }) {
           name={{ ios: 'chevron.right', android: 'chevron_right', web: 'chevron_right' }}
           size={13}
           tintColor={noIngredients ? warning.fg : theme.textSecondary}
+          type="monochrome"
+        />
+      </Pressable>
+
+      <Pressable
+        onPress={addAnother}
+        accessibilityRole="button"
+        style={({ pressed }) => [
+          styles.link,
+          { backgroundColor: theme.backgroundElement },
+          pressed && styles.pressed,
+        ]}>
+        <View style={styles.linkText}>
+          <ThemedText type="smallBold">{t('entryEditor.addAnother')}</ThemedText>
+          <ThemedText type="small" themeColor="textSecondary">
+            {t('entryEditor.addAnotherHint')}
+          </ThemedText>
+        </View>
+        <SymbolView
+          name={{ ios: 'plus', android: 'add', web: 'add' }}
+          size={13}
+          tintColor={theme.textSecondary}
           type="monochrome"
         />
       </Pressable>

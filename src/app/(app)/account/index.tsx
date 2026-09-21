@@ -1,18 +1,15 @@
 import * as WebBrowser from 'expo-web-browser';
 import { useState } from 'react';
-import { Alert, StyleSheet, View } from 'react-native';
+import { Alert } from 'react-native';
 
 import { AiSettingsSection } from '@/components/ai-settings';
 import { AccountSetupCard } from '@/components/account-setup-card';
 import { Badge } from '@/components/badge';
-import { Button } from '@/components/button';
-import { Card } from '@/components/card';
 import { OptionGroup, type Option } from '@/components/option-group';
 import { Screen } from '@/components/screen';
+import { SettingsGroup, SettingsRow, SettingsSection } from '@/components/settings-list';
 import { Stepper } from '@/components/stepper';
 import { SyncIndicator } from '@/components/sync-indicator';
-import { ThemedText } from '@/components/themed-text';
-import { Spacing } from '@/constants/theme';
 import { useActiveHousehold, useUpdateHousehold } from '@/lib/api/households';
 import { useUpdateSettings } from '@/lib/api/settings';
 import type { HouseholdRole } from '@/lib/api/types';
@@ -145,18 +142,66 @@ export default function AccountScreen() {
 
   return (
     <Screen topInset={false}>
-      <View style={styles.section}>
-        <ThemedText type="smallBold">{t('account.appearance')}</ThemedText>
+      {isAuthenticated ? (
+        <SettingsSection
+          title={t('household.sectionTitle')}
+          footer={household && !isOwner ? t('household.onlyOwners') : undefined}>
+          {household ? (
+            <SettingsGroup>
+              <SettingsRow
+                icon={{ ios: 'house.fill', android: 'home', web: 'home' }}
+                tone="brand"
+                title={household.name}
+                trailing={
+                  role ? (
+                    <Badge
+                      label={role === 'owner' ? t('common.owner') : t('common.member')}
+                      tone={roleTone(role)}
+                    />
+                  ) : null
+                }
+              />
+              {isOwner ? (
+                <SettingsRow
+                  icon={{ ios: 'person.badge.plus', android: 'person_add', web: 'person_add' }}
+                  title={t('household.invitePeople')}
+                  onPress={() => pushOnce('/account/invite')}
+                />
+              ) : null}
+              <SettingsRow
+                icon={{ ios: 'arrow.left.arrow.right', android: 'swap_horiz', web: 'swap_horiz' }}
+                title={t('household.manage')}
+                onPress={() => pushOnce('/account/households')}
+              />
+            </SettingsGroup>
+          ) : (
+            <AccountSetupCard />
+          )}
+        </SettingsSection>
+      ) : (
+        <SettingsSection title={t('account.dataTitle')} footer={t('account.dataLocal')}>
+          <SettingsGroup>
+            <SettingsRow
+              icon={{ ios: 'icloud.fill', android: 'cloud', web: 'cloud' }}
+              tone="brand"
+              title={t('account.connect')}
+              onPress={() => pushOnce('/sign-in')}
+            />
+          </SettingsGroup>
+        </SettingsSection>
+      )}
+
+      <SettingsSection title={t('account.appearance')}>
         <OptionGroup options={themeOptions} value={themePreference} onChange={onThemeChange} />
-      </View>
+      </SettingsSection>
 
-      <View style={styles.section}>
-        <ThemedText type="smallBold">{t('account.language')}</ThemedText>
+      <SettingsSection title={t('account.language')}>
         <OptionGroup options={localeOptions} value={locale} onChange={onLocaleChange} />
-      </View>
+      </SettingsSection>
 
-      <View style={styles.section}>
-        <ThemedText type="smallBold">{t('account.defaultServings')}</ThemedText>
+      <SettingsSection
+        title={t('account.defaultServings')}
+        footer={t('account.defaultServingsHint')}>
         <Stepper
           value={defaultServings}
           onChange={onDefaultServingsChange}
@@ -164,115 +209,85 @@ export default function AccountScreen() {
           max={99}
           accessibilityLabel={t('account.defaultServings')}
         />
-        <ThemedText type="small" themeColor="textSecondary">
-          {t('account.defaultServingsHint')}
-        </ThemedText>
-      </View>
+      </SettingsSection>
 
       <AiSettingsSection />
 
       {isAuthenticated ? (
-        <>
-          <View style={styles.section}>
-            <ThemedText type="smallBold">{t('household.sectionTitle')}</ThemedText>
-            {household ? (
-              <Card>
-                <View style={styles.rowBetween}>
-                  <ThemedText type="subtitle" style={styles.flex}>
-                    {household.name}
-                  </ThemedText>
-                  {role ? (
-                    <Badge
-                      label={role === 'owner' ? t('common.owner') : t('common.member')}
-                      tone={roleTone(role)}
-                    />
-                  ) : null}
-                </View>
-                {isOwner ? (
-                  <Button
-                    title={t('household.invitePeople')}
-                    variant="secondary"
-                    size="small"
-                    onPress={() => pushOnce('/account/invite')}
-                  />
-                ) : (
-                  <ThemedText type="small" themeColor="textSecondary">
-                    {t('household.onlyOwners')}
-                  </ThemedText>
-                )}
-                <Button
-                  title={t('household.manage')}
-                  variant="secondary"
-                  onPress={() => pushOnce('/account/households')}
-                />
-              </Card>
-            ) : (
-              <AccountSetupCard />
-            )}
-          </View>
-
-          <View style={styles.section}>
-            <ThemedText type="smallBold">{t('account.accountSection')}</ThemedText>
-            <Card>
-              <View style={styles.rowBetween}>
-                <ThemedText type="small" themeColor="textSecondary">
-                  {t('account.signedInAs')}
-                </ThemedText>
-                <ThemedText type="small" style={styles.flexEnd}>
-                  {user?.email ?? '—'}
-                </ThemedText>
-              </View>
+        <SettingsSection title={t('account.accountSection')}>
+          <SettingsGroup>
+            <SettingsRow
+              icon={{ ios: 'person.fill', android: 'person', web: 'person' }}
+              title={user?.email ?? '—'}
+              subtitle={t('account.signedInAs')}>
               <SyncIndicator />
-            </Card>
-            <Button
+            </SettingsRow>
+            <SettingsRow
+              icon={{
+                ios: 'rectangle.portrait.and.arrow.right',
+                android: 'logout',
+                web: 'logout',
+              }}
               title={t('account.signOut')}
-              variant="secondary"
+              accessory="none"
               loading={signingOut}
               onPress={onSignOut}
             />
-            <Button title={t('account.deleteAccount')} variant="danger" onPress={onDeleteAccount} />
-            <ThemedText type="small" themeColor="textSecondary">
-              {t('account.deleteAccountHint')}
-            </ThemedText>
-          </View>
-        </>
-      ) : (
-        <View style={styles.section}>
-          <ThemedText type="smallBold">{t('account.dataTitle')}</ThemedText>
-          <Card>
-            <ThemedText type="small" themeColor="textSecondary">
-              {t('account.dataLocal')}
-            </ThemedText>
-            <Button title={t('account.connect')} onPress={() => pushOnce('/sign-in')} />
-          </Card>
-        </View>
-      )}
-      <Button title={t('account.clearDeviceData')} variant="danger" loading={clearingData} onPress={onClearDeviceData} />
-      {(PRIVACY_URL || SUPPORT_URL) ? (
-        <View style={styles.section}>
-          {PRIVACY_URL ? <Button title={t('account.privacyPolicy')} variant="secondary" onPress={() => openPage(PRIVACY_URL)} /> : null}
-          {SUPPORT_URL ? <Button title={t('account.support')} variant="secondary" onPress={() => openPage(SUPPORT_URL)} /> : null}
-        </View>
+          </SettingsGroup>
+        </SettingsSection>
       ) : null}
+
+      {PRIVACY_URL || SUPPORT_URL ? (
+        <SettingsSection title={t('account.helpSection')}>
+          <SettingsGroup>
+            {SUPPORT_URL ? (
+              <SettingsRow
+                icon={{ ios: 'questionmark.circle.fill', android: 'help', web: 'help' }}
+                title={t('account.support')}
+                accessory="external"
+                onPress={() => openPage(SUPPORT_URL)}
+              />
+            ) : null}
+            {PRIVACY_URL ? (
+              <SettingsRow
+                icon={{ ios: 'hand.raised.fill', android: 'privacy_tip', web: 'privacy_tip' }}
+                title={t('account.privacyPolicy')}
+                accessory="external"
+                onPress={() => openPage(PRIVACY_URL)}
+              />
+            ) : null}
+          </SettingsGroup>
+        </SettingsSection>
+      ) : null}
+
+      {/* Destructive actions live apart from everything else, at the very bottom. */}
+      <SettingsSection
+        title={t('account.dangerSection')}
+        footer={isAuthenticated ? t('account.deleteAccountHint') : undefined}>
+        <SettingsGroup>
+          <SettingsRow
+            icon={{ ios: 'trash.fill', android: 'delete', web: 'delete' }}
+            tone="danger"
+            title={t('account.clearDeviceData')}
+            accessory="none"
+            loading={clearingData}
+            onPress={onClearDeviceData}
+          />
+          {isAuthenticated ? (
+            <SettingsRow
+              icon={{
+                ios: 'person.crop.circle.badge.xmark',
+                android: 'person_remove',
+                web: 'person_remove',
+              }}
+              tone="danger"
+              title={t('account.deleteAccount')}
+              accessory="external"
+              onPress={onDeleteAccount}
+            />
+          ) : null}
+        </SettingsGroup>
+      </SettingsSection>
     </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  section: {
-    gap: Spacing.two,
-  },
-  rowBetween: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: Spacing.three,
-  },
-  flex: {
-    flexShrink: 1,
-  },
-  flexEnd: {
-    flexShrink: 1,
-    textAlign: 'right',
-  },
-});

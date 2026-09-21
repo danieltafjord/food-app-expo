@@ -10,7 +10,7 @@ import { BadgeColors, Spacing } from '@/constants/theme';
 import { useResolvedScheme, useTheme } from '@/hooks/use-theme';
 import { formatQuantity } from '@/lib/format';
 import { useT } from '@/lib/i18n';
-import { parseItemLine } from '@/lib/parse-line';
+import { isAmountWithinLimits, parseItemLine } from '@/lib/parse-line';
 import { findExact, indexByName, searchIndex } from '@/lib/search';
 import { cancelSheet, resolveSheet } from '@/lib/sheets';
 import { createIngredient, getIngredient, useIngredients, type LocalIngredient } from '@/lib/store';
@@ -42,6 +42,7 @@ export default function IngredientPickerSheet() {
 
   const parsed = parseItemLine(query);
   const name = parsed.name;
+  const amountOk = isAmountWithinLimits(parsed);
   const amount = formatQuantity(parsed.quantity, parsed.unit);
   // Fold every name once per catalogue change, not once per keystroke; the same
   // ranked, diacritic-insensitive search the dinner picker uses.
@@ -52,7 +53,7 @@ export default function IngredientPickerSheet() {
 
   function pick(ingredient: LocalIngredient) {
     // Once per sheet: a "done" + tap double-fire would otherwise pop two screens.
-    if (picked.current) return;
+    if (picked.current || !amountOk) return;
     picked.current = true;
     resolveSheet(request, {
       ingredient,
@@ -63,7 +64,7 @@ export default function IngredientPickerSheet() {
   }
 
   function onCreate() {
-    if (action !== 'create' || created.current) return;
+    if (action !== 'create' || created.current || !amountOk) return;
     created.current = true;
     const ingredient = getIngredient(createIngredient({ name, default_unit: parsed.unit }));
     if (ingredient) pick(ingredient);
@@ -86,13 +87,15 @@ export default function IngredientPickerSheet() {
       : action === 'add'
         ? t('ingredientPicker.addExistingHint')
         : t('ingredientPicker.idleHint');
-  const idle = action === 'idle';
+  const idle = action === 'idle' || !amountOk;
 
   return (
     <SheetScreen layout="fill">
       <TextField
         label={t('ingredientPicker.searchOrCreate')}
         placeholder={t('ingredientPicker.placeholder')}
+        maxLength={255}
+        error={amountOk ? null : t('shoppingItemEditor.amountInvalid')}
         value={query}
         onChangeText={(text) => {
           created.current = false;

@@ -29,7 +29,9 @@ export function AiSettingsSection() {
 
   return (
     <View style={styles.section}>
-      <ThemedText type="smallBold">{t('ai.settingsTitle')}</ThemedText>
+      <ThemedText type="smallBold" themeColor="textSecondary" style={styles.title}>
+        {t('ai.settingsTitle')}
+      </ThemedText>
       <Card>
         <ThemedText type="small" themeColor="textSecondary">{t('ai.privacy')}</ThemedText>
         {!isAuthenticated || !user?.current_household ? (
@@ -83,6 +85,7 @@ export function AiSettingsSection() {
 
 const styles = StyleSheet.create({
   section: { gap: Spacing.two },
+  title: { paddingHorizontal: Spacing.one },
   row: { flexDirection: 'row', alignItems: 'center', gap: Spacing.three },
   label: { flex: 1, gap: Spacing.one },
 });

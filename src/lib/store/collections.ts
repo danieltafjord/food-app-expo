@@ -74,6 +74,8 @@ export const store$ = observable({
     serverHouseholdId: null as number | null,
     /** Rows with local edits not yet acknowledged by the server: collection → uuid. */
     dirty: {} as Record<string, Record<string, true>>,
+    /** Rejected edits retained until corrected or explicitly deleted. */
+    failed: {} as Record<string, Record<string, { code: string; message: string }>>,
     /** Deleted rows awaiting a tombstone push: collection → uuid → deleted_at ISO. */
     tombstones: {} as Record<string, Record<string, string>>,
   },

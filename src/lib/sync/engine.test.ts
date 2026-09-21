@@ -24,6 +24,7 @@ import {
   ensureChangeTracking,
   ensureSyncedBeforeRebind,
   hasPending,
+  getSyncFailures,
   SyncPendingError,
   syncNow,
   type SyncResponse,
@@ -382,21 +383,31 @@ describe('push / pull', () => {
     expect(hasPending()).toBe(false);
   });
 
-  it('surfaces rejected rows without retrying them forever', async () => {
+  it('retains rejected changes across pulls and restarts, blocks rebind, and retries after correction', async () => {
     ensureChangeTracking();
     const server = fakeServer();
     await connect(server);
     const dinner = createDinner({ name: 'Bad' });
-
-    server.handlers.push(() => ({
-      ...emptySync(),
-      rejected: { dinners: [{ id: dinner, code: 'invalid', message: 'nope' }] },
+    server.handlers.push(() => ({ ...emptySync(),
+      rejected: { dinners: [{ id: dinner, code: 'invalid', message: 'Name too long' }] },
     }));
     await syncNow();
-
-    expect(hasPending()).toBe(false);
+    expect(hasPending()).toBe(true);
+    expect(getSyncFailures()).toEqual([{ collection: 'dinners', id: dinner, name: 'Bad', message: 'Name too long' }]);
+    await syncNow();
+    expect(server.calls.at(-1)?.body.changes).toEqual({});
     expect(syncStatus$.rejected.get()).toBe(1);
-    expect(syncStatus$.phase.get()).toBe('idle');
+    await expect(ensureSyncedBeforeRebind()).rejects.toBeInstanceOf(SyncPendingError);
+    await expect(adoptServerHousehold(8)).rejects.toBeInstanceOf(SyncPendingError);
+    __resetEngineForTests();
+    await connect(server);
+    expect(hasPending()).toBe(true);
+    expect(syncStatus$.rejected.get()).toBe(1);
+    store$.dinners[dinner].assign({ name: 'Corrected', updated_at: '2026-01-01T00:00:01.000Z' });
+    await syncNow();
+    expect(server.calls.at(-1)?.body.changes.dinners[0].name).toBe('Corrected');
+    expect(getSyncFailures()).toEqual([]);
+    expect(hasPending()).toBe(false);
   });
 });
 
@@ -606,4 +617,94 @@ describe('idle poll and cursor writes', () => {
     jest.setSystemTime(Date.now() + 61_000);
     expect(__pollDelayForTests()).toBe(30_000);
   });
+});
+
+
+it('clears a dirty child created while its parent is deleted remotely', async () => {
+  const server = fakeServer();
+  await connect(server);
+  const dinner = createDinner({ name: 'Gone' });
+  const ingredient = createIngredient({ name: 'Rice' });
+  await syncNow();
+  server.handlers.push(() => {
+    setDinnerItems(dinner, [{ ingredient_id: ingredient, quantity: 100, unit: 'g' }]);
+    return { ...emptySync(), changes: { dinners: [{ id: dinner, deleted_at: '2026-06-01T00:00:00Z' }] } };
+  });
+  await syncNow();
+  expect(Object.values(store$.dinnerItems.get())).toEqual([]);
+  expect(hasPending()).toBe(false);
+  await syncNow();
+  expect(server.calls.at(-1)?.body.changes).toEqual({});
+});
+
+it('preserves a mid-flight recipe item edit under its canonical identity', async () => {
+  const server = fakeServer();
+  await connect(server);
+  const dinner = createDinner({ name: 'Rice' });
+  const ingredient = createIngredient({ name: 'Rice' });
+  setDinnerItems(dinner, [{ ingredient_id: ingredient, quantity: 100, unit: 'g' }]);
+  const item = Object.values(store$.dinnerItems.get())[0];
+  server.handlers.push(() => {
+    store$.dinnerItems[item.id].assign({ quantity: 250, updated_at: '2030-01-01T00:00:00.000Z' });
+    return { ...emptySync(), remaps: { dinner_items: { [item.id]: 'canonical' } }, changes: {
+      dinner_items: [{ ...item, id: 'canonical' }, { ...item, deleted_at: '2026-01-01T00:00:00Z' }],
+    } };
+  });
+  await syncNow();
+  expect(store$.dinnerItems[item.id].get()).toBeUndefined();
+  expect(store$.dinnerItems.canonical.quantity.get()).toBe(250);
+  expect(store$.meta.dirty.dinnerItems.canonical.get()).toBe(true);
+  await syncNow();
+  expect(server.calls.at(-1)?.body.changes.dinner_items).toEqual([expect.objectContaining({ id: 'canonical', quantity: 250 })]);
+  expect(hasPending()).toBe(false);
+});
+
+it('refreshes later chunks after ingredient identities are remapped', async () => {
+  const server = fakeServer();
+  await connect(server);
+  const ingredient = createIngredient({ name: 'Duplicate' });
+  for (let i = 0; i < 300; i++) createIngredient({ name: `Padding ${i}` });
+  const dinner = createDinner({ name: 'Rice' });
+  setDinnerItems(dinner, [{ ingredient_id: ingredient, quantity: 100, unit: 'g' }]);
+  server.handlers.push(() => ({ ...emptySync(), remaps: { ingredients: { [ingredient]: 'canonical' } } }));
+  await syncNow();
+  const itemPush = server.calls.find((call) => call.body?.changes.dinner_items?.length);
+  expect(itemPush?.body.changes.dinner_items[0].ingredient_id).toBe('canonical');
+});
+
+
+it('retries dependent rejections when their parent is corrected', async () => {
+  const server = fakeServer();
+  await connect(server);
+  const dinner = createDinner({ name: 'Bad' });
+  const ingredient = createIngredient({ name: 'Rice' });
+  setDinnerItems(dinner, [{ ingredient_id: ingredient, quantity: 100, unit: 'g' }]);
+  const item = Object.values(store$.dinnerItems.get())[0];
+  server.handlers.push(() => ({ ...emptySync(), rejected: {
+    dinners: [{ id: dinner, code: 'invalid', message: 'Invalid name' }],
+    dinner_items: [{ id: item.id, code: 'unknown_parent', message: 'Unknown dinner' }],
+  } }));
+  await syncNow();
+  expect(getSyncFailures()).toHaveLength(2);
+  store$.dinners[dinner].assign({ name: 'Corrected', updated_at: '2030-01-01T00:00:00Z' });
+  await syncNow();
+  expect(server.calls.at(-1)?.body.changes.dinner_items).toHaveLength(1);
+  expect(hasPending()).toBe(false);
+});
+
+it('retains rejected content and its error when an old item identity is redirected', async () => {
+  const server = fakeServer();
+  await connect(server);
+  const dinner = createDinner({ name: 'Rice' });
+  setDinnerItems(dinner, [{ ingredient_id: 'missing', quantity: 100, unit: 'g' }]);
+  const item = Object.values(store$.dinnerItems.get())[0];
+  server.handlers.push(() => ({ ...emptySync(),
+    rejected: { dinner_items: [{ id: item.id, code: 'unknown_parent', message: 'Missing ingredient' }] },
+    remaps: { dinner_items: { [item.id]: 'canonical' } },
+    changes: { dinner_items: [{ ...item, id: 'canonical', ingredient_id: 'server-ingredient' }] },
+  }));
+  await syncNow();
+  expect(store$.dinnerItems.canonical.ingredient_id.get()).toBe('missing');
+  expect(getSyncFailures()).toEqual([expect.objectContaining({ id: 'canonical', message: 'Missing ingredient' })]);
+  expect(hasPending()).toBe(true);
 });

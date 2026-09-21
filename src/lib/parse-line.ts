@@ -155,7 +155,7 @@ export function parseAmount(text: string): ParsedAmount {
 export function isAmountValid(text: string): boolean {
   if (!text.trim()) return true;
   const { quantity, unit } = parseAmount(text);
-  return quantity != null || unit != null;
+  return (quantity != null || unit != null) && isAmountWithinLimits({ quantity, unit });
 }
 
 /** The editable text for an amount field: "500 g", "2", "g" or "". */
@@ -166,4 +166,11 @@ export function amountText(quantity: number | null, unit: string | null): string
       ? String(Math.round(quantity * 1000) / 1000).replace('.', ',')
       : '';
   return [qty, unit ?? ''].filter(Boolean).join(' ');
+}
+
+
+/** The same quantity/unit limits accepted by the sync endpoint. */
+export function isAmountWithinLimits({ quantity, unit }: ParsedAmount): boolean {
+  return (quantity == null || (Number.isFinite(quantity) && quantity >= 0 && quantity <= 999999.99)) &&
+    (unit == null || unit.length <= 50);
 }

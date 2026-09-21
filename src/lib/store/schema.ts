@@ -98,6 +98,8 @@ export type LocalShoppingListItem = {
   quantity: number | null;
   unit: string | null;
   is_checked: boolean;
+  /** Only generated, unpurchased rows may be replaced when the plan changes. */
+  is_generated?: boolean;
   created_at: string;
   updated_at: string;
 };

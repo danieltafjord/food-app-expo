@@ -87,6 +87,7 @@ export const nb: Dictionary = {
     setupDescription: 'Oppskriftene og listene dine er lagret på denne enheten. Vi klargjør kontoen for automatisk synkronisering.',
     finishInvitation: 'Godta invitasjonen for å starte synkronisering',
 
+    fixRejected: 'Disse endringene er lagret på denne enheten. Rediger eller slett varene nedenfor før du bytter husstand.',
     rejectedCount: '{count} endring(er) kunne ikke synkroniseres og finnes bare på denne enheten',
     onThisDevice: 'På denne enheten',
     notSynced: 'Ikke synkronisert',
@@ -115,7 +116,6 @@ export const nb: Dictionary = {
     makeAnyway: 'Lag lista likevel',
   },
   weekBoard: {
-    add: 'Legg til',
     addDinner: 'Legg til middag',
     noIngredients: 'Ingen ingredienser',
   },
@@ -145,6 +145,8 @@ export const nb: Dictionary = {
     moveTo: 'Flytt til',
     editDinner: 'Rediger middag',
     editDinnerHint: 'Ingredienser, porsjoner og notater',
+    addAnother: 'Legg til en middag til',
+    addAnotherHint: 'Planlegg flere middager samme dag',
     noIngredientsHint: 'Ingen ingredienser ennå – legg til noen så den fyller handlelista',
   },
   ingredientPicker: {
@@ -184,6 +186,8 @@ export const nb: Dictionary = {
     beverages: 'Drikke',
     household: 'Husholdning',
     personal_care: 'Personlig pleie',
+    pets: 'Kjæledyr',
+    baby: 'Baby',
     other: 'Annet',
   },
   dinners: {
@@ -244,7 +248,7 @@ export const nb: Dictionary = {
     deleteListMessage: 'Lista og alle varene fjernes.',
     planChangedTitle: 'Ukeplanen er endret',
     planChangedMessage: 'Oppdater lista med ukens middager. Avkryssede varer beholdes.',
-    planChangedCounts: '{added} nye · {updated} endret',
+    planChangedCounts: '{added} å legge til · {updated} å oppdatere · {removed} å fjerne',
     updateFromPlan: 'Oppdater lista',
   },
   account: {
@@ -272,6 +276,8 @@ export const nb: Dictionary = {
       'Alt lagres på denne enheten og fungerer uten nett. Koble til en konto for sikkerhetskopi, bruk på flere enheter og deling med husstanden.',
     connect: 'Koble til konto',
     accountSection: 'Konto',
+    helpSection: 'Hjelp',
+    dangerSection: 'Data og sletting',
     signedInAs: 'Innlogget som',
     signOut: 'Logg ut',
     deleteAccount: 'Slett konto',

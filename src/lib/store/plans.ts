@@ -18,9 +18,22 @@ export function usePlans(): LocalDinnerPlan[] {
 
 /** The plan whose week starts on `weekStartKey` (a local YYYY-MM-DD), if any. */
 export function usePlanForWeek(weekStartKey: string): LocalDinnerPlan | undefined {
-  return useValue(() =>
-    Object.values(store$.dinnerPlans.get()).find((p) => p.start_date === weekStartKey),
-  );
+  return useValue(() => findPlanForWeek(weekStartKey));
+}
+
+/** A stable representative on every device, including weeks created concurrently offline. */
+export function findPlanForWeek(weekStartKey: string): LocalDinnerPlan | undefined {
+  return Object.values(store$.dinnerPlans.get())
+    .filter((plan) => plan.start_date === weekStartKey)
+    .sort((a, b) => a.id.localeCompare(b.id))[0];
+}
+
+/** Existing duplicate weekly plans remain intact, but contribute to one shared week. */
+export function planIdsForWeekOf(planId: string): Set<string> {
+  const plans = store$.dinnerPlans.get();
+  const start = plans[planId]?.start_date;
+  if (!start) return new Set([planId]);
+  return new Set(Object.values(plans).filter((plan) => plan.start_date === start).map((plan) => plan.id));
 }
 
 export function usePlan(id: string | undefined): LocalDinnerPlan | undefined {
@@ -49,8 +62,9 @@ function countItemsByDinner(): Map<string, number> {
 const planEntriesFor = derivedById((planId): PlanEntryWithDinner[] => {
   const dinners = store$.dinners.get();
   const counts = countItemsByDinner();
+  const planIds = planIdsForWeekOf(planId);
   const entries = Object.values(store$.planEntries.get())
-    .filter((e) => e.dinner_plan_id === planId)
+    .filter((e) => planIds.has(e.dinner_plan_id))
     .map((e) => ({
       ...e,
       dinner_name: dinners[e.dinner_id]?.name ?? null,
@@ -140,9 +154,7 @@ export function ensurePlanForWeek(
   weekEndKey: string,
   name: string,
 ): string {
-  const existing = Object.values(store$.dinnerPlans.get()).find(
-    (p) => p.start_date === weekStartKey,
-  );
+  const existing = findPlanForWeek(weekStartKey);
   if (existing) return existing.id;
   return createDinnerPlan({ name, start_date: weekStartKey, end_date: weekEndKey });
 }

@@ -13,16 +13,32 @@ function itemsForDinner(
   allItems: Record<string, LocalDinnerItem>,
   dinnerId: string,
 ): LocalDinnerItem[] {
-  return Object.values(allItems)
+  return uniqueDinnerItems(Object.values(allItems))
     .filter((it) => it.dinner_id === dinnerId)
     .sort((a, b) => compareIso(a.created_at, b.created_at));
+}
+
+function dinnerItemKey(item: { ingredient_id: string; unit?: string | null }): string {
+  return `${item.ingredient_id}:${item.unit?.trim().toLowerCase() ?? ''}`;
+}
+
+export function uniqueDinnerItems(items: readonly LocalDinnerItem[]): LocalDinnerItem[] {
+  const latest = new Map<string, LocalDinnerItem>();
+  for (const item of items) {
+    const key = `${item.dinner_id}:${dinnerItemKey(item)}`;
+    const previous = latest.get(key);
+    if (!previous || (compareIso(item.updated_at, previous.updated_at) || item.id.localeCompare(previous.id)) > 0) {
+      latest.set(key, item);
+    }
+  }
+  return [...latest.values()];
 }
 
 /** All dinners (recipes) with their items, alphabetised. Cached until a dinner/item changes. */
 const dinners$ = derived((): DinnerWithItems[] => {
   // One pass over the items, grouped by dinner, instead of a scan per dinner.
   const byDinner = new Map<string, LocalDinnerItem[]>();
-  for (const it of Object.values(store$.dinnerItems.get())) {
+  for (const it of uniqueDinnerItems(Object.values(store$.dinnerItems.get()))) {
     const bucket = byDinner.get(it.dinner_id);
     if (bucket) bucket.push(it);
     else byDinner.set(it.dinner_id, [it]);
@@ -155,37 +171,71 @@ export function updateDinner(id: string, input: UpdateDinnerInput): void {
   setDinnerItems(id, input.items);
 }
 
+/** Change only the edited recipe fields; ingredient changes use row mutations below. */
+export function patchDinner(id: string, patch: Partial<CreateDinnerInput>): void {
+  if (!store$.dinners[id].peek()) return;
+  store$.dinners[id].assign({ ...patch, updated_at: nowIso() });
+}
+
+export function upsertDinnerItem(dinnerId: string, input: DinnerItemInput, itemId?: string): void {
+  if (!store$.dinners[dinnerId].peek()) return;
+  const existing = Object.values(store$.dinnerItems.peek()).find(
+    (item) => item.dinner_id === dinnerId && (itemId ? item.id === itemId :
+      dinnerItemKey(item) === dinnerItemKey(input)),
+  );
+  // A remotely deleted row must not be recreated by a stale input event.
+  if (itemId && !existing) return;
+  const ts = nowIso();
+  if (existing) {
+    store$.dinnerItems[existing.id].assign({ quantity: input.quantity ?? null, unit: input.unit ?? null, updated_at: ts });
+  } else {
+    const id = newId();
+    store$.dinnerItems[id].set({ id, dinner_id: dinnerId, ingredient_id: input.ingredient_id,
+      quantity: input.quantity ?? null, unit: input.unit ?? null, created_at: ts, updated_at: ts });
+  }
+}
+
+export function removeDinnerItem(dinnerId: string, itemId: string): void {
+  const item = store$.dinnerItems[itemId].peek();
+  if (!item || item.dinner_id !== dinnerId) return;
+  for (const candidate of Object.values(store$.dinnerItems.peek())) {
+    if (candidate.dinner_id === dinnerId && dinnerItemKey(candidate) === dinnerItemKey(item)) {
+      store$.dinnerItems[candidate.id].delete();
+    }
+  }
+}
+
 /**
- * Set a dinner's items to exactly `items`, diffing by `ingredient_id` so that an
+ * Set a dinner's items to exactly `items`, diffing by ingredient and unit so that an
  * unchanged ingredient keeps its row (and its id). Stable ids matter for sync:
  * delete-and-recreate would turn every save into a tombstone plus a fresh row,
  * and two devices saving the same dinner would end up with doubled items.
- * When the same ingredient appears more than once in `items`, the last entry wins.
+ * When the same ingredient/unit appears more than once, the last entry wins.
  */
 export function setDinnerItems(dinnerId: string, items: DinnerItemInput[]): void {
   const ts = nowIso();
   const existingByIngredient = new Map<string, LocalDinnerItem>();
   for (const it of Object.values(store$.dinnerItems.get())) {
     if (it.dinner_id === dinnerId) {
-      existingByIngredient.set(it.ingredient_id, it);
+      existingByIngredient.set(dinnerItemKey(it), it);
     }
   }
 
   const wanted = new Map<string, DinnerItemInput>();
   for (const row of items) {
-    wanted.set(row.ingredient_id, row);
+    wanted.set(dinnerItemKey(row), row);
   }
 
-  for (const [ingredientId, it] of existingByIngredient) {
-    if (!wanted.has(ingredientId)) {
+  for (const [key, it] of existingByIngredient) {
+    if (!wanted.has(key)) {
       store$.dinnerItems[it.id].delete();
     }
   }
 
-  for (const [ingredientId, row] of wanted) {
+  for (const [key, row] of wanted) {
     const quantity = row.quantity ?? null;
     const unit = row.unit ?? null;
-    const existing = existingByIngredient.get(ingredientId);
+    const existing = existingByIngredient.get(key);
     if (existing) {
       if (existing.quantity !== quantity || existing.unit !== unit) {
         store$.dinnerItems[existing.id].assign({ quantity, unit, updated_at: ts });
@@ -196,7 +246,7 @@ export function setDinnerItems(dinnerId: string, items: DinnerItemInput[]): void
     store$.dinnerItems[itemId].set({
       id: itemId,
       dinner_id: dinnerId,
-      ingredient_id: ingredientId,
+      ingredient_id: row.ingredient_id,
       quantity,
       unit,
       created_at: ts,

@@ -91,6 +91,7 @@ export const en = {
     setupDescription: 'Your recipes and lists are saved on this device. We’re getting your account ready to sync them automatically.',
     finishInvitation: 'Accept your invitation to start syncing',
 
+    fixRejected: 'These edits are saved on this device. Edit or delete the listed items before switching households.',
     rejectedCount: '{count} change(s) could not be synced and stay only on this device',
     onThisDevice: 'On this device',
     notSynced: 'Not synced',
@@ -119,7 +120,6 @@ export const en = {
     makeAnyway: 'Make the list anyway',
   },
   weekBoard: {
-    add: 'Add',
     addDinner: 'Add dinner',
     noIngredients: 'No ingredients',
   },
@@ -149,6 +149,8 @@ export const en = {
     moveTo: 'Move to',
     editDinner: 'Edit dinner',
     editDinnerHint: 'Ingredients, servings and notes',
+    addAnother: 'Add another dinner',
+    addAnotherHint: 'Plan more than one dinner this day',
     noIngredientsHint: 'No ingredients yet — add some so it feeds the shopping list',
   },
   ingredientPicker: {
@@ -188,6 +190,8 @@ export const en = {
     beverages: 'Beverages',
     household: 'Household',
     personal_care: 'Personal care',
+    pets: 'Pets',
+    baby: 'Baby',
     other: 'Other',
   },
   dinners: {
@@ -248,7 +252,7 @@ export const en = {
     deleteListMessage: 'The list and all its items will be removed.',
     planChangedTitle: 'The week plan has changed',
     planChangedMessage: 'Update the list with the current dinners. Checked items are kept.',
-    planChangedCounts: '{added} new · {updated} changed',
+    planChangedCounts: '{added} to add · {updated} to update · {removed} to remove',
     updateFromPlan: 'Update list',
   },
   account: {
@@ -276,6 +280,8 @@ export const en = {
       'Everything is saved on this device and works offline. Connect an account to back it up, use it on other devices and share it with your household.',
     connect: 'Connect account',
     accountSection: 'Account',
+    helpSection: 'Help',
+    dangerSection: 'Data and deletion',
     signedInAs: 'Signed in as',
     signOut: 'Sign out',
     deleteAccount: 'Delete account',

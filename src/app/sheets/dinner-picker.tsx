@@ -142,6 +142,7 @@ export default function DinnerPickerSheet() {
       <TextField
         label={t('dinnerPicker.searchOrCreate')}
         placeholder={t('dinnerPicker.placeholder')}
+        maxLength={255}
         value={query}
         onChangeText={(text) => {
           created.current = false;

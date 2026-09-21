@@ -26,6 +26,8 @@ export const CATEGORY_IDS = [
   'beverages',
   'household',
   'personal_care',
+  'pets',
+  'baby',
   'other',
 ] as const;
 
@@ -51,6 +53,8 @@ export const CATEGORY_EMOJI: Record<CategoryId, string> = {
   beverages: '🧃',
   household: '🧽',
   personal_care: '🧴',
+  pets: '🐾',
+  baby: '🍼',
   other: '🛒',
 };
 

@@ -1,6 +1,7 @@
 import * as AuthSession from 'expo-auth-session';
 
 import { API_BASE_URL, OAUTH_CLIENT_ID, OAUTH_REDIRECT_PATH, OAUTH_SCHEME } from '@/lib/config';
+import { ApiError } from '@/lib/api/client';
 import type { StoredSession } from '@/lib/auth/token-storage';
 
 /**
@@ -40,10 +41,22 @@ export function tokenResponseToSession(token: AuthSession.TokenResponse): Stored
 }
 
 /** Exchange a refresh token for a fresh access (+ rotated refresh) token. */
-export async function refreshSession(refreshToken: string): Promise<StoredSession> {
-  const token = await AuthSession.refreshAsync(
-    { clientId: OAUTH_CLIENT_ID, refreshToken },
-    discovery,
-  );
-  return tokenResponseToSession(token);
+export async function refreshSession(refreshToken: string, signal?: AbortSignal): Promise<StoredSession> {
+  const response = await fetch(discovery.tokenEndpoint!, {
+    method: 'POST', signal,
+    headers: { Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ grant_type: 'refresh_token', client_id: OAUTH_CLIENT_ID, refresh_token: refreshToken }).toString(),
+  });
+  const body = await response.json();
+  if (!response.ok) {
+    throw new ApiError(body.error === 'invalid_grant' ? 401 : response.status, 'Unable to refresh session');
+  }
+  if (typeof body.access_token !== 'string' || !body.access_token) {
+    throw new ApiError(502, 'Invalid token response');
+  }
+  return {
+    accessToken: body.access_token,
+    refreshToken: body.refresh_token ?? refreshToken,
+    expiresAt: typeof body.expires_in === 'number' ? Date.now() + body.expires_in * 1000 : null,
+  };
 }

@@ -10,7 +10,7 @@ import { nowIso } from '@/lib/store/ids';
 import { whenHydrated } from '@/lib/store/persistence';
 
 import { getSyncRequest, type SyncRequest } from './auth-bridge';
-import { markSyncError, markSynced, markSyncing, setPendingCount } from './status';
+import { markSyncError, markSynced, markSyncing, setPendingCount, setRejectedCount } from './status';
 
 /**
  * Cloud sync engine.
@@ -318,6 +318,7 @@ function handleStoreChange(params: ListenerParams): void {
         continue;
       }
 
+      store$.meta.failed[collection][uuid].delete();
       const isRowDelete = change.path.length === 2 && change.valueAtPath == null;
       if (isRowDelete) {
         store$.meta.tombstones[collection][uuid].set(nowIso());
@@ -336,6 +337,16 @@ function handleStoreChange(params: ListenerParams): void {
   });
 
   if (touched) {
+    batch(() => {
+      for (const [collection, rows] of Object.entries(store$.meta.failed.peek() ?? {})) {
+        for (const [id, failure] of Object.entries(rows)) {
+          if (failure.code === 'unknown_parent' && node(collection)[id].peek()) {
+            store$.meta.failed[collection][id].delete();
+            store$.meta.dirty[collection][id].set(true);
+          }
+        }
+      }
+    });
     bumpActivity();
     updatePending();
     if (started) {
@@ -443,7 +454,7 @@ function pushPull(): Promise<void> {
   inFlight = runCycle(request, connectionGeneration).finally(() => {
     inFlight = null;
     updatePending();
-    if (started && (rerun || hasPending())) scheduleSync();
+    if (started && (rerun || hasSendable())) scheduleSync();
   });
   return inFlight;
 }
@@ -458,13 +469,13 @@ async function runCycle(request: SyncRequest, generation: number): Promise<void>
     const ready = await prepareFirstSync(request, isCurrent);
     if (!ready || !isCurrent()) return;
 
-    hasPush = hasPush || hasPending();
+    hasPush = hasPush || hasSendable();
     if (hasPush) markSyncing();
 
-    let rejected = 0;
     let received = 0;
     // Push in dependency-ordered chunks; the last request also carries the pull.
     for (const snapshot of collectPushChunks()) {
+      refreshSnapshot(snapshot);
       const response = await timed<SyncResponse>(request, '/sync', {
         method: 'POST',
         body: {
@@ -476,14 +487,13 @@ async function runCycle(request: SyncRequest, generation: number): Promise<void>
       if (!isCurrent()) return; // a previous session must never touch the current store
 
       const applied = applyResponse(snapshot, response);
-      rejected += applied.rejected;
       received += applied.received;
     }
 
     retryAttempt = 0; // connectivity restored — reset the backoff
     const moved = hasPush || received > 0;
     quietPulls = moved ? 0 : quietPulls + 1;
-    markSynced(rejected, moved);
+    markSynced(countFailed(), moved);
   } catch (error) {
     if (!isCurrent()) return;
     if (error instanceof ApiError && error.status === 409 && isHouseholdMismatch(error.body)) {
@@ -550,7 +560,7 @@ function seedOutboxFromLocal(): void {
   batch(() => {
     for (const { collection } of SYNCABLE) {
       for (const uuid of Object.keys(node(collection).get() ?? {})) {
-        if (!store$.meta.tombstones[collection][uuid].get()) {
+        if (!store$.meta.tombstones[collection][uuid].get() && !store$.meta.failed[collection][uuid].get()) {
           store$.meta.dirty[collection][uuid].set(true);
         }
       }
@@ -612,6 +622,7 @@ function applyResponse(
   response: SyncResponse,
 ): { rejected: number; received: number } {
   clearSent(snapshot);
+  retainRejected(snapshot, response.rejected ?? {});
   applyRemaps(response.remaps ?? {});
   const received = applyRemote(response.changes ?? {});
   // Only write when something moved: every store write is a persist to disk,
@@ -628,6 +639,23 @@ function applyResponse(
     console.warn('[sync] server rejected rows', response.rejected);
   }
   return { rejected, received };
+}
+
+function retainRejected(snapshot: PushSnapshot, rejected: Record<string, Rejection[]>): void {
+  batch(() => {
+    for (const [key, rows] of Object.entries(rejected)) {
+      const collection = BY_SERVER_KEY.get(key)?.collection;
+      if (!collection) continue;
+      for (const rejection of rows) {
+        const id = rejection.id;
+        if (!id || store$.meta.dirty[collection][id].get() || store$.meta.tombstones[collection][id].get()) continue;
+        const row = node(collection)[id].peek();
+        if (row && snapshot.sentDirty[collection]?.[id] === String(row.updated_at ?? '')) {
+          store$.meta.failed[collection][id].set({ code: rejection.code, message: rejection.message });
+        }
+      }
+    }
+  });
 }
 
 /** Clear exactly the entries we pushed, unless they were touched again mid-flight. */
@@ -659,34 +687,73 @@ function clearSent(snapshot: PushSnapshot): void {
  * existed on the server.
  */
 function applyRemaps(remaps: Record<string, Record<string, string>>): void {
-  const ingredientRemaps = remaps.ingredients ?? {};
-  const entries = Object.entries(ingredientRemaps);
-  if (entries.length === 0) return;
-
-  batch(() => {
-    for (const [from, to] of entries) {
-      for (const collection of ['dinnerItems', 'shoppingListItems'] as const) {
-        for (const row of Object.values(node(collection).get() ?? {}) as Row[]) {
-          if (row.ingredient_id === from) {
-            node(collection)[row.id].assign({ ingredient_id: to, updated_at: nowIso() });
+  const links: Record<string, readonly (readonly [string, string])[]> = {
+    ingredients: [['dinnerItems', 'ingredient_id'], ['shoppingListItems', 'ingredient_id']],
+    dinner_items: [],
+  };
+  for (const [serverKey, ids] of Object.entries(remaps)) {
+    const collection = BY_SERVER_KEY.get(serverKey)?.collection;
+    if (!collection || !links[serverKey]) continue;
+    batch(() => {
+      for (const [from, to] of Object.entries(ids)) {
+        if (from === to) continue;
+        for (const [child, fk] of links[serverKey]) {
+          for (const row of Object.values(node(child).peek() ?? {}) as Row[]) {
+            if (row[fk] === from) node(child)[row.id].assign({ [fk]: to, updated_at: nowIso() });
           }
         }
       }
-    }
-  });
-
-  applyingRemote = true;
-  try {
-    batch(() => {
-      for (const [from] of entries) {
-        if (store$.ingredients[from].get()) store$.ingredients[from].delete();
-        store$.meta.dirty.ingredients[from].delete();
-        store$.meta.tombstones.ingredients[from].delete();
-      }
     });
-  } finally {
-    applyingRemote = false;
+    applyingRemote = true;
+    try {
+      batch(() => {
+        for (const [from, to] of Object.entries(ids)) {
+          if (from === to) continue;
+          const row = node(collection)[from].peek();
+          // Preserve an edit made after the request snapshot under its canonical identity.
+          if (collection === 'dinnerItems' && row && (store$.meta.dirty[collection][from].get() || store$.meta.failed[collection][from].get())) {
+            node(collection)[to].set({ ...row, id: to });
+            const failure = store$.meta.failed[collection][from].get();
+            if (failure) store$.meta.failed[collection][to].set(failure);
+            else store$.meta.dirty[collection][to].set(true);
+          }
+          if (store$.meta.tombstones[collection][from].get()) {
+            store$.meta.tombstones[collection][to].set(store$.meta.tombstones[collection][from].get());
+          }
+          node(collection)[from].delete();
+          store$.meta.dirty[collection][from].delete();
+          store$.meta.failed[collection][from].delete();
+          store$.meta.tombstones[collection][from].delete();
+        }
+      });
+    } finally {
+      applyingRemote = false;
+    }
   }
+}
+
+/** Earlier chunks may remap parents, or remote cascades may remove later rows. */
+function refreshSnapshot(snapshot: PushSnapshot): void {
+  const fresh = emptySnapshot();
+  for (const [collection, ids] of Object.entries(snapshot.sentDirty)) {
+    const key = BY_COLLECTION.get(collection)!.serverKey;
+    for (const id of Object.keys(ids)) {
+      const row = node(collection)[id].peek() as Row | undefined;
+      if (!row || !store$.meta.dirty[collection][id].get()) continue;
+      (fresh.changes[key] ??= []).push({ ...row });
+      (fresh.sentDirty[collection] ??= {})[id] = String(row.updated_at ?? '');
+    }
+  }
+  for (const [collection, ids] of Object.entries(snapshot.sentTombstones)) {
+    const key = BY_COLLECTION.get(collection)!.serverKey;
+    for (const id of Object.keys(ids)) {
+      const at = store$.meta.tombstones[collection][id].get();
+      if (!at) continue;
+      (fresh.changes[key] ??= []).push({ id, updated_at: at, deleted_at: at });
+      (fresh.sentTombstones[collection] ??= {})[id] = at;
+    }
+  }
+  Object.assign(snapshot, fresh);
 }
 
 /** Fold pulled rows into the store; returns how many rows the server sent. */
@@ -705,10 +772,12 @@ function applyRemote(changes: Record<string, ServerRow[]>): number {
           // cursor could advance while this device retains the erased content.
           const erased = (row.erasure_version ?? 0) > (existing?.erasure_version ?? 0);
           if (erased) {
+            store$.meta.failed[collection][uuid].delete();
             store$.meta.dirty[collection][uuid].delete();
             store$.meta.tombstones[collection][uuid].delete();
           }
           // A row we've locally edited or deleted wins until it's pushed.
+          if (store$.meta.failed[collection][uuid].get()) continue;
           if (store$.meta.dirty[collection][uuid].get()) continue;
           if (store$.meta.tombstones[collection][uuid].get()) continue;
 
@@ -720,10 +789,9 @@ function applyRemote(changes: Record<string, ServerRow[]>): number {
               for (const childRow of Object.values(node(child).get() ?? {}) as Row[]) {
                 if (childRow[fk] === uuid) {
                   node(child)[childRow.id].delete();
-                  if (erased) {
-                    store$.meta.dirty[child][childRow.id].delete();
-                    store$.meta.tombstones[child][childRow.id].delete();
-                  }
+                  store$.meta.failed[child][childRow.id].delete();
+                  store$.meta.dirty[child][childRow.id].delete();
+                  store$.meta.tombstones[child][childRow.id].delete();
                 }
               }
             }
@@ -770,12 +838,29 @@ function countPending(
   return count(dirty) + count(tombstones);
 }
 
-export function hasPending(): boolean {
+function hasSendable(): boolean {
   return countPending(store$.meta.dirty.get() ?? {}, store$.meta.tombstones.get() ?? {}) > 0;
 }
 
+function countFailed(): number {
+  return Object.values(store$.meta.failed.get() ?? {}).reduce((sum, rows) => sum + Object.keys(rows ?? {}).length, 0);
+}
+
+export function hasPending(): boolean {
+  return hasSendable() || countFailed() > 0;
+}
+
+export function getSyncFailures(): { collection: string; id: string; name: string; message: string }[] {
+  return Object.entries(store$.meta.failed.get() ?? {}).flatMap(([collection, rows]) =>
+    Object.entries(rows ?? {}).map(([id, failure]) => ({
+      collection, id, name: failureName(collection, id), message: failure.message,
+    })),
+  );
+}
+
 function updatePending(): void {
-  setPendingCount(countPending(store$.meta.dirty.get() ?? {}, store$.meta.tombstones.get() ?? {}));
+  setPendingCount(countPending(store$.meta.dirty.get() ?? {}, store$.meta.tombstones.get() ?? {}) + countFailed());
+  setRejectedCount(countFailed());
 }
 
 function messageOf(error: unknown): string {
@@ -788,4 +873,10 @@ function messageOf(error: unknown): string {
 // mapping has one source of truth.
 export function collectionForServerKey(serverKey: string): string | undefined {
   return BY_SERVER_KEY.get(serverKey)?.collection;
+}
+
+function failureName(collection: string, id: string): string {
+  const row = node(collection)[id].peek();
+  return String(row?.name || store$.ingredients[row?.ingredient_id ?? ''].peek()?.name
+    || store$.dinners[row?.dinner_id ?? ''].peek()?.name || collection);
 }

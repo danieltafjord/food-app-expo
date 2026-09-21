@@ -44,7 +44,7 @@ describe('migrate — v0 → v1 (backfill timestamps)', () => {
 
   it('replaces the timestamp cursor with the integer cursor and household binding', () => {
     const out = migrate({ meta: { lastSync: 'x', accountId: 3 }, dinners: {} }, 0) as Record<string, any>;
-    expect(out.meta).toEqual({ accountId: 3, cursor: null, serverHouseholdId: null });
+    expect(out.meta).toEqual({ accountId: 3, cursor: null, serverHouseholdId: null, failed: {} });
   });
 });
 
@@ -98,4 +98,15 @@ describe('migrate — version gating', () => {
   it('current version is at least 1 (the timestamp migration exists)', () => {
     expect(CURRENT_SCHEMA_VERSION).toBeGreaterThanOrEqual(1);
   });
+});
+
+
+it('recovers ghost outbox flags without dropping pending edits and preserves legacy shopping rows', () => {
+  const out = migrate({ meta: { dirty: { dinnerItems: { ghost: true, live: true } }, tombstones: { dinners: { deleted: 'now' } } },
+    dinnerItems: { live: { id: 'live' } }, shoppingListItems: { legacy: { id: 'legacy' } },
+  }, 3) as Record<string, any>;
+  expect(out.meta.dirty.dinnerItems).toEqual({ live: true });
+  expect(out.meta.tombstones.dinners).toEqual({ deleted: 'now' });
+  expect(out.meta.failed).toEqual({});
+  expect(out.shoppingListItems.legacy.is_generated).toBe(false);
 });

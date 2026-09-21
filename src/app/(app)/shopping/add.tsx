@@ -9,7 +9,7 @@ import { BottomTabInset, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { formatQuantity } from '@/lib/format';
 import { useT } from '@/lib/i18n';
-import { parseItemLine } from '@/lib/parse-line';
+import { isAmountWithinLimits, parseItemLine } from '@/lib/parse-line';
 import { findExact, indexByName, searchIndex } from '@/lib/search';
 import {
   addShoppingItem,
@@ -44,6 +44,7 @@ export default function AddShoppingItemsScreen() {
 
   const parsed = parseItemLine(query);
   const name = parsed.name;
+  const amountOk = isAmountWithinLimits(parsed);
   const hasAmount = parsed.quantity != null || parsed.unit != null;
   const amount = formatQuantity(parsed.quantity, parsed.unit);
   // The same ranked, diacritic- and case-insensitive search as the pickers, so
@@ -66,7 +67,7 @@ export default function AddShoppingItemsScreen() {
 
   /** Add a suggestion, with the typed amount if there is one, else its usual unit. */
   function add(s: ShoppingSuggestion) {
-    if (!listId) return;
+    if (!listId || !amountOk) return;
     const base = hasAmount
       ? { quantity: parsed.quantity, unit: parsed.unit ?? s.default_unit }
       : { unit: s.default_unit };
@@ -78,7 +79,7 @@ export default function AddShoppingItemsScreen() {
   }
 
   function toggle(s: ShoppingSuggestion) {
-    if (!listId) return;
+    if (!listId || !amountOk) return;
     const existing = s.ingredient_id
       ? items.filter((it) => it.ingredient_id === s.ingredient_id)
       : items.filter(
@@ -97,7 +98,7 @@ export default function AddShoppingItemsScreen() {
   // A typed item with no match becomes a real ingredient (so it's remembered as
   // a future suggestion) and is added to the list with the typed amount.
   function addNew() {
-    if (!listId || !name) return;
+    if (!listId || !name || !amountOk) return;
     const id = createIngredient({ name, default_unit: parsed.unit });
     const ingredient = getIngredient(id);
     addShoppingItem(listId, {
@@ -125,7 +126,7 @@ export default function AddShoppingItemsScreen() {
   // Enter always commits the typed text: add the matching suggestion if there is
   // one (and it isn't already on the list), otherwise create it. Then reset.
   function submit() {
-    if (!name) return;
+    if (!name || !amountOk) return;
     if (exact) {
       if (!isOnList(exact)) add(exact);
       setQuery('');
@@ -150,6 +151,8 @@ export default function AddShoppingItemsScreen() {
         <TextField
           label={t('shopping.searchOrAdd')}
           placeholder={t('shopping.searchPlaceholder')}
+          maxLength={255}
+          error={amountOk ? null : t('shoppingItemEditor.amountInvalid')}
           value={query}
           onChangeText={setQuery}
           autoCapitalize="none"

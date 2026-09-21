@@ -103,8 +103,23 @@ function v2_integerCursor(data: Json): Json {
   return data;
 }
 
+function v3_recoverOutbox(data: Json): Json {
+  const meta = (data.meta ??= {}) as Json;
+  meta.failed ??= {};
+  for (const row of Object.values((data.shoppingListItems ?? {}) as Rows)) {
+    if (row && typeof row === 'object') row.is_generated ??= false;
+  }
+  const dirty = (meta.dirty ?? {}) as Record<string, Record<string, unknown>>;
+  for (const [collection, ids] of Object.entries(dirty)) {
+    for (const id of Object.keys(ids)) {
+      if (!(data[collection] as Rows | undefined)?.[id]) delete ids[id];
+    }
+  }
+  return data;
+}
+
 /** Ordered migrations. Append a new function to bump the schema version by one. */
-const MIGRATIONS: Migration[] = [v0_backfillTimestamps, v1_categorizeIngredients, v2_integerCursor];
+const MIGRATIONS: Migration[] = [v0_backfillTimestamps, v1_categorizeIngredients, v2_integerCursor, v3_recoverOutbox];
 
 export const CURRENT_SCHEMA_VERSION = MIGRATIONS.length;
 

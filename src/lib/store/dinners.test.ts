@@ -4,6 +4,9 @@ import {
   deleteDinner,
   getDinner,
   rankByRecency,
+  patchDinner,
+  upsertDinnerItem,
+  removeDinnerItem,
   setDinnerItems,
 } from '@/lib/store/dinners';
 import type { LocalPlanEntry } from '@/lib/store/schema';
@@ -149,4 +152,46 @@ describe('rankByRecency', () => {
     const [ranked] = rankByRecency([tacos], [entry(tacos.id, '2026-09-10T18:00:00.000Z')]);
     expect(ranked.last_planned).toMatch(/^2026-09-1[01]$/);
   });
+});
+
+
+it('edits recipe fields without overwriting remote ingredient changes', () => {
+  const id = createDinner({ name: 'Tacos', default_servings: 4 });
+  upsertDinnerItem(id, { ingredient_id: 'beef', quantity: 100, unit: 'g' });
+  const row = itemsOf(id)[0];
+  store$.dinnerItems[row.id].quantity.set(200);
+  upsertDinnerItem(id, { ingredient_id: 'onion', quantity: 2 });
+  patchDinner(id, { notes: 'Cook slowly' });
+  expect(itemsOf(id)).toHaveLength(2);
+  expect(store$.dinnerItems[row.id].quantity.get()).toBe(200);
+  expect(getDinner(id)).toMatchObject({ name: 'Tacos', default_servings: 4, notes: 'Cook slowly' });
+});
+
+it('edits and removes one unit row without changing the other', () => {
+  const id = createDinner({ name: 'Rice' });
+  upsertDinnerItem(id, { ingredient_id: 'rice', quantity: 100, unit: 'g' });
+  upsertDinnerItem(id, { ingredient_id: 'rice', quantity: 1, unit: 'cup' });
+  const row = itemsOf(id).find((item) => item.unit === 'g')!;
+  upsertDinnerItem(id, { ingredient_id: 'rice', quantity: 200, unit: 'g' }, row.id);
+  expect(itemsOf(id)).toHaveLength(2);
+  removeDinnerItem(id, row.id);
+  expect(itemsOf(id)).toEqual([expect.objectContaining({ quantity: 1, unit: 'cup' })]);
+  upsertDinnerItem(id, { ingredient_id: 'rice', quantity: 300, unit: 'g' }, row.id);
+  expect(itemsOf(id)).toHaveLength(1);
+});
+
+
+it('preserves distinct unit rows when replacing the full recipe ingredient set', () => {
+  const id = createDinner({ name: 'Rice' });
+  setDinnerItems(id, [
+    { ingredient_id: 'rice', quantity: 100, unit: 'g' },
+    { ingredient_id: 'rice', quantity: 1, unit: 'cup' },
+  ]);
+  const ids = itemsOf(id).map((item) => item.id).sort();
+  setDinnerItems(id, [
+    { ingredient_id: 'rice', quantity: 200, unit: 'g' },
+    { ingredient_id: 'rice', quantity: 1, unit: 'cup' },
+  ]);
+  expect(itemsOf(id).map((item) => item.id).sort()).toEqual(ids);
+  expect(itemsOf(id)).toHaveLength(2);
 });

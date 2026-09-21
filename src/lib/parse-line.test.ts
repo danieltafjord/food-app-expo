@@ -110,3 +110,10 @@ describe('mixed fractions and unreadable amounts', () => {
     expect(amountText(1.5, null)).toBe('1,5');
   });
 });
+
+
+it('rejects amounts beyond the server limits', () => {
+  expect(isAmountValid('1000000 g')).toBe(false);
+  expect(isAmountValid('1 ' + 'a'.repeat(51))).toBe(false);
+  expect(isAmountValid('999999.99 g')).toBe(true);
+});

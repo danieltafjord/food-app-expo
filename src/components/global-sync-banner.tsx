@@ -1,3 +1,4 @@
+import { showSyncFailures } from './sync-failures';
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -101,15 +102,12 @@ function describe(
   if (status.phase === 'error') {
     return { label: t('sync.failedRetry'), color: COLORS.error, busy: false, onPress: syncNow };
   }
+  if (status.rejected > 0) {
+    return { label: t('sync.rejectedCount', { count: status.rejected }), color: COLORS.error,
+      busy: false, onPress: () => showSyncFailures(t) };
+  }
   if (status.pending > 0) {
     return { label: t('sync.waitingToSync'), color: COLORS.pending, busy: false };
-  }
-  if (status.rejected > 0) {
-    return {
-      label: t('sync.rejectedCount', { count: status.rejected }),
-      color: COLORS.pending,
-      busy: false,
-    };
   }
   if (showSynced) {
     return { label: t('sync.synced'), color: COLORS.synced, busy: false };
