@@ -59,6 +59,9 @@ const MAX_SCROLL_SPEED = 14;
  */
 const REFLOW = LinearTransition.springify().damping(24).stiffness(200).mass(0.7);
 
+/** Height of a dinner card; the empty-day row matches it so the date rail lines up. */
+const CARD_HEIGHT = 62;
+
 /** Shared empty list so a day with no dinners gets the same prop every render. */
 const NO_ENTRIES: PlanEntryWithDinner[] = [];
 
@@ -99,9 +102,9 @@ type WeekBoardProps = {
 };
 
 /**
- * A Monday→Sunday list of day sections. An empty day shows a full-width Add
- * button; once a dinner is scheduled it replaces the button with the dinner's
- * card, and a small "Add" appears in the day header for additional dinners.
+ * A Monday→Sunday list of day rows: the date in a rail on the left, the day's
+ * dinners to its right. An empty day shows an Add row; once a dinner is scheduled
+ * its card replaces the row, and a small "Add" appears below for additional dinners.
  * Long-press a dinner card to lift and drag it onto another day (the list
  * auto-scrolls when you drag near an edge); a quick tap opens the editor.
  */
@@ -231,7 +234,10 @@ function DaySection({
 }: DaySectionProps) {
   const t = useT();
   const theme = useTheme();
+  const scheme = useResolvedScheme();
   const hasEntries = entries.length > 0;
+  // The plus sits on a raised chip: white on the light-grey row, a step lighter in dark.
+  const chipBg = scheme === 'dark' ? theme.backgroundSelected : theme.background;
 
   // Record this section's position within the scroll content for drag hit-testing.
   function onLayout(event: LayoutChangeEvent) {
@@ -260,34 +266,18 @@ function DaySection({
 
   return (
     <Animated.View onLayout={onLayout} layout={REFLOW} style={[styles.section, sectionStyle]}>
-      <View style={styles.sectionHeader}>
-        <View style={styles.dayLabel}>
-          <ThemedText type="smallBold">{day.weekday}</ThemedText>
-          <ThemedText
-            type="small"
-            themeColor={day.isToday ? undefined : 'textSecondary'}
-            style={day.isToday ? { color: theme.tint, fontWeight: 700 } : undefined}>
-            {day.dayOfMonth}
-          </ThemedText>
-        </View>
-        {hasEntries ? (
-          <Pressable
-            onPress={() => onAdd(day.date)}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel={t('weekBoard.addDinner')}
-            style={({ pressed }) => [styles.addAnother, pressed && styles.pressed]}>
-            <SymbolView
-              name={{ ios: 'plus', android: 'add', web: 'add' }}
-              size={12}
-              tintColor={theme.textSecondary}
-              type="monochrome"
-            />
-            <ThemedText type="small" themeColor="textSecondary">
-              {t('weekBoard.add')}
-            </ThemedText>
-          </Pressable>
-        ) : null}
+      {/* Date rail: weekday over day-of-month, to the left of the day's dinners. */}
+      <View
+        style={styles.dayRail}
+        accessible
+        accessibilityLabel={`${day.weekday} ${day.dayOfMonth}`}>
+        <ThemedText
+          style={[styles.railWeekday, { color: day.isToday ? theme.tint : theme.textSecondary }]}>
+          {day.weekday}
+        </ThemedText>
+        <ThemedText style={[styles.railDate, day.isToday && { color: theme.tint }]}>
+          {day.dayOfMonth}
+        </ThemedText>
       </View>
 
       <Animated.View style={[styles.dropZone, dropStyle]}>
@@ -311,20 +301,42 @@ function DaySection({
               onEdit={onEdit}
             />
           ))
-        ) : (
+        ) : null}
+        {hasEntries ? (
           <Pressable
             onPress={() => onAdd(day.date)}
+            hitSlop={8}
             accessibilityRole="button"
-            style={({ pressed }) => [styles.addButton, pressed && styles.pressed]}>
+            accessibilityLabel={t('weekBoard.addDinner')}
+            style={({ pressed }) => [styles.addAnother, pressed && styles.pressed]}>
             <SymbolView
               name={{ ios: 'plus', android: 'add', web: 'add' }}
-              size={13}
+              size={12}
               tintColor={theme.textSecondary}
               type="monochrome"
             />
             <ThemedText type="small" themeColor="textSecondary">
-              {t('weekBoard.addDinner')}
+              {t('weekBoard.add')}
             </ThemedText>
+          </Pressable>
+        ) : (
+          <Pressable
+            onPress={() => onAdd(day.date)}
+            accessibilityRole="button"
+            style={({ pressed }) => [
+              styles.addButton,
+              { backgroundColor: theme.backgroundElement },
+              pressed && styles.pressed,
+            ]}>
+            <View style={[styles.addChip, { backgroundColor: chipBg }]}>
+              <SymbolView
+                name={{ ios: 'plus', android: 'add', web: 'add' }}
+                size={13}
+                tintColor={theme.tint}
+                type="monochrome"
+              />
+            </View>
+            <ThemedText themeColor="textSecondary">{t('weekBoard.addDinner')}</ThemedText>
           </Pressable>
         )}
       </Animated.View>
@@ -503,31 +515,42 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
-    gap: Spacing.three,
+    gap: Spacing.two,
     paddingBottom: BottomTabInset + Spacing.three,
   },
   section: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
     gap: Spacing.one,
   },
-  sectionHeader: {
-    flexDirection: 'row',
+  // Fixed width so every day's cards share one left edge; the top padding centres
+  // the two-line date on the first card (drop-zone inset + half the height difference).
+  dayRail: {
+    width: 44,
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: Spacing.one,
+    paddingTop: 17,
   },
-  dayLabel: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: Spacing.two,
+  railWeekday: {
+    fontSize: 12,
+    lineHeight: 14,
+    fontWeight: '600',
+  },
+  railDate: {
+    fontSize: 22,
+    lineHeight: 26,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
   },
   addAnother: {
     flexDirection: 'row',
     alignItems: 'center',
+    alignSelf: 'flex-start',
     gap: Spacing.one,
     paddingVertical: Spacing.half,
-    paddingHorizontal: Spacing.one,
+    paddingHorizontal: Spacing.two,
   },
   dropZone: {
+    flex: 1,
     gap: Spacing.two,
     borderWidth: 2,
     borderColor: 'transparent',
@@ -536,19 +559,28 @@ const styles = StyleSheet.create({
   },
   addButton: {
     flexDirection: 'row',
-    gap: Spacing.one,
-    borderWidth: 1.5,
-    borderColor: 'rgba(128,128,128,0.35)',
-    borderStyle: 'dashed',
+    alignItems: 'center',
+    gap: Spacing.two + Spacing.one,
+    minHeight: CARD_HEIGHT,
     borderRadius: Spacing.three,
-    paddingVertical: Spacing.three,
+    paddingHorizontal: Spacing.three,
+  },
+  addChip: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    shadowOffset: { width: 0, height: 1 },
   },
   card: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.three,
+    minHeight: CARD_HEIGHT,
     borderRadius: Spacing.three,
     paddingVertical: Spacing.two,
     paddingHorizontal: Spacing.three,
