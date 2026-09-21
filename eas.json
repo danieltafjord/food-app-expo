@@ -25,7 +25,7 @@
       "autoIncrement": true,
       "env": {
         "EXPO_PUBLIC_API_URL": "https://api.handlelistaapp.no",
-        "EXPO_PUBLIC_OAUTH_CLIENT_ID": "REPLACE_WITH_PRODUCTION_PASSPORT_CLIENT_ID"
+        "EXPO_PUBLIC_OAUTH_CLIENT_ID": "01a0c322-7a16-7158-8ed7-a8a07b6eda9d"
       },
       "channel": "production"
     }
