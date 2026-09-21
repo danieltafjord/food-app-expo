@@ -1,0 +1,71 @@
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useValue } from '@legendapp/state/react';
+import { useRef } from 'react';
+
+import { useSession } from '@/lib/auth/session';
+import { store$ } from '@/lib/store/collections';
+
+export type AiFeature = 'categorization' | 'suggestions';
+export type AiSettings = {
+  categorization_enabled: boolean;
+  suggestions_enabled: boolean;
+  available: boolean;
+  email_verified: boolean;
+  usage: {
+    resets_at: string;
+    categorization: AiAllowance;
+    suggestions: AiAllowance;
+  };
+};
+type AiAllowance = {
+  remaining: number;
+  user: { limit: number; remaining: number };
+  household: { limit: number; remaining: number };
+};
+export type AiPreferences = Pick<AiSettings, 'categorization_enabled' | 'suggestions_enabled'>;
+export const aiSettingsKey = (userId?: number, householdId?: number) => ['ai-settings', userId, householdId] as const;
+
+export function useAiSettings() {
+  const { user, isAuthenticated, request } = useSession();
+  const query = useQuery({
+    queryKey: aiSettingsKey(user?.id, user?.current_household?.id),
+    queryFn: ({ signal }) => request<AiSettings>('/ai/settings', { signal }),
+    enabled: isAuthenticated && !!user?.current_household,
+    retry: false,
+    staleTime: 30_000,
+  });
+  // A failed opt-out remains effective on this device until saved successfully.
+  const paused = useValue(() => store$.settings.aiPaused.get()?.[String(user?.id)]);
+  const settings = query.data ? {
+    ...query.data,
+    categorization_enabled: query.data.categorization_enabled && !paused?.categorization,
+    suggestions_enabled: query.data.suggestions_enabled && !paused?.suggestions,
+  } : undefined;
+  return { ...query, settings };
+}
+
+export function useUpdateAiSettings() {
+  const { user, request } = useSession();
+  const client = useQueryClient();
+  const key = aiSettingsKey(user?.id, user?.current_household?.id);
+  const account = String(user?.id);
+  const latest = useRef(0);
+  return useMutation({
+    scope: { id: `ai-settings-${account}` },
+    mutationFn: (input: AiPreferences) => request<AiSettings>('/ai/settings', { method: 'PATCH', body: input }),
+    onMutate: async (input) => {
+      const revision = ++latest.current;
+      store$.settings.aiPaused[account].set({
+        categorization: !input.categorization_enabled,
+        suggestions: !input.suggestions_enabled,
+      });
+      await client.cancelQueries({ queryKey: key });
+      return { revision };
+    },
+    onSuccess: (settings, _input, context) => {
+      if (context?.revision !== latest.current) return;
+      client.setQueryData(key, settings);
+      store$.settings.aiPaused[account].delete();
+    },
+  });
+}

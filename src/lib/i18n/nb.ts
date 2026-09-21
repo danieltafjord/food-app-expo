@@ -3,6 +3,25 @@ import type { Dictionary } from './en';
 /** Norwegian (Bokmål). Typed against `Dictionary` so missing/extra keys fail to
  * compile, keeping it in lockstep with `en.ts`. */
 export const nb: Dictionary = {
+  ai: {
+    "settingsTitle": "KI-hjelp",
+    "privacy": "Valgfri hjelp, avslått som standard. Når du slår den på, sendes ingrediens- og middagsnavn via serveren vår til OpenRouter og modelltilbyderne deres. Husstanden kan se kategorier og ingredienser du legger til. Listene fungerer fortsatt uten nett.",
+    "signIn": "Koble til en konto og husstand for å bruke KI-hjelp.",
+    "categorization": "Kategoriser ukjente varer",
+    "categorizationHint": "Finn en kategori når den lokale ordlisten ikke kjenner varen. Dine rettelser beholdes alltid.",
+    "suggestions": "Ingrediensforslag",
+    "suggestionsHint": "Vis noen ideer når du redigerer en middag. Trykk for å legge til.",
+    "verifyEmail": "Bekreft e-postadressen din for å bruke KI-hjelp.",
+    "unavailable": "KI-hjelp er midlertidig utilgjengelig. Innstillingene dine er lagret.",
+    "allowance": "Tilgjengelig i dag: {classifications} kategoriseringer · {suggestions} forespørsler om forslag. Grenser gjelder både deg og husstanden.",
+    "resets": "Dagskvoten fornyes {time}. Lagrede resultater bruker ikke av kvoten.",
+    "loadingSettings": "Laster innstillinger…",
+    "saveFailed": "Kunne ikke lagre innstillingene. Funksjoner du slo av, forblir av på denne enheten. Prøv igjen for å lagre på alle enheter.",
+    "limitReached": "Forslag er satt på pause. Du kan fortsatt legge til ingredienser selv.",
+    "youCouldAdd": "Du kan legge til",
+    "dismiss": "Skjul",
+    "add": "Legg til {name}"
+},
   common: {
     back: 'Tilbake',
     cancel: 'Avbryt',

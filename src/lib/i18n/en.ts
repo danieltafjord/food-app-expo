@@ -7,6 +7,25 @@
  * can supply their own text while the *key structure* is still enforced.
  */
 export const en = {
+  ai: {
+    "settingsTitle": "AI assistance",
+    "privacy": "Optional help, off by default. When enabled, ingredient and dinner names are sent through our server to OpenRouter and its model providers. Your household may see categories and ingredients you add. Your lists still work offline.",
+    "signIn": "Connect an account and household to use AI assistance.",
+    "categorization": "Categorize unfamiliar items",
+    "categorizationHint": "Find an aisle when the offline dictionary cannot. Your corrections are always kept.",
+    "suggestions": "Ingredient suggestions",
+    "suggestionsHint": "Show a few ideas while editing a dinner. Tap to add them.",
+    "verifyEmail": "Verify your email address to use AI assistance.",
+    "unavailable": "AI assistance is temporarily unavailable. Your preferences are saved.",
+    "allowance": "Available today: {classifications} classifications · {suggestions} suggestion requests. User and household limits apply.",
+    "resets": "Daily allowance resets {time}. Cached results do not use the allowance.",
+    "loadingSettings": "Loading preferences…",
+    "saveFailed": "Could not save your preferences. Features you switched off remain off on this device. Retry to save across devices.",
+    "limitReached": "Suggestions are paused for now. You can keep adding ingredients yourself.",
+    "youCouldAdd": "You could add",
+    "dismiss": "Dismiss",
+    "add": "Add {name}"
+},
   common: {
     back: 'Back',
     cancel: 'Cancel',

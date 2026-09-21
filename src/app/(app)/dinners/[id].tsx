@@ -2,6 +2,7 @@ import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, StyleSheet, TextInput, View } from 'react-native';
 
+import { IngredientSuggestions } from '@/components/ingredient-suggestions';
 import { Button } from '@/components/button';
 import { Card } from '@/components/card';
 import { HeaderMenu, MenuAction } from '@/components/header-menu';
@@ -16,6 +17,7 @@ import { useT } from '@/lib/i18n';
 import { amountText, isAmountValid, parseAmount } from '@/lib/parse-line';
 import { openIngredientPicker, type IngredientPick } from '@/lib/sheets';
 import {
+  createIngredient,
   deleteDinner,
   getIngredient,
   updateDinner,
@@ -261,6 +263,15 @@ function DinnerEditorForm({ dinner }: { dinner: DinnerWithItems }) {
             </ThemedText>
           ) : null}
           {focused ? <UnitChips value={focusedUnit} onPick={pickUnit} /> : null}
+          <IngredientSuggestions
+            dinnerId={dinner.id}
+            name={name}
+            ingredients={items.map((item) => item.ingredient_name)}
+            onAdd={(suggestion) => {
+              const ingredient = getIngredient(createIngredient({ name: suggestion }));
+              if (ingredient) addIngredient({ ingredient, quantity: null, unit: null });
+            }}
+          />
           <Button
             title={t('dinners.addIngredient')}
             variant="secondary"

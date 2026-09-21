@@ -2,6 +2,7 @@ import * as WebBrowser from 'expo-web-browser';
 import { useState } from 'react';
 import { Alert, StyleSheet, View } from 'react-native';
 
+import { AiSettingsSection } from '@/components/ai-settings';
 import { AccountSetupCard } from '@/components/account-setup-card';
 import { Badge } from '@/components/badge';
 import { Button } from '@/components/button';
@@ -167,6 +168,8 @@ export default function AccountScreen() {
           {t('account.defaultServingsHint')}
         </ThemedText>
       </View>
+
+      <AiSettingsSection />
 
       {isAuthenticated ? (
         <>

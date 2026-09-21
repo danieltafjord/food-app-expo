@@ -35,6 +35,7 @@ export const store$ = observable({
    */
   settings: {
     theme: 'system' as ThemePreference,
+    aiPaused: {} as Record<string, { categorization: boolean; suggestions: boolean }>,
     locale: '' as Locale | '',
   },
   meta: {
@@ -45,6 +46,7 @@ export const store$ = observable({
      * `0` means "pre-migrations" (or a fresh install before the first run).
      */
     schemaVersion: 0 as number,
+    aiDismissedSuggestions: {} as Record<string, string[]>,
     localHouseholdId: '' as string,
     /**
      * The server user id this device's local data is bound to (`null` until an

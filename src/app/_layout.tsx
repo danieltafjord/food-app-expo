@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import { type ComponentProps, type ReactNode } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
+import { AiClassificationWorker } from '@/components/ai-classification-worker';
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import { SchemeContext, useResolvedSchemeSource } from '@/hooks/use-theme';
 import { Colors } from '@/constants/theme';
@@ -23,6 +24,7 @@ export default function RootLayout() {
         <QueryClientProvider client={queryClient}>
           <StoreProvider>
             <ThemedRoot>
+              <AiClassificationWorker />
               <AnimatedSplashOverlay />
               <RootNavigator />
             </ThemedRoot>

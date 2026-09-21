@@ -51,12 +51,14 @@ export function createIngredient(input: CreateIngredientInput): string {
 
   const id = newId();
   const ts = nowIso();
+  const category = input.category ?? categorize(name);
   store$.ingredients[id].set({
     id,
     household_id: getLocalHouseholdId(),
     name,
     default_unit: input.default_unit ?? null,
-    category: input.category ?? categorize(name),
+    category,
+    category_source: input.category != null ? 'user' : category ? 'dictionary' : null,
     created_at: ts,
     updated_at: ts,
   });
@@ -71,5 +73,5 @@ export function createIngredient(input: CreateIngredientInput): string {
 export function setIngredientCategory(id: string, category: CategoryId | null): void {
   const ing$ = store$.ingredients[id];
   if (!ing$.get()) return;
-  ing$.assign({ category, updated_at: nowIso() });
+  ing$.assign({ category, category_source: 'user', updated_at: nowIso() });
 }

@@ -19,10 +19,9 @@
  * ── Extending ──────────────────────────────────────────────────────────────
  * To grow coverage, add words to `./dictionary` — no code change needed.
  *
- * AI FALLBACK EXTENSION POINT: a future cloud (Gemini) or on-device model would
- * slot in *after* step 4 returns null — call it for the residual unknowns and
- * cache the answer back onto the ingredient (see `createIngredient`). The
- * public `categorize()` signature stays the same; only this file changes.
+ * Optional cloud enrichment is handled separately by AiClassificationWorker.
+ * It sends residual unknowns to our authenticated server and stores accepted
+ * categories on unchanged ingredients. This function remains synchronous.
  */
 
 import { DICTIONARY, DICTIONARY_EN } from './dictionary';

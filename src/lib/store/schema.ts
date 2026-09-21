@@ -33,6 +33,7 @@ export type LocalIngredient = {
   name: string;
   default_unit: string | null;
   category: string | null;
+  category_source?: 'user' | 'dictionary' | 'ai' | null;
   created_at: string;
   updated_at: string;
 };
