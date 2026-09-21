@@ -37,10 +37,10 @@ batched `/api/v1/sync` endpoint).
    ```bash
    npm install
    export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
-   npx expo run:ios --device "iPhone 17 Pro"
+   APP_VARIANT=development npx expo run:ios --device "iPhone 17 Pro"
    ```
 
-4. Start Metro and open the app: `npx expo start --dev-client`, then press `i`.
+4. Start Metro and open the app: `APP_VARIANT=development npx expo start --dev-client`, then press `i`.
 
 The app boots straight into the Plans tab. "Connect cloud account" lives under
 the Account tab.
@@ -65,7 +65,7 @@ php artisan passport:client --public \
 Per-profile values for EAS builds live in `eas.json`; replace the
 `REPLACE_WITH_*` placeholders (or use EAS secrets) before building `preview` /
 `production`. The iOS ATS exception for `food-app.test` is added by
-`app.config.ts` only outside production profiles and production bundling. Store builds validate the API, OAuth, privacy and support configuration before proceeding.
+`app.config.ts` only with explicit `APP_VARIANT=development`. EAS profiles set `APP_VARIANT` consistently for local and cloud configuration; otherwise transport security defaults to HTTPS-only. Store builds validate the API, OAuth, privacy and support configuration before proceeding.
 
 ## Checks
 

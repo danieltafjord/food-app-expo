@@ -8,6 +8,7 @@
       "developmentClient": true,
       "distribution": "internal",
       "env": {
+        "APP_VARIANT": "development",
         "EXPO_PUBLIC_API_URL": "http://food-app.test",
         "EXPO_PUBLIC_OAUTH_CLIENT_ID": "REPLACE_WITH_DEV_PASSPORT_CLIENT_ID"
       },
@@ -16,6 +17,7 @@
     "preview": {
       "distribution": "internal",
       "env": {
+        "APP_VARIANT": "preview",
         "EXPO_PUBLIC_API_URL": "https://api.staging.handlelistaapp.no",
         "EXPO_PUBLIC_OAUTH_CLIENT_ID": "REPLACE_WITH_STAGING_PASSPORT_CLIENT_ID"
       },
@@ -24,6 +26,7 @@
     "production": {
       "autoIncrement": true,
       "env": {
+        "APP_VARIANT": "production",
         "EXPO_PUBLIC_API_URL": "https://api.handlelistaapp.no",
         "EXPO_PUBLIC_OAUTH_CLIENT_ID": "01a0c322-7a16-7158-8ed7-a8a07b6eda9d",
         "EXPO_PUBLIC_PRIVACY_URL": "https://handlelistaapp.no/privacy",
