@@ -2,6 +2,7 @@ import * as WebBrowser from 'expo-web-browser';
 import { useState } from 'react';
 import { Alert, StyleSheet, View } from 'react-native';
 
+import { AccountSetupCard } from '@/components/account-setup-card';
 import { Badge } from '@/components/badge';
 import { Button } from '@/components/button';
 import { Card } from '@/components/card';
@@ -203,20 +204,7 @@ export default function AccountScreen() {
                 />
               </Card>
             ) : (
-              <Card>
-                <ThemedText themeColor="textSecondary">
-                  {t('household.noHouseholdDescription')}
-                </ThemedText>
-                <Button
-                  title={t('household.createHousehold')}
-                  onPress={() => pushOnce('/account/create')}
-                />
-                <Button
-                  title={t('household.joinWithLink')}
-                  variant="secondary"
-                  onPress={() => pushOnce('/account/join')}
-                />
-              </Card>
+              <AccountSetupCard />
             )}
           </View>
 

@@ -1,5 +1,6 @@
 import { ActivityIndicator, Alert, StyleSheet, View } from 'react-native';
 
+import { AccountSetupCard } from '@/components/account-setup-card';
 import { Badge } from '@/components/badge';
 import { Button } from '@/components/button';
 import { Card } from '@/components/card';
@@ -40,6 +41,14 @@ export default function HouseholdsScreen() {
               </ThemedText>
               {role ? <Badge label={roleLabel(role)} tone={roleTone(role)} /> : null}
             </View>
+            {isOwner ? (
+              <Button
+                title={t('household.rename')}
+                variant="secondary"
+                size="small"
+                onPress={() => pushOnce('/account/rename')}
+              />
+            ) : null}
             {isOwner ? (
               <Button
                 title={t('household.invitePeople')}
@@ -83,21 +92,7 @@ export default function HouseholdsScreen() {
           </View>
         </>
       ) : (
-        <Card>
-          <ThemedText type="subtitle">{t('household.noHouseholdYet')}</ThemedText>
-          <ThemedText themeColor="textSecondary">
-            {t('household.noHouseholdDescription')}
-          </ThemedText>
-          <Button
-            title={t('household.createHousehold')}
-            onPress={() => pushOnce('/account/create')}
-          />
-          <Button
-            title={t('household.joinWithLink')}
-            variant="secondary"
-            onPress={() => pushOnce('/account/join')}
-          />
-        </Card>
+        <AccountSetupCard />
       )}
 
       {otherHouseholds.length > 0 ? (

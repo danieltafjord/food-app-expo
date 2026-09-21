@@ -1,4 +1,4 @@
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
@@ -6,6 +6,7 @@ import { useSession } from '@/lib/auth/session';
 import { relativeTime } from '@/lib/format';
 import { useT, type TFunction } from '@/lib/i18n';
 import { useSyncStatus, type SyncStatus } from '@/lib/sync/status';
+import { syncNow } from '@/lib/sync/engine';
 
 const COLORS = {
   local: '#9aa0a6',
@@ -39,6 +40,9 @@ function describe(t: TFunction, isAuthenticated: boolean, status: SyncStatus): D
       };
     case 'idle':
     default:
+      if (status.rejected > 0) {
+        return { label: t('sync.syncError'), detail: t('sync.rejectedCount', { count: status.rejected }), color: COLORS.error, busy: false };
+      }
       if (status.pending > 0) {
         return {
           label: t('sync.pending'),
@@ -55,11 +59,10 @@ function describe(t: TFunction, isAuthenticated: boolean, status: SyncStatus): D
           busy: false,
         };
       }
-      // Connected, but nothing has synced yet — e.g. no household joined/created
-      // yet, or the first sync hasn't completed.
+      // Account setup is complete; the first sync is starting.
       return {
         label: t('sync.connected'),
-        detail: t('sync.waitingToSync'),
+        detail: t('sync.syncing'),
         color: COLORS.pending,
         busy: false,
       };
@@ -74,14 +77,24 @@ function describe(t: TFunction, isAuthenticated: boolean, status: SyncStatus): D
  */
 export function SyncIndicator() {
   const t = useT();
-  const { isAuthenticated } = useSession();
+  const { isAuthenticated, setupPhase, retrySetup } = useSession();
   const status = useSyncStatus();
-  const d = describe(t, isAuthenticated, status);
+  const d: Display = !isAuthenticated || setupPhase === 'ready'
+    ? describe(t, isAuthenticated, status)
+    : setupPhase === 'error'
+      ? { label: t('sync.setupFailedRetry'), detail: null, color: COLORS.error, busy: false }
+      : setupPhase === 'invitation'
+        ? { label: t('sync.onThisDevice'), detail: t('sync.finishInvitation'), color: COLORS.local, busy: false }
+        : { label: t('sync.settingUp'), detail: null, color: COLORS.syncing, busy: true };
+  const retry = isAuthenticated && setupPhase === 'error' ? retrySetup
+    : isAuthenticated && status.phase === 'error' ? syncNow : undefined;
 
   return (
-    <View
+    <Pressable
       style={styles.row}
-      accessibilityRole="text"
+      onPress={retry}
+      disabled={!retry}
+      accessibilityRole={retry ? 'button' : 'text'}
       accessibilityLabel={t('sync.statusLabel', {
         status: `${d.label}${d.detail ? `, ${d.detail}` : ''}`,
       })}>
@@ -92,21 +105,25 @@ export function SyncIndicator() {
           <View style={[styles.dot, { backgroundColor: d.color }]} />
         )}
       </View>
-      <ThemedText type="small">{d.label}</ThemedText>
+      <ThemedText type="small" style={styles.text}>{d.label}</ThemedText>
       {d.detail ? (
-        <ThemedText type="small" themeColor="textSecondary">
+        <ThemedText type="small" themeColor="textSecondary" style={styles.text}>
           · {d.detail}
         </ThemedText>
       ) : null}
-    </View>
+    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
     gap: Spacing.two,
+  },
+  text: {
+    flexShrink: 1,
   },
   icon: {
     width: 20,

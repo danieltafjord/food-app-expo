@@ -10,6 +10,7 @@ jest.mock('react-native', () => ({
 }));
 
 import { ApiError } from '@/lib/api/client';
+import { setupAccount } from '@/lib/auth/account-setup';
 import { store$ } from '@/lib/store/collections';
 import { createDinner, deleteDinner, setDinnerItems } from '@/lib/store/dinners';
 import { createIngredient } from '@/lib/store/ingredients';
@@ -27,7 +28,7 @@ import {
   syncNow,
   type SyncResponse,
 } from '@/lib/sync/engine';
-import { syncStatus$ } from '@/lib/sync/status';
+import { resetSyncStatus, syncStatus$ } from '@/lib/sync/status';
 
 declare const global: { __DEV__?: boolean };
 global.__DEV__ = false;
@@ -118,6 +119,32 @@ describe('change tracking', () => {
 });
 
 describe('first sync', () => {
+  it('automatically uploads guest data after household setup without a manual create action', async () => {
+    ensureChangeTracking();
+    const dinner = createDinner({ name: 'Tacos' });
+    const server = fakeServer([
+      () => ({ id: 1, current_household: null }),
+      () => ({ id: 7, name: 'My Kitchen', default_servings: 2 }),
+    ]);
+    const account = await setupAccount(server.request, {
+      defer: false, name: 'My Kitchen', defaultServings: 2, signal: new AbortController().signal,
+    });
+    expect(account.current_household?.id).toBe(7);
+    expect(syncStatus$.lastSyncedAt.get()).toBeNull();
+    await connect(server);
+    const push = server.calls.find((call) => call.path === '/sync');
+    expect(push?.body.changes.dinners).toEqual(expect.arrayContaining([expect.objectContaining({ id: dinner })]));
+    expect(hasPending()).toBe(false);
+    expect(syncStatus$.lastSyncedAt.get()).not.toBeNull();
+  });
+
+  it('clears a previous account’s sync confirmation before a new account starts setup', async () => {
+    await connect(fakeServer());
+    expect(syncStatus$.lastSyncedAt.get()).not.toBeNull();
+    resetSyncStatus();
+    expect(syncStatus$.get()).toMatchObject({ phase: 'idle', lastSyncedAt: null, error: null, rejected: 0 });
+  });
+
   it('binds to the active household, uploads every local row, and stores the cursor', async () => {
     ensureChangeTracking();
     const ingredient = createIngredient({ name: 'Beef' });

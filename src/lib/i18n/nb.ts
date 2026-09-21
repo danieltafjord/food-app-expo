@@ -62,6 +62,12 @@ export const nb: Dictionary = {
     daysAgo: '{count} d siden',
   },
   sync: {
+    settingUp: 'Klargjør kontoen din…',
+    setupFailed: 'Kunne ikke klargjøre kontoen din',
+    setupFailedRetry: 'Kunne ikke klargjøre kontoen – trykk for å prøve igjen',
+    setupDescription: 'Oppskriftene og listene dine er lagret på denne enheten. Vi klargjør kontoen for automatisk synkronisering.',
+    finishInvitation: 'Godta invitasjonen for å starte synkronisering',
+
     rejectedCount: '{count} endring(er) kunne ikke synkroniseres og finnes bare på denne enheten',
     onThisDevice: 'På denne enheten',
     notSynced: 'Ikke synkronisert',
@@ -257,6 +263,7 @@ export const nb: Dictionary = {
       'Endringen er lagret på denne enheten, men kunne ikke synkroniseres til kontoen din. Sjekk tilkoblingen og velg innstillingen på nytt for å prøve igjen.',
   },
   household: {
+    rename: 'Endre navn på husstanden',
     switchBlockedPending:
       'Noen endringer på denne enheten er ikke synkronisert ennå. Koble til internett og prøv igjen.',
     localDefaultName: 'Mitt kjøkken',

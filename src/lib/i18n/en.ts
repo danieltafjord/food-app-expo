@@ -66,6 +66,12 @@ export const en = {
     daysAgo: '{count}d ago',
   },
   sync: {
+    settingUp: 'Setting up your account…',
+    setupFailed: 'Could not finish setting up your account',
+    setupFailedRetry: 'Account setup failed — tap to retry',
+    setupDescription: 'Your recipes and lists are saved on this device. We’re getting your account ready to sync them automatically.',
+    finishInvitation: 'Accept your invitation to start syncing',
+
     rejectedCount: '{count} change(s) could not be synced and stay only on this device',
     onThisDevice: 'On this device',
     notSynced: 'Not synced',
@@ -261,6 +267,7 @@ export const en = {
       'Your change is saved on this device but couldn’t sync to your account. Check your connection and select the setting again to retry.',
   },
   household: {
+    rename: 'Rename household',
     switchBlockedPending:
       'Some changes on this device have not synced yet. Connect to the internet and try again.',
     localDefaultName: 'My kitchen',

@@ -49,6 +49,11 @@ export function useSyncStatus(): SyncStatus {
 
 /* ---- Setters the Phase-2 sync engine calls -------------------------------- */
 
+/** A previous account's successful sync must never appear on a new account. */
+export function resetSyncStatus(): void {
+  syncStatus$.set({ phase: 'idle', lastSyncedAt: null, pending: 0, error: null, rejected: 0 });
+}
+
 export function markSyncing(): void {
   syncStatus$.assign({ phase: 'syncing', error: null });
 }

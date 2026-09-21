@@ -19,6 +19,7 @@ export default function AccountLayout() {
       <Stack.Screen name="index" options={{ title: t('account.title') }} />
       <Stack.Screen name="households" options={{ title: t('household.householdsTitle') }} />
       <Stack.Screen name="create" options={{ title: t('household.newHouseholdTitle') }} />
+      <Stack.Screen name="rename" options={{ title: t('household.rename') }} />
       <Stack.Screen name="invite" options={{ title: t('invite.title') }} />
       <Stack.Screen name="join" options={{ title: t('household.joinTitle') }} />
     </Stack>

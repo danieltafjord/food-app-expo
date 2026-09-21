@@ -32,7 +32,7 @@ type Pill = { label: string; color: string; busy: boolean; onPress?: () => void 
  */
 export function GlobalSyncBanner() {
   const t = useT();
-  const { isAuthenticated } = useSession();
+  const { isAuthenticated, setupPhase, retrySetup } = useSession();
   const status = useSyncStatus();
   const insets = useSafeAreaInsets();
   const colors = Colors[useResolvedScheme()];
@@ -42,17 +42,28 @@ export function GlobalSyncBanner() {
   const prevPhase = useRef(status.phase);
   useEffect(() => {
     const finishedSyncing =
-      prevPhase.current === 'syncing' && status.phase === 'idle' && !status.error;
+      prevPhase.current === 'syncing' && status.phase === 'idle' && !status.error &&
+      !!status.lastSyncedAt && status.pending === 0 && status.rejected === 0;
     prevPhase.current = status.phase;
     if (!finishedSyncing) return;
     setShowSynced(true);
+  }, [status.phase, status.error, status.lastSyncedAt, status.pending, status.rejected]);
+
+  useEffect(() => {
+    if (!showSynced) return;
     const timer = setTimeout(() => setShowSynced(false), SYNCED_FLASH_MS);
     return () => clearTimeout(timer);
-  }, [status.phase, status.error]);
+  }, [showSynced]);
 
   if (!isAuthenticated) return null;
 
-  const pill = describe(t, status, showSynced);
+  const pill: Pill = setupPhase === 'setting-up'
+    ? { label: t('sync.settingUp'), color: COLORS.syncing, busy: true }
+    : setupPhase === 'error'
+      ? { label: t('sync.setupFailedRetry'), color: COLORS.error, busy: false, onPress: retrySetup }
+      : setupPhase === 'invitation'
+        ? null
+        : describe(t, status, showSynced);
   if (!pill) return null;
 
   const body = (
@@ -62,7 +73,7 @@ export function GlobalSyncBanner() {
       ) : (
         <View style={[styles.dot, { backgroundColor: pill.color }]} />
       )}
-      <ThemedText type="small">{pill.label}</ThemedText>
+      <ThemedText type="small" style={styles.label}>{pill.label}</ThemedText>
     </View>
   );
 
@@ -114,6 +125,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   pill: {
+    maxWidth: '90%',
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.two,
@@ -126,6 +138,9 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 2 },
     elevation: 3,
+  },
+  label: {
+    flexShrink: 1,
   },
   dot: {
     width: 8,

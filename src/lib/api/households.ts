@@ -74,7 +74,7 @@ export function useUpdateHousehold() {
   return useMutation({
     scope: { id: 'household-settings' },
     onMutate: () => ({ seq: ++latestHouseholdUpdate }),
-    mutationFn: (input: { id: number; name: string; default_servings: number }) =>
+    mutationFn: (input: { id: number; name: string; default_servings?: number }) =>
       request<Household>(`/households/${input.id}`, {
         method: 'PATCH',
         body: { name: input.name, default_servings: input.default_servings },
