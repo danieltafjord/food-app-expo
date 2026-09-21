@@ -12,7 +12,7 @@ module.exports = {
       { configFile: false, babelrc: false, presets: ['babel-preset-expo'] },
     ],
   },
-  transformIgnorePatterns: ['node_modules/(?!(?:@legendapp)/)'],
+  transformIgnorePatterns: ['node_modules/(?!(?:@legendapp|query-string|decode-uri-component|filter-obj|split-on-first)/)'],
   // Mirror the tsconfig path aliases, and stub the few native modules these
   // pure functions transitively import (but never meaningfully exercise).
   moduleNameMapper: {

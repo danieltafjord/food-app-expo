@@ -5,6 +5,7 @@ export {
   type AccountTransition,
   accountTransitionFor,
   bindAccount,
+  clearLocalData,
   getBoundAccountId,
   resetLocalDataForAccount,
   resetLocalDataForHousehold,

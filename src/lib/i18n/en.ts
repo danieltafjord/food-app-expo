@@ -227,6 +227,16 @@ export const en = {
     updateFromPlan: 'Update list',
   },
   account: {
+    clearDeviceData: 'Clear data on this device',
+    clearDeviceDataHint: 'This signs you out and permanently removes dinners, plans, lists and unsynced changes from this device. Your cloud account and data on other devices remain. To delete your cloud account, use Delete account.',
+    clearFailedTitle: 'Could not clear device data',
+    clearFailedMessage: 'Please try again.',
+
+    privacyPolicy: 'Privacy policy',
+    support: 'Help and support',
+    linkFailedTitle: 'Could not open page',
+    linkFailedMessage: 'Please check your connection and try again.',
+
     title: 'Settings',
     appearance: 'Appearance',
     themeSystem: 'System',
@@ -245,10 +255,10 @@ export const en = {
     signOut: 'Sign out',
     deleteAccount: 'Delete account',
     deleteAccountHint:
-      'Opens your profile on the web, where you can permanently delete your account and its data.',
+      'Opens your profile to delete your cloud account. Afterwards, use Clear data on this device to remove the local copy.',
     syncFailedTitle: 'Couldn’t save to your account',
     syncFailedMessage:
-      'Your change is saved on this device but couldn’t sync to your account. We’ll try again automatically.',
+      'Your change is saved on this device but couldn’t sync to your account. Check your connection and select the setting again to retry.',
   },
   household: {
     switchBlockedPending:

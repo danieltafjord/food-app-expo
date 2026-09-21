@@ -1,21 +1,20 @@
 import type { ConfigContext, ExpoConfig } from 'expo/config';
+import { validateReleaseEnvironment } from './scripts/release-config';
 
-/**
- * Dynamic config layered over `app.json`.
- *
- * The only runtime decision: the iOS App Transport Security exception that lets
- * a dev build talk plain HTTP to the local Herd site (`food-app.test`). It must
- * not ship in the store build, so it is added for every profile except
- * `production` (EAS sets `EAS_BUILD_PROFILE`; local `expo run:ios` has none and
- * counts as development).
- */
+/** Validate store configuration and keep local HTTP exceptions out of release builds. */
 export default ({ config }: ConfigContext): ExpoConfig => {
   const isProduction = process.env.EAS_BUILD_PROFILE === 'production';
+  if (isProduction) validateReleaseEnvironment(process.env);
   const ios = { ...config.ios };
   const infoPlist = { ...ios.infoPlist };
 
-  if (isProduction) {
-    delete infoPlist.NSAppTransportSecurity;
+  if (isProduction || process.env.NODE_ENV === 'production') {
+    // Explicitly replace dev exceptions even when prebuild reuses an existing native project.
+    infoPlist.NSAppTransportSecurity = {
+      NSAllowsArbitraryLoads: false,
+      NSAllowsLocalNetworking: false,
+      NSExceptionDomains: {},
+    };
   } else {
     infoPlist.NSAppTransportSecurity = {
       NSExceptionDomains: {

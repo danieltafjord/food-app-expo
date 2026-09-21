@@ -31,7 +31,11 @@ export const API_BASE_URL = resolveApiBaseUrl();
 export const API_V1_URL = `${API_BASE_URL}/api/v1`;
 
 /** Public Passport client id. Register one with `php artisan passport:client --public`. */
-export const OAUTH_CLIENT_ID = process.env.EXPO_PUBLIC_OAUTH_CLIENT_ID ?? '';
+export const OAUTH_CLIENT_ID = process.env.EXPO_PUBLIC_OAUTH_CLIENT_ID?.trim() ?? '';
+
+/** Published, public pages; production builds validate these before bundling. */
+export const PRIVACY_URL = process.env.EXPO_PUBLIC_PRIVACY_URL?.trim() ?? '';
+export const SUPPORT_URL = process.env.EXPO_PUBLIC_SUPPORT_URL?.trim() ?? '';
 
 /** Custom URL scheme (matches `expo.scheme` in app.json) used for the OAuth redirect. */
 export const OAUTH_SCHEME = 'foodapp';

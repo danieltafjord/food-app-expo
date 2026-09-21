@@ -103,7 +103,7 @@ const BY_COLLECTION = new Map<string, SyncConfig>(SYNCABLE.map((c) => [c.collect
 const BY_SERVER_KEY = new Map<string, SyncConfig>(SYNCABLE.map((c) => [c.serverKey, c]));
 
 type Row = Record<string, unknown> & { id: string };
-type ServerRow = Row & { updated_at?: string | null; deleted_at?: string | null };
+type ServerRow = Row & { updated_at?: string | null; deleted_at?: string | null; erasure_version?: number };
 type Rejection = { id: string | null; code: string; message: string };
 export type SyncResponse = {
   cursor: number;
@@ -133,6 +133,7 @@ export class SyncPendingError extends Error {
 
 let tracking = false;
 let started = false;
+let connectionGeneration = 0;
 let applyingRemote = false;
 let inFlight: Promise<void> | null = null;
 let rerun = false;
@@ -170,9 +171,10 @@ export function ensureChangeTracking(): void {
 export async function connectCollections(): Promise<void> {
   if (started) return;
   started = true;
+  const generation = ++connectionGeneration;
 
   await whenHydrated;
-  if (!started) return; // disconnected while awaiting hydration
+  if (!started || generation !== connectionGeneration) return; // disconnected while awaiting hydration
 
   // Upgrade + seed the store before we read or push a single row. Idempotent and
   // shared with StoreProvider, so this either runs the migrations (if the engine
@@ -207,6 +209,10 @@ export async function connectCollections(): Promise<void> {
  */
 export async function syncNow(): Promise<void> {
   bumpActivity();
+  if (retryTimer) {
+    clearTimeout(retryTimer);
+    retryTimer = null;
+  }
   if (initialTimer) {
     clearTimeout(initialTimer);
     initialTimer = null;
@@ -252,6 +258,8 @@ export async function ensureSyncedBeforeRebind(): Promise<void> {
 export async function adoptServerHousehold(householdId: number): Promise<void> {
   const bound = store$.meta.serverHouseholdId.get();
   if (bound !== null && bound !== householdId) {
+    if (hasPending()) throw new SyncPendingError();
+    connectionGeneration += 1;
     resetLocalDataForHousehold(householdId);
   } else {
     store$.meta.serverHouseholdId.set(householdId);
@@ -269,6 +277,7 @@ export async function adoptServerHousehold(householdId: number): Promise<void> {
 export function disconnectCollections(): void {
   if (!started) return;
   started = false;
+  connectionGeneration += 1;
 
   appStateSub?.remove();
   appStateSub = null;
@@ -337,7 +346,7 @@ function handleStoreChange(params: ListenerParams): void {
 }
 
 function scheduleSync(): void {
-  if (!started) return;
+  if (!started || retryTimer) return;
   if (debounceTimer) clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => void pushPull(), DEBOUNCE_MS);
 }
@@ -348,7 +357,10 @@ function scheduleRetry(): void {
   const backoff = Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** retryAttempt);
   const jitter = backoff * 0.25 * Math.random();
   retryAttempt += 1;
-  retryTimer = setTimeout(() => void pushPull(), backoff + jitter);
+  retryTimer = setTimeout(() => {
+    retryTimer = null;
+    void pushPull();
+  }, backoff + jitter);
 }
 
 /* ---- adaptive poll ------------------------------------------------------- */
@@ -378,7 +390,7 @@ function schedulePoll(): void {
   pollTimer = null;
   if (!started || !foreground) return;
   pollTimer = setTimeout(() => {
-    void pushPull();
+    if (!retryTimer) void pushPull();
     schedulePoll();
   }, pollDelay());
 }
@@ -422,9 +434,13 @@ function pushPull(): Promise<void> {
   }
   const request = getSyncRequest();
   if (!request || !started) return Promise.resolve(); // signed out
+  if (debounceTimer) {
+    clearTimeout(debounceTimer);
+    debounceTimer = null;
+  }
 
   rerun = false;
-  inFlight = runCycle(request).finally(() => {
+  inFlight = runCycle(request, connectionGeneration).finally(() => {
     inFlight = null;
     updatePending();
     if (started && (rerun || hasPending())) scheduleSync();
@@ -432,14 +448,15 @@ function pushPull(): Promise<void> {
   return inFlight;
 }
 
-async function runCycle(request: SyncRequest): Promise<void> {
+async function runCycle(request: SyncRequest, generation: number): Promise<void> {
+  const isCurrent = () => started && generation === connectionGeneration;
   // First connect surfaces errors (the user just linked an account and expects
   // sync to start); routine background pulls stay quiet.
   let hasPush = store$.meta.cursor.get() === null;
 
   try {
-    const ready = await prepareFirstSync(request);
-    if (!ready || !started) return;
+    const ready = await prepareFirstSync(request, isCurrent);
+    if (!ready || !isCurrent()) return;
 
     hasPush = hasPush || hasPending();
     if (hasPush) markSyncing();
@@ -456,7 +473,7 @@ async function runCycle(request: SyncRequest): Promise<void> {
           changes: snapshot.changes,
         },
       });
-      if (!started) return; // signed out mid-flight: don't touch the store
+      if (!isCurrent()) return; // a previous session must never touch the current store
 
       const applied = applyResponse(snapshot, response);
       rejected += applied.rejected;
@@ -468,8 +485,13 @@ async function runCycle(request: SyncRequest): Promise<void> {
     quietPulls = moved ? 0 : quietPulls + 1;
     markSynced(rejected, moved);
   } catch (error) {
-    if (!started) return;
+    if (!isCurrent()) return;
     if (error instanceof ApiError && error.status === 409 && isHouseholdMismatch(error.body)) {
+      if (hasPending()) {
+        markSyncError('The active household changed. Switch back to the previous household to upload your pending changes.');
+        scheduleRetry();
+        return;
+      }
       // The account's active household changed elsewhere: re-bind and start over.
       resetLocalDataForHousehold((error.body as { household_id: number }).household_id);
       rerun = true;
@@ -504,16 +526,17 @@ function isHouseholdMismatch(body: unknown): body is { code: string; household_i
  *
  * Returns false to skip this sync (signed in but no household yet).
  */
-async function prepareFirstSync(request: SyncRequest): Promise<boolean> {
+async function prepareFirstSync(request: SyncRequest, isCurrent: () => boolean): Promise<boolean> {
   if (store$.meta.cursor.get() !== null) return true; // already linked
 
   const me = await timed<{ current_household: { id: number } | null }>(request, '/me');
-  if (!started) return false;
+  if (!isCurrent()) return false;
   const active = me?.current_household?.id;
   if (!active) return false; // wait for the user to create/join one
 
   const bound = store$.meta.serverHouseholdId.get();
   if (bound !== null && bound !== active) {
+    if (hasPending()) throw new SyncPendingError();
     resetLocalDataForHousehold(active);
   } else {
     store$.meta.serverHouseholdId.set(active);
@@ -677,6 +700,14 @@ function applyRemote(changes: Record<string, ServerRow[]>): number {
           if (typeof row?.id !== 'string') continue;
           received += 1;
           const uuid = row.id;
+          const existing = node(collection)[uuid].peek() as ServerRow | undefined;
+          // Account erasure overrides unsent and mid-flight edits. Otherwise the
+          // cursor could advance while this device retains the erased content.
+          const erased = (row.erasure_version ?? 0) > (existing?.erasure_version ?? 0);
+          if (erased) {
+            store$.meta.dirty[collection][uuid].delete();
+            store$.meta.tombstones[collection][uuid].delete();
+          }
           // A row we've locally edited or deleted wins until it's pushed.
           if (store$.meta.dirty[collection][uuid].get()) continue;
           if (store$.meta.tombstones[collection][uuid].get()) continue;
@@ -687,7 +718,13 @@ function applyRemote(changes: Record<string, ServerRow[]>): number {
             for (const link of parentOf) {
               const [child, fk] = link.split(':');
               for (const childRow of Object.values(node(child).get() ?? {}) as Row[]) {
-                if (childRow[fk] === uuid) node(child)[childRow.id].delete();
+                if (childRow[fk] === uuid) {
+                  node(child)[childRow.id].delete();
+                  if (erased) {
+                    store$.meta.dirty[child][childRow.id].delete();
+                    store$.meta.tombstones[child][childRow.id].delete();
+                  }
+                }
               }
             }
             continue;
@@ -701,7 +738,6 @@ function applyRemote(changes: Record<string, ServerRow[]>): number {
           // The server echoes the rows this device just pushed. Writing an
           // identical copy back would still count as a change (a new object),
           // re-persisting the row and re-rendering everything showing it.
-          const existing = node(collection)[uuid].peek() as Record<string, unknown> | undefined;
           if (existing && sameRow(existing, local)) continue;
           node(collection)[uuid].set(local);
         }

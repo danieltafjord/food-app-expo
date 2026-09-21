@@ -6,7 +6,7 @@ module.exports = defineConfig([
   expoConfig,
   {
     // eslint-plugin-react's version auto-detection calls an API removed in ESLint 10
-    settings: { react: { version: "19.3" } },
+    settings: { react: { version: "19.2" } },
   },
   {
     ignores: ["dist/*"],

@@ -1,21 +1,19 @@
 import type * as AuthSession from 'expo-auth-session';
-import { createContext, use, useEffect, useRef, useState, type ReactNode } from 'react';
+import { createContext, use, useEffect, useState, type ReactNode } from 'react';
 
-import { ApiError, apiRequest, type RequestOptions } from '@/lib/api/client';
+import { apiRequest, type RequestOptions } from '@/lib/api/client';
 import type { User } from '@/lib/api/types';
+import { queryClient } from '@/lib/api/query-client';
+import { SessionController } from '@/lib/auth/session-controller';
 import { refreshSession, tokenResponseToSession } from '@/lib/auth/oauth';
 import {
   clearSession,
   loadSession,
   saveSession,
-  type StoredSession,
 } from '@/lib/auth/token-storage';
 import { applyServerHouseholdSettings, applyServerSettings } from '@/lib/store';
 import { setSyncAuth } from '@/lib/sync/auth-bridge';
 import { connectCollections, disconnectCollections } from '@/lib/sync/engine';
-
-/** Refresh this many ms before the access token actually expires. */
-const EXPIRY_SKEW_MS = 60_000;
 
 type SessionContextValue = {
   /** True while the stored session is being restored on launch. */
@@ -37,89 +35,36 @@ type SessionContextValue = {
 const SessionContext = createContext<SessionContextValue | null>(null);
 
 export function SessionProvider({ children }: { children: ReactNode }) {
-  const tokensRef = useRef<StoredSession | null>(null);
-  const refreshInFlight = useRef<Promise<StoredSession> | null>(null);
-
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [user, setUser] = useState<User | null>(null);
-
-  async function applyTokens(session: StoredSession | null): Promise<void> {
-    tokensRef.current = session;
-    if (session) {
-      await saveSession(session);
-      setIsAuthenticated(true);
-    } else {
-      await clearSession();
-      setIsAuthenticated(false);
-      setUser(null);
-    }
-  }
-
-  /** Clear local session without hitting the API (used when the token is already dead). */
-  async function forceSignOut(): Promise<void> {
-    await applyTokens(null);
-  }
-
-  /** Single-flight refresh: concurrent callers share one network round-trip. */
-  function refreshTokens(): Promise<StoredSession> {
-    if (!refreshInFlight.current) {
-      const current = tokensRef.current;
-      if (!current?.refreshToken) {
-        return Promise.reject(new ApiError(401, 'Session expired'));
+  const [sessionRevision, setSessionRevision] = useState(0);
+  const [controller] = useState(() => new SessionController({
+    save: saveSession,
+    clear: clearSession,
+    refresh: refreshSession,
+    request: apiRequest,
+    onChange: (session) => {
+      if (!session) {
+        setSyncAuth(null);
+        disconnectCollections();
+        queryClient.clear();
+        setUser(null);
       }
-      refreshInFlight.current = refreshSession(current.refreshToken)
-        .then(async (next) => {
-          tokensRef.current = next;
-          await saveSession(next);
-          return next;
-        })
-        .finally(() => {
-          refreshInFlight.current = null;
-        });
-    }
-    return refreshInFlight.current;
-  }
+      setSessionRevision((revision) => revision + 1);
+      setIsAuthenticated(session !== null);
+      setIsLoading(false);
+    },
+  }));
 
-  async function getValidAccessToken(): Promise<string> {
-    const current = tokensRef.current;
-    if (!current) {
-      throw new ApiError(401, 'Not authenticated');
-    }
-    const expiringSoon =
-      current.expiresAt != null && current.expiresAt - EXPIRY_SKEW_MS <= Date.now();
-    if (expiringSoon && current.refreshToken) {
-      const refreshed = await refreshTokens();
-      return refreshed.accessToken;
-    }
-    return current.accessToken;
-  }
-
-  async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-    const accessToken = await getValidAccessToken();
-    try {
-      return await apiRequest<T>(path, { ...options, accessToken });
-    } catch (error) {
-      if (!(error instanceof ApiError) || error.status !== 401) {
-        throw error;
-      }
-      // Stale token: try a single refresh + retry, otherwise sign out.
-      if (tokensRef.current?.refreshToken) {
-        try {
-          const refreshed = await refreshTokens();
-          return await apiRequest<T>(path, { ...options, accessToken: refreshed.accessToken });
-        } catch {
-          await forceSignOut();
-          throw error;
-        }
-      }
-      await forceSignOut();
-      throw error;
-    }
+  function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+    return controller.request<T>(path, options);
   }
 
   async function refreshUser(): Promise<void> {
+    const revision = controller.revision;
     const me = await request<User>('/me');
+    if (revision !== controller.revision) return;
     setUser(me);
     // Adopt the account's saved theme + language so a signed-in device matches
     // the user's preferences (local-first store stays the source of truth).
@@ -130,17 +75,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }
 
   async function signIn(token: AuthSession.TokenResponse): Promise<void> {
-    await applyTokens(tokenResponseToSession(token));
+    await controller.set(tokenResponseToSession(token));
     await refreshUser();
   }
 
   async function signOut(): Promise<void> {
-    try {
-      await request('/auth/logout', { method: 'POST' });
-    } catch {
-      // Token may already be invalid; clearing locally is what matters.
-    }
-    await applyTokens(null);
+    await controller.signOut();
   }
 
   // Restore a persisted session on launch. We unblock routing as soon as the
@@ -148,19 +88,19 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   // the splash on a network round-trip. An invalid token self-clears in request().
   useEffect(() => {
     let active = true;
+    const revision = controller.revision;
     (async () => {
-      let stored: StoredSession | null = null;
+      let stored: Awaited<ReturnType<typeof loadSession>> = null;
       try {
         stored = await loadSession();
       } catch {
         stored = null;
       }
-      if (!active) {
+      if (!active || controller.revision !== revision) {
         return;
       }
       if (stored) {
-        tokensRef.current = stored;
-        setIsAuthenticated(true);
+        await controller.set(stored, false);
         setIsLoading(false);
         refreshUser().catch(() => {
           // 401s already cleared the session inside request(); ignore the rest.
@@ -175,18 +115,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Start/stop cloud sync with the session. `request` is stable across renders
-  // (it reads mutable refs), so capturing it on the auth transition is safe.
   useEffect(() => {
     if (isAuthenticated) {
-      setSyncAuth(request);
-      void connectCollections();
-    } else {
+      setSyncAuth((path, options) => controller.request(path, options));
+      void connectCollections().catch(() => undefined);
+    }
+    return () => {
       setSyncAuth(null);
       disconnectCollections();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAuthenticated]);
+    };
+  }, [controller, isAuthenticated, sessionRevision]);
 
   const value: SessionContextValue = {
     isLoading,

@@ -18,6 +18,7 @@ let latestSettingsUpdate = 0;
 export function useUpdateSettings() {
   const { request } = useSession();
   return useMutation({
+    scope: { id: 'user-settings' },
     onMutate: () => ({ seq: ++latestSettingsUpdate }),
     mutationFn: (input: { theme: ThemePreference; locale: Locale }) =>
       request<User>('/me/settings', { method: 'PATCH', body: input }),

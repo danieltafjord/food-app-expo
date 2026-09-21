@@ -223,6 +223,16 @@ export const nb: Dictionary = {
     updateFromPlan: 'Oppdater lista',
   },
   account: {
+    clearDeviceData: 'Slett data på denne enheten',
+    clearDeviceDataHint: 'Du blir logget ut, og middager, planer, lister og usynkroniserte endringer slettes permanent fra denne enheten. Kontoen og data på andre enheter beholdes. Bruk Slett konto for å slette kontoen i skyen.',
+    clearFailedTitle: 'Kunne ikke slette data',
+    clearFailedMessage: 'Prøv igjen.',
+
+    privacyPolicy: 'Personvern',
+    support: 'Hjelp og støtte',
+    linkFailedTitle: 'Kunne ikke åpne siden',
+    linkFailedMessage: 'Sjekk tilkoblingen og prøv igjen.',
+
     title: 'Innstillinger',
     appearance: 'Utseende',
     themeSystem: 'System',
@@ -241,10 +251,10 @@ export const nb: Dictionary = {
     signOut: 'Logg ut',
     deleteAccount: 'Slett konto',
     deleteAccountHint:
-      'Åpner profilen din på nettet, der du kan slette kontoen og dataene dine permanent.',
+      'Åpner profilen for å slette kontoen i skyen. Bruk deretter Slett data på denne enheten for å fjerne den lokale kopien.',
     syncFailedTitle: 'Kunne ikke lagre til kontoen din',
     syncFailedMessage:
-      'Endringen er lagret på denne enheten, men kunne ikke synkroniseres til kontoen din. Vi prøver igjen automatisk.',
+      'Endringen er lagret på denne enheten, men kunne ikke synkroniseres til kontoen din. Sjekk tilkoblingen og velg innstillingen på nytt for å prøve igjen.',
   },
   household: {
     switchBlockedPending:

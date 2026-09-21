@@ -82,6 +82,12 @@ export function resetLocalDataForAccount(accountId: number): void {
   store$.meta.accountId.set(accountId);
 }
 
+/** Explicit device reset. The caller must disconnect cloud sync first. */
+export function clearLocalData(): void {
+  wipeLocalData();
+  store$.meta.accountId.set(null);
+}
+
 /**
  * Rebind the device to a different server household of the same account (the
  * user switched, created, or joined one). The previous household's rows stay on

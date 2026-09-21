@@ -132,6 +132,9 @@ export function isStoreHydrated(): boolean {
 }
 
 /** Wait for every queued write to land (sign-out, tests). */
-export function flushPersistence(): Promise<void> {
-  return plugin.flush();
+export async function flushPersistence(): Promise<void> {
+  await plugin.flush();
+  if (plugin.hasPendingWrites) {
+    throw new Error('Device data could not be saved. Please try again.');
+  }
 }

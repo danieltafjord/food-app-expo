@@ -15,10 +15,11 @@ import { useActiveHousehold, useUpdateHousehold } from '@/lib/api/households';
 import { useUpdateSettings } from '@/lib/api/settings';
 import type { HouseholdRole } from '@/lib/api/types';
 import { useSession } from '@/lib/auth/session';
-import { API_BASE_URL } from '@/lib/config';
+import { API_BASE_URL, PRIVACY_URL, SUPPORT_URL } from '@/lib/config';
 import { LOCALE_LABELS, LOCALES, useT, type Locale } from '@/lib/i18n';
 import { pushOnce } from '@/lib/navigation';
 import {
+  clearLocalData,
   setHouseholdDefaultServings,
   setLocale,
   setThemePreference,
@@ -28,6 +29,7 @@ import {
   type ThemePreference,
 } from '@/lib/store';
 import { flushPendingChanges } from '@/lib/sync/engine';
+import { flushPersistence } from '@/lib/store/persistence';
 
 function roleTone(role: HouseholdRole) {
   return role === 'owner' ? 'brand' : 'neutral';
@@ -45,10 +47,29 @@ export default function AccountScreen() {
   const updateHousehold = useUpdateHousehold();
 
   const [signingOut, setSigningOut] = useState(false);
+  const [clearingData, setClearingData] = useState(false);
+
+  function onClearDeviceData() {
+    Alert.alert(t('account.clearDeviceData'), t('account.clearDeviceDataHint'), [
+      { text: t('common.cancel'), style: 'cancel' },
+      { text: t('account.clearDeviceData'), style: 'destructive', onPress: async () => {
+        setClearingData(true);
+        try {
+          await signOut();
+          clearLocalData();
+          await flushPersistence();
+        } catch {
+          Alert.alert(t('account.clearFailedTitle'), t('account.clearFailedMessage'));
+        } finally {
+          setClearingData(false);
+        }
+      } },
+    ]);
+  }
 
   // The change already landed locally (local-first), so the mirror to the server
   // is best-effort — but a silent failure would leave this device and the account
-  // disagreeing, so surface it. The next successful sync re-converges.
+  // disagreeing, so surface it and let the user retry.
   function notifySyncFailure() {
     Alert.alert(t('account.syncFailedTitle'), t('account.syncFailedMessage'));
   }
@@ -97,8 +118,16 @@ export default function AccountScreen() {
   // Deletion lives on the web profile page (it needs a password confirmation the
   // token-based API can't do). Once the browser closes, re-fetch `/me`: a deleted
   // account answers 401, which clears the session like any other revoked token.
+  async function openPage(url: string) {
+    try {
+      await WebBrowser.openBrowserAsync(url);
+    } catch {
+      Alert.alert(t('account.linkFailedTitle'), t('account.linkFailedMessage'));
+    }
+  }
+
   async function onDeleteAccount() {
-    await WebBrowser.openBrowserAsync(`${API_BASE_URL}/settings/profile`);
+    await openPage(`${API_BASE_URL}/settings/profile`);
     await refreshUser().catch(() => {});
   }
 
@@ -227,6 +256,13 @@ export default function AccountScreen() {
           </Card>
         </View>
       )}
+      <Button title={t('account.clearDeviceData')} variant="danger" loading={clearingData} onPress={onClearDeviceData} />
+      {(PRIVACY_URL || SUPPORT_URL) ? (
+        <View style={styles.section}>
+          {PRIVACY_URL ? <Button title={t('account.privacyPolicy')} variant="secondary" onPress={() => openPage(PRIVACY_URL)} /> : null}
+          {SUPPORT_URL ? <Button title={t('account.support')} variant="secondary" onPress={() => openPage(SUPPORT_URL)} /> : null}
+        </View>
+      ) : null}
     </Screen>
   );
 }

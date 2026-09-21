@@ -11,6 +11,8 @@ export type StoredSession = {
   expiresAt: number | null;
 };
 
+const SESSION_KEY = 'foodapp.auth.session';
+
 const ACCESS_KEY = 'foodapp.auth.access_token';
 const REFRESH_KEY = 'foodapp.auth.refresh_token';
 const EXPIRES_KEY = 'foodapp.auth.expires_at';
@@ -111,7 +113,19 @@ async function removeItem(key: string): Promise<void> {
 }
 
 export async function loadSession(): Promise<StoredSession | null> {
-  // Three keychain round-trips on the launch path — issue them together.
+  const stored = await getItem(SESSION_KEY);
+  if (stored !== null) {
+    const parsed: unknown = JSON.parse(stored);
+    if (parsed === null) return null; // Signed-out marker also suppresses legacy credentials.
+    if (typeof parsed !== 'object' || !('accessToken' in parsed) ||
+      typeof parsed.accessToken !== 'string' || !parsed.accessToken ||
+      !('refreshToken' in parsed) || !(parsed.refreshToken === null || typeof parsed.refreshToken === 'string') ||
+      !('expiresAt' in parsed) || !(parsed.expiresAt === null || (typeof parsed.expiresAt === 'number' && Number.isFinite(parsed.expiresAt)))) {
+      throw new Error('Invalid stored session');
+    }
+    return parsed as StoredSession;
+  }
+  // Migrate the legacy three-key layout on the first successful restore.
   const [accessToken, refreshToken, expiresRaw] = await Promise.all([
     getItem(ACCESS_KEY),
     getItem(REFRESH_KEY),
@@ -122,31 +136,27 @@ export async function loadSession(): Promise<StoredSession | null> {
   }
   const expiresAt = expiresRaw ? Number(expiresRaw) : null;
 
-  return {
+  const session = {
     accessToken,
     refreshToken: refreshToken ?? null,
     expiresAt: expiresAt != null && Number.isFinite(expiresAt) ? expiresAt : null,
   };
+  await saveSession(session);
+  return session;
 }
 
 export async function saveSession(session: StoredSession): Promise<void> {
-  await setItem(ACCESS_KEY, session.accessToken);
+  // One atomic Keychain value: a crash during rotation cannot mix token generations.
+  await setItem(SESSION_KEY, JSON.stringify(session));
+  await removeLegacySession();
+}
 
-  if (session.refreshToken) {
-    await setItem(REFRESH_KEY, session.refreshToken);
-  } else {
-    await removeItem(REFRESH_KEY);
-  }
-
-  if (session.expiresAt != null) {
-    await setItem(EXPIRES_KEY, String(session.expiresAt));
-  } else {
-    await removeItem(EXPIRES_KEY);
-  }
+async function removeLegacySession(): Promise<void> {
+  await Promise.all([removeItem(ACCESS_KEY), removeItem(REFRESH_KEY), removeItem(EXPIRES_KEY)]);
 }
 
 export async function clearSession(): Promise<void> {
-  await removeItem(ACCESS_KEY);
-  await removeItem(REFRESH_KEY);
-  await removeItem(EXPIRES_KEY);
+  // Keep a signed-out marker so an interrupted legacy cleanup cannot revive a session.
+  await setItem(SESSION_KEY, 'null');
+  await removeLegacySession();
 }

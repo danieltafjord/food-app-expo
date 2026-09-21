@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Household, HouseholdMembership, HouseholdRole } from '@/lib/api/types';
 import { queryKeys } from '@/lib/api/keys';
 import { useSession } from '@/lib/auth/session';
-import { applyServerHouseholdSettings } from '@/lib/store';
+import { applyServerHouseholdSettings, store$ } from '@/lib/store';
 import {
   adoptServerHousehold,
   ensureSyncedBeforeRebind,
@@ -72,6 +72,7 @@ let latestHouseholdUpdate = 0;
 export function useUpdateHousehold() {
   const { request } = useSession();
   return useMutation({
+    scope: { id: 'household-settings' },
     onMutate: () => ({ seq: ++latestHouseholdUpdate }),
     mutationFn: (input: { id: number; name: string; default_servings: number }) =>
       request<Household>(`/households/${input.id}`, {
@@ -95,7 +96,9 @@ export function useSwitchHousehold() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (householdId: number) => {
-      if (!(await flushPendingChanges())) {
+      // Returning to the device's bound household recovers pending edits after
+      // another device changed the account's active household.
+      if (householdId !== store$.meta.serverHouseholdId.get() && !(await flushPendingChanges())) {
         throw new SyncPendingError();
       }
       return request<Household>('/household/switch', {

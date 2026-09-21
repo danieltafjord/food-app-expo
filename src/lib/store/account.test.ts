@@ -1,6 +1,7 @@
 import {
   accountTransitionFor,
   bindAccount,
+  clearLocalData,
   getBoundAccountId,
   resetLocalDataForAccount,
 } from '@/lib/store/account';
@@ -45,6 +46,18 @@ beforeEach(() => {
 });
 
 describe('account binding', () => {
+  it('clears device data and its account binding on an explicit reset', () => {
+    bindAccount(1);
+    seedLocalData();
+    clearLocalData();
+    expect(getBoundAccountId()).toBeNull();
+    expect(store$.dinners.get()).toEqual({});
+    expect(store$.shoppingLists.get()).toEqual({});
+    expect(store$.meta.cursor.get()).toBeNull();
+    expect(store$.meta.serverHouseholdId.get()).toBeNull();
+    expect(store$.meta.dirty.get()).toEqual({});
+    expect(store$.meta.tombstones.get()).toEqual({});
+  });
   it('claims unbound local data for the first account', () => {
     expect(getBoundAccountId()).toBeNull();
     expect(accountTransitionFor(1)).toBe('claim');

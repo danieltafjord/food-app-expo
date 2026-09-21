@@ -88,6 +88,7 @@ beforeEach(() => {
   __resetEngineForTests();
   resetStore();
   cursor = 10;
+  me.current_household.id = 7;
 });
 
 afterEach(() => {
@@ -223,6 +224,74 @@ describe('push / pull', () => {
     expect(store$.meta.dirty.dinners[dinner].get()).toBe(true);
   });
 
+  it('applies account erasure over an edit made while the request is in flight', async () => {
+    ensureChangeTracking();
+    const server = fakeServer();
+    await connect(server);
+    const dinner = createDinner({ name: 'Shared recipe', notes: 'Personal information' });
+
+    server.handlers.push((call) => {
+      store$.dinners[dinner].assign({ notes: 'Still contains personal information', updated_at: '2999-01-01T00:00:00.000Z' });
+      return {
+        ...emptySync(),
+        changes: { dinners: [{ ...call.body.changes.dinners[0], notes: null, erasure_version: 12, deleted_at: null }] },
+      };
+    });
+    await syncNow();
+
+    expect(store$.dinners[dinner].notes.get()).toBeNull();
+    expect(hasPending()).toBe(false);
+
+    // New, deliberate edits after the erasure carry its version to the server.
+    store$.dinners[dinner].assign({ name: 'New name', updated_at: '2999-02-01T00:00:00.000Z' });
+    await syncNow();
+    expect(server.calls.at(-1)!.body.changes.dinners[0]).toMatchObject({ notes: null, erasure_version: 12 });
+  });
+
+  it('does not overwrite a new edit when the same erasure version is echoed again', async () => {
+    ensureChangeTracking();
+    const server = fakeServer();
+    await connect(server);
+    const dinner = createDinner({ name: 'Shared recipe' });
+    server.handlers.push((call) => ({
+      ...emptySync(),
+      changes: { dinners: [{ ...call.body.changes.dinners[0], erasure_version: 12, deleted_at: null }] },
+    }));
+    await syncNow();
+    store$.dinners[dinner].assign({ name: 'New name', updated_at: '2999-01-01T00:00:00.000Z' });
+    server.handlers.push((call) => {
+      store$.dinners[dinner].assign({ name: 'Newest name', updated_at: '2999-02-01T00:00:00.000Z' });
+      return { ...emptySync(), changes: { dinners: [{ ...call.body.changes.dinners[0], deleted_at: null }] } };
+    });
+    await syncNow();
+    expect(store$.dinners[dinner].name.get()).toBe('Newest name');
+    expect(hasPending()).toBe(true);
+  });
+
+  it('erases dirty parent and child rows even when their upload chunk has not been sent', async () => {
+    ensureChangeTracking();
+    const server = fakeServer();
+    await connect(server);
+    for (let i = 0; i < 300; i += 1) createIngredient({ name: `Queued ${i}` });
+    const ingredient = createIngredient({ name: 'Beef' });
+    const dinner = createDinner({ name: 'Personal recipe' });
+    setDinnerItems(dinner, [{ ingredient_id: ingredient, quantity: 1, unit: 'g' }]);
+    const erased = () => ({ ...emptySync(), changes: {
+      dinners: [{ id: dinner, updated_at: '2026-01-01T00:00:00.000Z', deleted_at: '2026-01-01T00:00:00.000Z', erasure_version: 12 }],
+    } });
+    server.handlers.push(() => {
+      const response = erased();
+      // Also edit the child while its parent is being erased remotely.
+      const child = Object.values(store$.dinnerItems.get())[0];
+      store$.dinnerItems[child.id].assign({ unit: 'private text', updated_at: '2999-01-01T00:00:00.000Z' });
+      return response;
+    }, erased);
+    await syncNow();
+    expect(store$.dinners[dinner].get()).toBeUndefined();
+    expect(Object.values(store$.dinnerItems.get())).toHaveLength(0);
+    expect(hasPending()).toBe(false);
+  });
+
   it('applies remote tombstones with a local cascade and never re-tombstones them', async () => {
     ensureChangeTracking();
     const server = fakeServer();
@@ -319,6 +388,9 @@ describe('failures and state transitions', () => {
     expect(store$.meta.dirty.dinners[dinner].get()).toBe(true);
     expect(syncStatus$.phase.get()).toBe('error');
     expect(syncStatus$.error.get()).toBe('Network request failed');
+    const attempts = server.calls.length;
+    await jest.advanceTimersByTimeAsync(1500);
+    expect(server.calls).toHaveLength(attempts); // the debounce must not defeat retry backoff
   });
 
   it('re-binds to the household the server reports on a mismatch', async () => {
@@ -337,6 +409,28 @@ describe('failures and state transitions', () => {
     expect(store$.meta.cursor.get()).toBeNull();
     expect(Object.values(store$.dinners.get())).toHaveLength(0);
     expect(store$.meta.localHouseholdId.get()).not.toBe('');
+  });
+
+  it('preserves unsynced edits when another device switches the household', async () => {
+    const server = fakeServer();
+    await connect(server);
+    const dinner = createDinner({ name: 'Unsynced' });
+    server.handlers.push(() => {
+      throw new ApiError(409, 'mismatch', undefined, { code: 'household_mismatch', household_id: 8 });
+    });
+    await syncNow();
+    expect(store$.dinners[dinner].name.get()).toBe('Unsynced');
+    expect(store$.meta.serverHouseholdId.get()).toBe(7);
+    expect(hasPending()).toBe(true);
+    expect(syncStatus$.phase.get()).toBe('error');
+  });
+
+  it('refuses to discard edits made while a household switch was in flight', async () => {
+    const server = fakeServer();
+    await connect(server);
+    const dinner = createDinner({ name: 'Just edited' });
+    await expect(adoptServerHousehold(8)).rejects.toBeInstanceOf(SyncPendingError);
+    expect(store$.dinners[dinner].get()).toBeDefined();
   });
 
   it('wipes and re-pulls when adopting a different household, keeps data when adopting the first', async () => {
@@ -397,6 +491,21 @@ describe('failures and state transitions', () => {
     await syncNow();
 
     expect(store$.meta.cursor.get()).toBe(before);
+  });
+
+  it('ignores a previous session response even after reconnecting', async () => {
+    const server = fakeServer();
+    await connect(server);
+    const before = store$.meta.cursor.get();
+    server.handlers.push(async () => {
+      disconnectCollections();
+      setSyncAuth(fakeServer().request);
+      await connectCollections();
+      return { ...emptySync(), cursor: 999, household_id: 999 };
+    });
+    await syncNow();
+    expect(store$.meta.cursor.get()).toBe(before);
+    expect(store$.meta.serverHouseholdId.get()).toBe(7);
   });
 
   it('keeps tracking deletes while signed out so they sync on the next session', async () => {

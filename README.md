@@ -20,10 +20,10 @@ batched `/api/v1/sync` endpoint).
 
 - A **development build** — the app uses native modules (native tabs, SecureStore,
   SQLite, haptics) that Expo Go does not ship.
-- Xcode 26 / CocoaPods for iOS. `patches/` carries Swift 6.2 fixes for
+- Xcode 26.4 or newer / CocoaPods for iOS. `patches/` carries Swift 6.2 fixes for
   `expo-modules-core` / `expo-modules-jsi` that `patch-package` applies on
   `npm install`; keep them until Expo ships a compatible release.
-- Node 22+.
+- Node 22.13 or newer.
 
 ## Run locally
 
@@ -50,7 +50,9 @@ the Account tab.
 | Variable                       | Purpose                                                             |
 | ------------------------------ | ------------------------------------------------------------------- |
 | `EXPO_PUBLIC_API_URL`          | Backend origin. Dev default `http://food-app.test`; required in release builds. |
-| `EXPO_PUBLIC_OAUTH_CLIENT_ID`  | Public Passport client id. Empty or `REPLACE_WITH_…` hides sign-in. |
+| `EXPO_PUBLIC_OAUTH_CLIENT_ID`  | Public Passport client id. Empty or `REPLACE_WITH_…` disables sign-in. |
+| `EXPO_PUBLIC_PRIVACY_URL` | Published public HTTPS privacy policy; required for production builds. |
+| `EXPO_PUBLIC_SUPPORT_URL` | Published public HTTPS support page; required for production builds. |
 
 Create the Passport client once per backend environment:
 
@@ -63,12 +65,12 @@ php artisan passport:client --public \
 Per-profile values for EAS builds live in `eas.json`; replace the
 `REPLACE_WITH_*` placeholders (or use EAS secrets) before building `preview` /
 `production`. The iOS ATS exception for `food-app.test` is added by
-`app.config.ts` for every profile except `production`.
+`app.config.ts` only outside production profiles and production bundling. Store builds validate the API, OAuth, privacy and support configuration before proceeding.
 
 ## Checks
 
 ```bash
-npx tsc --noEmit
+npm run typecheck
 npx expo lint
 npm test
 ```

@@ -45,3 +45,5 @@ example
 
 # jest (Node localStorage shim)
 .jest-localstorage
+.jest-localstorage-shm
+.jest-localstorage-wal

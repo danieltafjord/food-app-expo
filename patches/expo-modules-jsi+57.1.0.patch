@@ -81,7 +81,7 @@ index 936aaa2..8788a97 100644
  ///   JavaScript thread while the runtime is alive.
  public final class JavaScriptError: Error, Sendable {
 -  private weak let runtime: JavaScriptRuntime?
-+  private weak var runtime: JavaScriptRuntime?
++  nonisolated(unsafe) private weak var runtime: JavaScriptRuntime?
    nonisolated(unsafe) private let pointee: facebook.jsi.JSError
  
    internal init(_ runtime: JavaScriptRuntime, _ error: facebook.jsi.JSError) {
