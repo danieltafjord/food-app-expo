@@ -6,12 +6,14 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { WeekBoard } from '@/components/week-board';
-import { MaxContentWidth, Spacing } from '@/constants/theme';
-import { useTheme } from '@/hooks/use-theme';
+import { BadgeColors, BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import { useResolvedScheme, useTheme } from '@/hooks/use-theme';
+import { hapticSelection } from '@/lib/haptics';
 import { useT } from '@/lib/i18n';
 import { pushOnce } from '@/lib/navigation';
 import { setPlannerWeekKey, usePlannerWeekKey } from '@/lib/planner-state';
 import { createShoppingListFromPlan, dinnersWithoutIngredients } from '@/lib/shopping/generate';
+import { useWeekPlanningContext } from '@/lib/store/week-planning';
 import {
   updatePlanEntry,
   useLocale,
@@ -33,6 +35,7 @@ import {
 export default function PlansScreen() {
   const t = useT();
   const theme = useTheme();
+  const brand = BadgeColors[useResolvedScheme()].brand;
   const locale = useLocale();
   const weekStartKey = usePlannerWeekKey();
   const weekStart = fromDateKey(weekStartKey);
@@ -43,6 +46,12 @@ export default function PlansScreen() {
 
   const currentPlan = usePlanForWeek(weekStartKey);
   const entries = usePlanEntries(currentPlan?.id);
+  const planning = useWeekPlanningContext(weekStartKey);
+  const showPlanAction = planning.dates.length > 0;
+  const canPlan = planning.missing === 0;
+  const planHint = canPlan
+    ? t('weekPlanning.actionHint')
+    : t(planning.missing === 1 ? 'weekPlanning.needOne' : 'weekPlanning.needMore', { count: planning.missing });
   // The list generated from this week, if any: the header button opens it
   // instead of making a second one.
   const existingList = useShoppingListForPlan(currentPlan?.id);
@@ -185,8 +194,46 @@ export default function PlansScreen() {
             onMove={onMove}
             onAdd={onAdd}
             onEdit={onEditEntry}
+            bottomContentInset={showPlanAction ? Spacing.two : undefined}
           />
         </View>
+
+        {showPlanAction ? (
+          <View style={styles.planAction}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={t('weekPlanning.title')}
+              accessibilityHint={planHint}
+              accessibilityState={{ disabled: !canPlan }}
+              disabled={!canPlan}
+              onPress={() => {
+                hapticSelection();
+                pushOnce({ pathname: '/sheets/plan-week', params: { weekStart: weekStartKey } });
+              }}
+              style={({ pressed }) => [
+                styles.planButton,
+                {
+                  backgroundColor: canPlan ? brand.bg : theme.backgroundElement,
+                },
+                pressed && styles.planPressed,
+              ]}>
+              <SymbolView
+                name={{ ios: 'sparkles', android: 'auto_awesome', web: 'auto_awesome' }}
+                size={16}
+                tintColor={canPlan ? brand.fg : theme.textSecondary}
+                type="monochrome"
+              />
+              <ThemedText type="smallBold" style={[styles.planLabel, { color: canPlan ? brand.fg : theme.textSecondary }]}>
+                {t('weekPlanning.title')}
+              </ThemedText>
+            </Pressable>
+            {!canPlan ? (
+              <ThemedText type="small" themeColor="textSecondary" style={styles.planHint}>
+                {planHint}
+              </ThemedText>
+            ) : null}
+          </View>
+        ) : null}
       </SafeAreaView>
     </ThemedView>
   );
@@ -240,6 +287,32 @@ const styles = StyleSheet.create({
     paddingLeft: Spacing.three,
     paddingRight: Spacing.two,
     borderRadius: 999,
+  },
+  planAction: {
+    alignItems: 'center',
+    gap: Spacing.one,
+    paddingHorizontal: Spacing.four,
+    paddingTop: Spacing.two,
+    paddingBottom: BottomTabInset + Spacing.three,
+  },
+  planButton: {
+    maxWidth: '100%',
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
+    borderRadius: 999,
+  },
+  planLabel: {
+    flexShrink: 1,
+  },
+  planHint: {
+    textAlign: 'center',
+  },
+  planPressed: {
+    opacity: 0.85,
   },
   weekNav: {
     flexDirection: 'row',

@@ -123,6 +123,18 @@ export const en = {
       '{names} will add nothing to the list. Open a dinner to add its ingredients.',
     makeAnyway: 'Make the list anyway',
   },
+  weekPlanning: {
+    title: 'Plan my week',
+    actionHint: 'Fill your empty days',
+    previewHint: 'A suggestion for your empty days. Existing plans stay as they are. You can move or replace dinners after saving.',
+    needOne: 'Add 1 more different dinner to plan this week.',
+    needMore: 'Add {count} more different dinners to plan this week.',
+    noEmptyDays: 'No empty days left to plan this week.',
+    changed: 'Your dinners or plans have changed. Refresh the suggestions before saving.',
+    refresh: 'Refresh suggestions',
+    shuffle: 'Shuffle',
+    usePlan: 'Use plan',
+  },
   weekBoard: {
     addDinner: 'Add dinner',
     noIngredients: 'No ingredients',

@@ -99,6 +99,8 @@ type WeekBoardProps = {
   onMove: (entryId: string, toDate: string) => void;
   onAdd: (date: string) => void;
   onEdit: (entryId: string) => void;
+  /** A dock below the board already clears the tab bar; avoid reserving that space twice. */
+  bottomContentInset?: number;
 };
 
 /**
@@ -109,7 +111,10 @@ type WeekBoardProps = {
  * Long-press a dinner card to lift and drag it onto another day (the list
  * auto-scrolls when you drag near an edge); a quick tap opens the editor.
  */
-export function WeekBoard({ days, entriesByDate, onMove, onAdd, onEdit }: WeekBoardProps) {
+export function WeekBoard({
+  days, entriesByDate, onMove, onAdd, onEdit,
+  bottomContentInset = BottomTabInset + Spacing.three,
+}: WeekBoardProps) {
   const scrollRef = useAnimatedRef<Animated.ScrollView>();
   const scrollOffset = useScrollViewOffset(scrollRef);
   const layouts: Layouts = useSharedValue<([number, number] | undefined)[]>([]);
@@ -167,7 +172,7 @@ export function WeekBoard({ days, entriesByDate, onMove, onAdd, onEdit }: WeekBo
     <Animated.ScrollView
       ref={scrollRef}
       style={styles.scroll}
-      contentContainerStyle={styles.content}
+      contentContainerStyle={[styles.content, { paddingBottom: bottomContentInset }]}
       scrollEventThrottle={16}
       showsVerticalScrollIndicator={false}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
@@ -499,7 +504,6 @@ const styles = StyleSheet.create({
   },
   content: {
     gap: Spacing.two,
-    paddingBottom: BottomTabInset + Spacing.three,
   },
   section: {
     flexDirection: 'row',

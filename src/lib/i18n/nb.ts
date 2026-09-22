@@ -119,6 +119,18 @@ export const nb: Dictionary = {
       '{names} bidrar ikke med noe til lista. Åpne middagen for å legge til ingredienser.',
     makeAnyway: 'Lag lista likevel',
   },
+  weekPlanning: {
+    title: 'Planlegg uken min',
+    actionHint: 'Fyll de ledige dagene',
+    previewHint: 'Et forslag til de ledige dagene dine. Det du allerede har planlagt, beholdes. Du kan flytte eller bytte middager etter lagring.',
+    needOne: 'Legg til 1 ny middag for å planlegge denne uken.',
+    needMore: 'Legg til {count} nye middager for å planlegge denne uken.',
+    noEmptyDays: 'Ingen ledige dager igjen å planlegge denne uken.',
+    changed: 'Middagene eller ukeplanen din har endret seg. Oppdater forslagene før du lagrer.',
+    refresh: 'Oppdater forslag',
+    shuffle: 'Nytt forslag',
+    usePlan: 'Bruk planen',
+  },
   weekBoard: {
     addDinner: 'Legg til middag',
     noIngredients: 'Ingen ingredienser',
