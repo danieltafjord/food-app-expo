@@ -1,5 +1,5 @@
 import { ApiError } from '@/lib/api/client';
-import { aiRetryDelay, classifyIngredient, needsClassification } from '@/lib/ai-classification';
+import { aiRetryDelay, classifyIngredient, needsClassification, classificationReady, runClassificationJob } from '@/lib/ai-classification';
 import { store$ } from '@/lib/store/collections';
 import { createIngredient, setIngredientCategory } from '@/lib/store/ingredients';
 import type { LocalIngredient } from '@/lib/store/schema';
@@ -10,11 +10,12 @@ beforeEach(() => {
   store$.households.set({});
   store$.meta.localHouseholdId.set('household');
   store$.meta.accountId.set(1);
+  store$.meta.aiClassificationJobs.set({});
 });
 
 function unknownIngredient(): LocalIngredient {
   const id = createIngredient({ name: 'Unfamiliar product xyz' });
-  return { ...store$.ingredients[id].get() };
+  return store$.ingredients[id].get();
 }
 
 it('requests classification only for unknown names without a manual choice', () => {
@@ -80,4 +81,47 @@ it('backs off until UTC midnight after daily quota exhaustion', () => {
   expect(aiRetryDelay(new ApiError(429, ''))).toBe(60_000);
   expect(aiRetryDelay(new Error('Offline'))).toBe(5 * 60_000);
   jest.useRealTimers();
+});
+
+it('accepts equivalent timestamp precision after a sync echo', async () => {
+  const ingredient = unknownIngredient();
+  store$.ingredients[ingredient.id].updated_at.set('2026-09-22T10:00:00.123Z');
+  const request = jest.fn(async () => {
+    store$.ingredients[ingredient.id].set({ ...ingredient, updated_at: '2026-09-22T10:00:00.123000Z' });
+    return { category: 'pantry' };
+  });
+  await expect(classifyIngredient(ingredient, request as SyncRequest, 'en', new AbortController().signal, () => true)).resolves.toBe('applied');
+});
+
+it('retries a stale result for the same name after an unrelated edit', async () => {
+  const ingredient = unknownIngredient();
+  const request = jest.fn(async () => {
+    store$.ingredients[ingredient.id].assign({ default_unit: 'g', updated_at: '2099-01-01T00:00:00Z' });
+    return { category: 'pantry' };
+  });
+  await runClassificationJob(ingredient, request as SyncRequest, 'en', new AbortController().signal, () => true);
+  expect(classificationReady(ingredient, 'en')).toBe(true);
+  expect(store$.ingredients[ingredient.id].category.get()).toBeNull();
+});
+
+it('persists uncertain outcomes and retries them after expiry or an input change', async () => {
+  jest.useFakeTimers().setSystemTime(new Date('2026-09-22T10:00:00Z'));
+  try {
+    const ingredient = unknownIngredient();
+    await runClassificationJob(ingredient, jest.fn().mockResolvedValue({ category: null }) as SyncRequest, 'en', new AbortController().signal, () => true);
+    expect(classificationReady(ingredient, 'en')).toBe(false);
+    expect(classificationReady(ingredient, 'nb')).toBe(true);
+    jest.advanceTimersByTime(24 * 60 * 60_000);
+    expect(classificationReady(ingredient, 'en')).toBe(true);
+  } finally { jest.useRealTimers(); }
+});
+
+it('backs off one failed item without blocking the next ingredient', async () => {
+  const ingredient = unknownIngredient();
+  const otherId = createIngredient({ name: 'Another unfamiliar xyz product' });
+  const error = new ApiError(503, 'unavailable');
+  await expect(runClassificationJob(ingredient, jest.fn().mockRejectedValue(error) as SyncRequest, 'en', new AbortController().signal, () => true)).rejects.toBe(error);
+  expect(classificationReady(ingredient, 'en')).toBe(false);
+  expect(classificationReady(store$.ingredients[otherId].get(), 'en')).toBe(true);
+  expect(aiRetryDelay(new ApiError(429, '', undefined, { code: 'busy' }, 5000))).toBe(5000);
 });

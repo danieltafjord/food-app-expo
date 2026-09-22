@@ -9,6 +9,7 @@ export class ApiError extends Error {
     message: string,
     public readonly errors?: ValidationErrors,
     public readonly body?: unknown,
+    public readonly retryAfterMs?: number,
   ) {
     super(message);
     this.name = 'ApiError';
@@ -78,7 +79,11 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
       ? payload.message
       : `Request failed with status ${response.status}`;
     const errors = hasKey(payload, 'errors') ? (payload.errors as ValidationErrors) : undefined;
-    throw new ApiError(response.status, message, errors, payload);
+    const retryAfter = response.headers.get('Retry-After');
+    const retryAfterMs = retryAfter == null ? undefined : /^\d+$/.test(retryAfter)
+      ? Number(retryAfter) * 1000 : Math.max(0, Date.parse(retryAfter) - Date.now());
+    throw new ApiError(response.status, message, errors, payload,
+      Number.isFinite(retryAfterMs) ? retryAfterMs : undefined);
   }
 
   if (hasKey(payload, 'data')) {

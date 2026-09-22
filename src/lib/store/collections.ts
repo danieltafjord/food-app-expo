@@ -1,6 +1,7 @@
 import { observable } from '@legendapp/state';
 
 import type { Locale } from '@/lib/i18n/locale';
+import type { ClassificationJob } from '@/lib/ai-classification';
 
 import type {
   LocalDinner,
@@ -47,6 +48,7 @@ export const store$ = observable({
      */
     schemaVersion: 0 as number,
     aiDismissedSuggestions: {} as Record<string, string[]>,
+    aiClassificationJobs: {} as Record<string, ClassificationJob>,
     localHouseholdId: '' as string,
     /**
      * The server user id this device's local data is bound to (`null` until an

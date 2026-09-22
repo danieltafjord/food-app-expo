@@ -4,6 +4,10 @@ import type { Dictionary } from './en';
  * compile, keeping it in lockstep with `en.ts`. */
 export const nb: Dictionary = {
   ai: {
+    "noSuggestions": "Ingen nye forslag til denne middagen.",
+    "requestFailed": "Kunne ikke hente forslag. Prøv igjen.",
+    "busy": "Forslagstjenesten er opptatt. Prøv igjen om litt.",
+    "requestSuggestions": "Foreslå ingredienser",
     "settingsTitle": "KI-hjelp",
     "privacy": "Valgfri hjelp, avslått som standard. Når du slår den på, sendes ingrediens- og middagsnavn via serveren vår til OpenRouter og modelltilbyderne deres. Husstanden kan se kategorier og ingredienser du legger til. Listene fungerer fortsatt uten nett.",
     "signIn": "Koble til en konto og husstand for å bruke KI-hjelp.",
@@ -17,7 +21,7 @@ export const nb: Dictionary = {
     "resets": "Dagskvoten fornyes {time}. Lagrede resultater bruker ikke av kvoten.",
     "loadingSettings": "Laster innstillinger…",
     "saveFailed": "Kunne ikke lagre innstillingene. Funksjoner du slo av, forblir av på denne enheten. Prøv igjen for å lagre på alle enheter.",
-    "limitReached": "Forslag er satt på pause. Du kan fortsatt legge til ingredienser selv.",
+    "limitReached": "Dagskvoten for forslag er brukt opp. Prøv igjen når kvoten fornyes.",
     "youCouldAdd": "Du kan legge til",
     "dismiss": "Skjul",
     "add": "Legg til {name}"

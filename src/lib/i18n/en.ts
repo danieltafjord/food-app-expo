@@ -8,6 +8,10 @@
  */
 export const en = {
   ai: {
+    "noSuggestions": "No new suggestions for this dinner.",
+    "requestFailed": "Could not load suggestions. Please try again.",
+    "busy": "Suggestions are busy. Try again shortly.",
+    "requestSuggestions": "Suggest ingredients",
     "settingsTitle": "AI assistance",
     "privacy": "Optional help, off by default. When enabled, ingredient and dinner names are sent through our server to OpenRouter and its model providers. Your household may see categories and ingredients you add. Your lists still work offline.",
     "signIn": "Connect an account and household to use AI assistance.",
@@ -21,7 +25,7 @@ export const en = {
     "resets": "Daily allowance resets {time}. Cached results do not use the allowance.",
     "loadingSettings": "Loading preferences…",
     "saveFailed": "Could not save your preferences. Features you switched off remain off on this device. Retry to save across devices.",
-    "limitReached": "Suggestions are paused for now. You can keep adding ingredients yourself.",
+    "limitReached": "The daily suggestion allowance is used up. Try again after the reset.",
     "youCouldAdd": "You could add",
     "dismiss": "Dismiss",
     "add": "Add {name}"

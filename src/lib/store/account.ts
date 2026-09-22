@@ -64,6 +64,7 @@ function wipeLocalData(): void {
     store$.shoppingListItems.set({});
 
     store$.meta.aiDismissedSuggestions.set({});
+    store$.meta.aiClassificationJobs.set({});
     store$.meta.dirty.set({});
     store$.meta.failed.set({});
     store$.meta.tombstones.set({});

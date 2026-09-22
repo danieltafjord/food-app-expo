@@ -4,6 +4,7 @@ import { useRef } from 'react';
 
 import { useSession } from '@/lib/auth/session';
 import { store$ } from '@/lib/store/collections';
+import { requestAi } from '@/lib/ai-request';
 
 export type AiFeature = 'categorization' | 'suggestions';
 export type AiSettings = {
@@ -29,10 +30,16 @@ export function useAiSettings() {
   const { user, isAuthenticated, request } = useSession();
   const query = useQuery({
     queryKey: aiSettingsKey(user?.id, user?.current_household?.id),
-    queryFn: ({ signal }) => request<AiSettings>('/ai/settings', { signal }),
+    queryFn: ({ signal }) => requestAi<AiSettings>(request, '/ai/settings', { signal }),
     enabled: isAuthenticated && !!user?.current_household,
     retry: false,
     staleTime: 30_000,
+    // Refresh opt-ins changed elsewhere and wake exhausted allowances at reset.
+    refetchInterval: (query) => {
+      const reset = Date.parse(query.state.data?.usage.resets_at ?? '');
+      return Number.isFinite(reset) && reset > Date.now()
+        ? Math.min(60_000, Math.max(1000, reset - Date.now() + 1000)) : 60_000;
+    },
   });
   // A failed opt-out remains effective on this device until saved successfully.
   const paused = useValue(() => store$.settings.aiPaused.get()?.[String(user?.id)]);
@@ -52,7 +59,7 @@ export function useUpdateAiSettings() {
   const latest = useRef(0);
   return useMutation({
     scope: { id: `ai-settings-${account}` },
-    mutationFn: (input: AiPreferences) => request<AiSettings>('/ai/settings', { method: 'PATCH', body: input }),
+    mutationFn: (input: AiPreferences) => requestAi<AiSettings>(request, '/ai/settings', { method: 'PATCH', body: input }),
     onMutate: async (input) => {
       const revision = ++latest.current;
       store$.settings.aiPaused[account].set({

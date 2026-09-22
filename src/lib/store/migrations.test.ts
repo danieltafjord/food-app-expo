@@ -44,7 +44,7 @@ describe('migrate — v0 → v1 (backfill timestamps)', () => {
 
   it('replaces the timestamp cursor with the integer cursor and household binding', () => {
     const out = migrate({ meta: { lastSync: 'x', accountId: 3 }, dinners: {} }, 0) as Record<string, any>;
-    expect(out.meta).toEqual({ accountId: 3, cursor: null, serverHouseholdId: null, failed: {} });
+    expect(out.meta).toEqual({ accountId: 3, cursor: null, serverHouseholdId: null, failed: {}, aiClassificationJobs: {} });
   });
 });
 

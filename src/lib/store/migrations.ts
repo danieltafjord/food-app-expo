@@ -119,7 +119,12 @@ function v3_recoverOutbox(data: Json): Json {
 }
 
 /** Ordered migrations. Append a new function to bump the schema version by one. */
-const MIGRATIONS: Migration[] = [v0_backfillTimestamps, v1_categorizeIngredients, v2_integerCursor, v3_recoverOutbox];
+const MIGRATIONS: Migration[] = [v0_backfillTimestamps, v1_categorizeIngredients, v2_integerCursor, v3_recoverOutbox,
+  (data) => {
+    ((data.meta ??= {}) as Json).aiClassificationJobs ??= {};
+    return data;
+  },
+];
 
 export const CURRENT_SCHEMA_VERSION = MIGRATIONS.length;
 
