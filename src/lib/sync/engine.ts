@@ -86,8 +86,9 @@ const CHUNK_ROWS = 300;
  */
 const INITIAL_SYNC_DELAY_MS = 1200;
 
-/** The seven syncable collections, mapped to their server payload keys, in dependency order. */
+/** The syncable collections, mapped to their server payload keys, in dependency order. */
 export const SYNCABLE = [
+  { collection: 'dinnerCategories', serverKey: 'dinner_categories', household: true, parentOf: [] },
   { collection: 'ingredients', serverKey: 'ingredients', household: true, parentOf: ['dinnerItems:ingredient_id', 'shoppingListItems:ingredient_id'] },
   { collection: 'dinners', serverKey: 'dinners', household: true, parentOf: ['dinnerItems:dinner_id', 'planEntries:dinner_id'] },
   { collection: 'dinnerItems', serverKey: 'dinner_items', household: false, parentOf: [] },
@@ -782,6 +783,11 @@ function applyRemote(changes: Record<string, ServerRow[]>): number {
           if (store$.meta.tombstones[collection][uuid].get()) continue;
 
           if (row.deleted_at != null) {
+            if (collection === 'dinnerCategories') {
+              for (const dinner of Object.values(store$.dinners.peek())) {
+                if (dinner.category === uuid) store$.dinners[dinner.id].category.set(null);
+              }
+            }
             if (node(collection)[uuid].get()) node(collection)[uuid].delete();
             // Mirror the local cascade so no orphaned children linger.
             for (const link of parentOf) {
@@ -801,6 +807,8 @@ function applyRemote(changes: Record<string, ServerRow[]>): number {
           // Match the local schema: drop the server-only `deleted_at` and
           // re-stamp the local household id on the household-scoped rows.
           const local: Record<string, unknown> = { ...row };
+          // Older servers omit categories. Preserve local edits during rollout.
+          if (collection === 'dinners' && !('category' in local)) local.category = existing?.category ?? null;
           delete local.deleted_at;
           if (household) local.household_id = getLocalHouseholdId();
           // The server echoes the rows this device just pushed. Writing an

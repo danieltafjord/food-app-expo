@@ -12,6 +12,7 @@ jest.mock('react-native', () => ({
 import { ApiError } from '@/lib/api/client';
 import { setupAccount } from '@/lib/auth/account-setup';
 import { store$ } from '@/lib/store/collections';
+import { saveDinnerCategory } from '@/lib/store/dinner-categories';
 import { createDinner, deleteDinner, setDinnerItems } from '@/lib/store/dinners';
 import { createIngredient, deleteIngredient } from '@/lib/store/ingredients';
 import { addShoppingItem, createShoppingList } from '@/lib/store/shopping-lists';
@@ -75,6 +76,7 @@ function resetStore() {
     households: {
       'local-h': { id: 'local-h', name: 'My Kitchen', default_servings: 2, created_at: 'x', updated_at: 'x' },
     },
+    dinnerCategories: {},
     ingredients: {},
     dinners: {},
     dinnerItems: {},
@@ -753,4 +755,58 @@ it('retains rejected content and its error when an old item identity is redirect
   expect(store$.dinnerItems.canonical.ingredient_id.get()).toBe('missing');
   expect(getSyncFailures()).toEqual([expect.objectContaining({ id: 'canonical', message: 'Missing ingredient' })]);
   expect(hasPending()).toBe(true);
+});
+
+it('round trips category edits and explicit clearing through sync', async () => {
+  ensureChangeTracking();
+  const id = createDinner({ name: 'Soup', category: 'vegetarian' });
+  const server = fakeServer();
+  await connect(server);
+  const upload = server.calls.find((call) => call.body?.changes?.dinners?.some((row: any) => row.id === id));
+  expect(upload?.body.changes.dinners[0].category).toBe('vegetarian');
+  const row = { ...store$.dinners[id].peek(), category: null };
+  server.handlers.push(() => ({ ...emptySync(), changes: { dinners: [row] } }));
+  await syncNow();
+  expect(store$.dinners[id].category.peek()).toBeNull();
+});
+
+it('accepts old-server dinner rows without discarding a locally known category', async () => {
+  const id = createDinner({ name: 'Soup', category: 'vegetarian' });
+  const server = fakeServer();
+  await connect(server);
+  const { category: _category, ...row } = store$.dinners[id].peek();
+  server.handlers.push(() => ({ ...emptySync(), changes: { dinners: [{ ...row, name: 'Renamed soup' }] } }));
+  await syncNow();
+  expect(store$.dinners[id].peek()).toMatchObject({ name: 'Renamed soup', category: 'vegetarian' });
+});
+
+it('uploads custom categories with their recipes and receives shared renames', async () => {
+  ensureChangeTracking();
+  const category = saveDinnerCategory('Quick')!;
+  const dinner = createDinner({ name: 'Soup', category });
+  const server = fakeServer();
+  await connect(server);
+  const upload = server.calls.find((call) => call.body?.changes?.dinner_categories?.length);
+  expect(upload?.body.changes.dinner_categories[0]).toMatchObject({ id: category, name: 'Quick' });
+  expect(upload?.body.changes.dinners[0]).toMatchObject({ id: dinner, category });
+  server.handlers.push(() => ({ ...emptySync(), changes: { dinner_categories: [
+    { ...store$.dinnerCategories[category].peek(), name: 'Weeknight' },
+  ] } }));
+  await syncNow();
+  expect(store$.dinnerCategories[category].name.get()).toBe('Weeknight');
+  expect(store$.dinners[dinner].category.get()).toBe(category);
+});
+
+it('clears a remotely deleted category while retaining a recipe edit made during sync', async () => {
+  const category = saveDinnerCategory('Quick')!;
+  const dinner = createDinner({ name: 'Soup', category });
+  const server = fakeServer();
+  await connect(server);
+  server.handlers.push(() => {
+    store$.dinners[dinner].assign({ name: 'My soup', updated_at: '2030-01-01T00:00:00Z' });
+    return { ...emptySync(), changes: { dinner_categories: [{ id: category, deleted_at: '2026-09-24T10:00:00Z' }] } };
+  });
+  await syncNow();
+  expect(store$.dinnerCategories[category].get()).toBeUndefined();
+  expect(store$.dinners[dinner].get()).toMatchObject({ name: 'My soup', category: null });
 });

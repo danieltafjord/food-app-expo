@@ -29,6 +29,7 @@ export const Colors = {
     accent: '#E73722', // tomato, from the app icon
     accentSoft: '#fde6e1',
     danger: '#dc2626', // red-600
+    scrim: 'rgba(0, 0, 0, 0.45)',
   },
   dark: {
     text: '#fafafa', // neutral-50
@@ -43,6 +44,7 @@ export const Colors = {
     accent: '#ff5a43', // tomato, brightened for dark surfaces
     accentSoft: '#3a1a14',
     danger: '#f87171', // red-400
+    scrim: 'rgba(0, 0, 0, 0.6)',
   },
 } as const;
 

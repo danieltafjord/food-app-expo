@@ -25,6 +25,7 @@ type Migration = (data: Json) => Json;
 const COLLECTIONS = [
   'households',
   'ingredients',
+  'dinnerCategories',
   'dinners',
   'dinnerItems',
   'dinnerPlans',
@@ -122,6 +123,18 @@ function v3_recoverOutbox(data: Json): Json {
 const MIGRATIONS: Migration[] = [v0_backfillTimestamps, v1_categorizeIngredients, v2_integerCursor, v3_recoverOutbox,
   (data) => {
     ((data.meta ??= {}) as Json).aiClassificationJobs ??= {};
+    return data;
+  },
+  (data) => {
+    for (const row of Object.values((data.dinners ?? {}) as Rows)) {
+      if (row && typeof row === 'object') row.category ??= null;
+    }
+    return data;
+  },
+  (data) => {
+    data.dinnerCategories ??= {};
+    // Pull the catalogue even when categories predate this device upgrade.
+    ((data.meta ??= {}) as Json).cursor = null;
     return data;
   },
 ];

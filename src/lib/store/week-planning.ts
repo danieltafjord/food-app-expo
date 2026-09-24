@@ -1,22 +1,24 @@
 import { batch } from '@legendapp/state';
 import { useValue } from '@legendapp/state/react';
 
+import { dinnerCategory, type DinnerCategory } from '@/lib/dinner-categories';
 import { addDays, dateKeyOf, fromDateKey, toDateKey } from '@/lib/week';
 import { store$ } from './collections';
 import { createPlanEntry, ensurePlanForWeek } from './plans';
 
-type Candidate = { id: string; name: string; servings: number; weight: number };
+type Candidate = { id: string; name: string; servings: number; weight: number; category: DinnerCategory | null };
 export type WeekPlanningContext = {
   weekStart: string;
   dates: string[];
   candidates: Candidate[];
+  categoryCounts: Partial<Record<DinnerCategory, number>>;
   missing: number;
   key: string;
 };
 export type WeekDraft = {
   weekStart: string;
   contextKey: string;
-  entries: { date: string; dinnerId: string; name: string; servings: number }[];
+  entries: { date: string; dinnerId: string; name: string; servings: number; category: DinnerCategory | null }[];
 };
 
 const dinnerNameKey = (name: string) => name.trim().normalize('NFKC').toLowerCase();
@@ -40,6 +42,12 @@ export function getWeekPlanningContext(
   const weekEntries = entries.filter((entry) => days.includes(dateKeyOf(entry.scheduled_date)));
   const occupied = new Set(weekEntries.map((entry) => dateKeyOf(entry.scheduled_date)));
   const usedIds = new Set(weekEntries.map((entry) => entry.dinner_id));
+  const categoryCounts: Partial<Record<DinnerCategory, number>> = {};
+  const categoriesById = new Map(dinners.map((dinner) => [dinner.id, dinnerCategory(dinner.category)]));
+  for (const entry of weekEntries) {
+    const category = categoriesById.get(entry.dinner_id);
+    if (category) categoryCounts[category] = (categoryCounts[category] ?? 0) + 1;
+  }
   const usedNames = new Set(
     dinners.filter((dinner) => usedIds.has(dinner.id)).map((dinner) => dinnerNameKey(dinner.name)),
   );
@@ -66,6 +74,7 @@ export function getWeekPlanningContext(
       id: dinner.id,
       name: dinner.name,
       servings: dinner.default_servings,
+      category: dinnerCategory(dinner.category),
       // Weighted sampling keeps recent dinners possible, while favouring variety.
       weight: Math.max(1, Math.min(60, daysSince)),
     });
@@ -74,13 +83,15 @@ export function getWeekPlanningContext(
     weekStart,
     dates,
     candidates,
+    categoryCounts,
     missing: Math.max(0, dates.length - candidates.length),
     key: JSON.stringify([
       householdId,
       store$.meta.accountId.get(),
       weekStart,
       dates,
-      candidates.map(({ id, name, servings }) => [id, name, servings]),
+      candidates.map(({ id, name, servings, category, weight }) => [id, name, servings, category, weight]),
+      categoryCounts,
     ]),
   };
 }
@@ -97,14 +108,22 @@ export function suggestWeek(
   if (!context.dates.length || context.missing > 0) return null;
   const pool = [...context.candidates];
   const selected: Candidate[] = [];
+  const categoryCounts = { ...context.categoryCounts };
   for (let day = 0; day < context.dates.length; day += 1) {
-    let remaining = random() * pool.reduce((sum, dinner) => sum + dinner.weight, 0);
+    // A soft preference: repeated categories remain eligible. Unclassified
+    // dinners and the catch-all are neutral, so categorization is never required.
+    const weights = pool.map((dinner) => dinner.weight / (
+      dinner.category && dinner.category !== 'other' ? 1 + (categoryCounts[dinner.category] ?? 0) : 1
+    ));
+    let remaining = random() * weights.reduce((sum, weight) => sum + weight, 0);
     let index = 0;
-    while (index < pool.length - 1 && remaining >= pool[index].weight) {
-      remaining -= pool[index].weight;
+    while (index < pool.length - 1 && remaining >= weights[index]) {
+      remaining -= weights[index];
       index += 1;
     }
-    selected.push(pool.splice(index, 1)[0]);
+    const dinner = pool.splice(index, 1)[0];
+    selected.push(dinner);
+    if (dinner.category) categoryCounts[dinner.category] = (categoryCounts[dinner.category] ?? 0) + 1;
   }
   // Randomise days too: the highest-weight choice needn't always be Monday.
   for (let i = selected.length - 1; i > 0; i -= 1) {
@@ -125,6 +144,7 @@ export function suggestWeek(
       dinnerId: dinner.id,
       name: dinner.name,
       servings: dinner.servings,
+      category: dinner.category,
     })),
   };
 }
@@ -143,7 +163,7 @@ export function applyWeekDraft(
     || draft.entries.some((entry, index) => {
       const dinner = candidates.get(entry.dinnerId);
       return entry.date !== context.dates[index] || !dinner
-        || entry.name !== dinner.name || entry.servings !== dinner.servings;
+        || entry.name !== dinner.name || entry.servings !== dinner.servings || entry.category !== dinner.category;
     })) return false;
 
   batch(() => {

@@ -195,3 +195,15 @@ it('preserves distinct unit rows when replacing the full recipe ingredient set',
   expect(itemsOf(id).map((item) => item.id).sort()).toEqual(ids);
   expect(itemsOf(id)).toHaveLength(2);
 });
+
+it('stores, preserves and clears categories without changing recipe ingredients', () => {
+  const id = createDinner({ name: 'Soup' });
+  expect(getDinner(id)?.category).toBeNull();
+  setDinnerItems(id, [{ ingredient_id: 'beans', quantity: 200, unit: 'g' }]);
+  const items = itemsOf(id);
+  patchDinner(id, { category: 'vegetarian' });
+  patchDinner(id, { notes: 'Serve hot' });
+  expect(getDinner(id)).toMatchObject({ category: 'vegetarian', notes: 'Serve hot', items });
+  patchDinner(id, { category: null });
+  expect(getDinner(id)).toMatchObject({ category: null, items });
+});

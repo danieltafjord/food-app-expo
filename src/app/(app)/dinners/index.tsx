@@ -1,8 +1,10 @@
+import { useDinnerCategoryLabel } from '@/lib/store/dinner-categories';
 import { useMemo, useRef, useState } from 'react';
 import { FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 
 import { EmptyState } from '@/components/empty-state';
+import { DinnerCategorySelect } from '@/components/dinner-category-select';
 import { Icon } from '@/components/icon';
 import { SwipeToDelete } from '@/components/swipe-to-delete';
 import { TextField } from '@/components/text-field';
@@ -11,9 +13,10 @@ import { ThemedView } from '@/components/themed-view';
 import { BadgeColors, BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useSyncRefresh } from '@/hooks/use-sync-refresh';
 import { useResolvedScheme, useTheme } from '@/hooks/use-theme';
+import { dinnerCategory, searchDinners, type DinnerCategoryFilter } from '@/lib/dinner-categories';
 import { useT } from '@/lib/i18n';
 import { pushOnce } from '@/lib/navigation';
-import { findExact, indexByName, searchIndex } from '@/lib/search';
+import { indexByName } from '@/lib/search';
 import { createDinner, deleteDinner, useDinners, type DinnerWithItems } from '@/lib/store';
 import { deleteWithUndo, useHiddenIds } from '@/lib/undo';
 
@@ -30,6 +33,7 @@ const FADE_OUT = FadeOut.duration(SWAP);
  */
 export default function DinnersScreen() {
   const t = useT();
+  const categoryLabel = useDinnerCategoryLabel();
   const theme = useTheme();
   const brand = BadgeColors[useResolvedScheme()].brand;
   const hidden = useHiddenIds();
@@ -40,14 +44,14 @@ export default function DinnersScreen() {
   );
   const { refreshing, onRefresh } = useSyncRefresh();
   const [query, setQuery] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState<DinnerCategoryFilter>('all');
   // One create per typed name — a "done" + tap double-fire would otherwise
   // create two dinners with the same name.
   const created = useRef(false);
 
   const index = useMemo(() => indexByName(dinners, (dinner) => dinner.name), [dinners]);
   const trimmed = query.trim();
-  const results = useMemo(() => searchIndex(index, trimmed), [index, trimmed]);
-  const exact = useMemo(() => findExact(index, trimmed), [index, trimmed]);
+  const { results, exact } = useMemo(() => searchDinners(index, trimmed, categoryFilter), [index, trimmed, categoryFilter]);
   const action: 'idle' | 'create' | 'open' = !trimmed ? 'idle' : exact ? 'open' : 'create';
   const idle = action === 'idle';
 
@@ -58,7 +62,7 @@ export default function DinnersScreen() {
   function onCreate() {
     if (action !== 'create' || created.current) return;
     created.current = true;
-    const id = createDinner({ name: trimmed });
+    const id = createDinner({ name: trimmed, category: dinnerCategory(categoryFilter) });
     setQuery('');
     openDinner(id);
   }
@@ -86,9 +90,9 @@ export default function DinnersScreen() {
         : t('dinners.idleTitle');
   const actionHint =
     action === 'create'
-      ? t('dinners.createHint')
+      ? t('dinnerCategories.createHint', { category: categoryLabel(dinnerCategory(categoryFilter) ?? 'none') })
       : action === 'open'
-        ? t('dinners.openHint')
+        ? t('dinnerCategories.existingHint', { category: categoryLabel(dinnerCategory(exact?.category) ?? 'none') })
         : t('dinners.idleHint');
 
   return (
@@ -127,6 +131,7 @@ export default function DinnersScreen() {
               submitBehavior="submit"
               onSubmitEditing={onSubmit}
             />
+            <DinnerCategorySelect filter value={categoryFilter} onChange={setCategoryFilter} />
             <View style={styles.actionSlot}>
               <Animated.View
                 key={action}
@@ -173,7 +178,14 @@ export default function DinnersScreen() {
           </View>
         }
         ListEmptyComponent={
-          trimmed ? (
+          categoryFilter !== 'all' ? (
+            <View style={{ gap: Spacing.two }}>
+              <ThemedText themeColor="textSecondary">{t('dinnerCategories.noMatches')}</ThemedText>
+              <Pressable accessibilityRole="button" style={{ minHeight: 44, justifyContent: 'center' }} onPress={() => setCategoryFilter('all')}>
+                <ThemedText style={{ color: theme.tint }}>{t('dinnerCategories.clearFilter')}</ThemedText>
+              </Pressable>
+            </View>
+          ) : trimmed ? (
             <ThemedText themeColor="textSecondary">{t('dinners.noMatches')}</ThemedText>
           ) : (
             <EmptyState icon="fork.knife" title={t('dinners.emptyTitle')} message={t('dinners.empty')} />
@@ -197,9 +209,11 @@ type DinnerRowProps = {
 
 function DinnerRow({ dinner, first, last, onPress, onDelete }: DinnerRowProps) {
   const t = useT();
+  const categoryLabel = useDinnerCategoryLabel();
   const theme = useTheme();
   const warning = BadgeColors[useResolvedScheme()].warning;
   const count = dinner.items.length;
+  const category = dinnerCategory(dinner.category);
   return (
     // Clipped so the sliding row keeps the card's rounded corners.
     <View style={[first && styles.rowFirst, last && styles.rowLast, styles.clip]}>
@@ -216,11 +230,11 @@ function DinnerRow({ dinner, first, last, onPress, onDelete }: DinnerRowProps) {
             <ThemedText numberOfLines={1}>{dinner.name}</ThemedText>
             {count === 0 ? (
               <ThemedText type="small" style={{ color: warning.fg }}>
-                {t('weekBoard.noIngredients')} · {dinner.default_servings} {t('common.servings')}
+                {category ? `${categoryLabel(category)} · ` : ''}{t('weekBoard.noIngredients')} · {dinner.default_servings} {t('common.servings')}
               </ThemedText>
             ) : (
               <ThemedText type="small" themeColor="textSecondary">
-                {count} {count === 1 ? t('common.ingredient') : t('common.ingredients')} ·{' '}
+                {category ? `${categoryLabel(category)} · ` : ''}{count} {count === 1 ? t('common.ingredient') : t('common.ingredients')} ·{' '}
                 {dinner.default_servings} {t('common.servings')}
               </ThemedText>
             )}

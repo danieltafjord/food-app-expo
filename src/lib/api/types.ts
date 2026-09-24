@@ -42,6 +42,7 @@ export type DinnerPlanEntry = {
   id: number;
   dinner_id: number;
   dinner_name: string | null;
+  dinner_category: string | null;
   scheduled_date: string;
   servings: number;
   meal_type: MealType;
@@ -76,6 +77,7 @@ export type Dinner = {
   name: string;
   default_servings: number;
   notes: string | null;
+  category: string | null;
   items: DinnerItem[];
 };
 

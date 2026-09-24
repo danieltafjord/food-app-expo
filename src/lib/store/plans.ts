@@ -68,6 +68,7 @@ const planEntriesFor = derivedById((planId): PlanEntryWithDinner[] => {
     .map((e) => ({
       ...e,
       dinner_name: dinners[e.dinner_id]?.name ?? null,
+      dinner_category: dinners[e.dinner_id]?.category ?? null,
       ingredient_count: counts.get(e.dinner_id) ?? 0,
     }))
     .sort((a, b) => compareIso(a.created_at, b.created_at));
@@ -75,7 +76,7 @@ const planEntriesFor = derivedById((planId): PlanEntryWithDinner[] => {
   const key = entries
     .map(
       (e) =>
-        `${e.id}|${e.scheduled_date}|${e.servings}|${e.meal_type}|${e.dinner_id}|${e.dinner_name}|${e.ingredient_count}|${e.notes ?? ''}`,
+        `${e.id}|${e.scheduled_date}|${e.servings}|${e.meal_type}|${e.dinner_id}|${e.dinner_name}|${e.dinner_category ?? ''}|${e.ingredient_count}|${e.notes ?? ''}`,
     )
     .join(';');
   const cached = planEntriesCache.get(planId);
@@ -98,6 +99,7 @@ export function usePlanEntry(entryId: string | undefined): PlanEntryWithDinner |
     return {
       ...entry,
       dinner_name: store$.dinners.get()[entry.dinner_id]?.name ?? null,
+      dinner_category: store$.dinners.get()[entry.dinner_id]?.category ?? null,
       ingredient_count: countItemsByDinner().get(entry.dinner_id) ?? 0,
     };
   });

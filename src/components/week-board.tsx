@@ -1,3 +1,4 @@
+import { useDinnerCategoryLabel } from '@/lib/store/dinner-categories';
 /*
  * Drag coordination uses Reanimated shared values created in WeekBoard and passed down
  * so sections and dinner cards share one drag state. They are stable mutable refs, so
@@ -43,6 +44,7 @@ import { useResolvedScheme, useTheme } from '@/hooks/use-theme';
 import { BadgeColors, BottomTabInset, Spacing } from '@/constants/theme';
 import { hapticDrop, hapticLift } from '@/lib/haptics';
 import { useT } from '@/lib/i18n';
+import { dinnerCategory } from '@/lib/dinner-categories';
 import type { PlanEntryWithDinner } from '@/lib/store';
 import type { WeekDay } from '@/lib/week';
 
@@ -367,6 +369,7 @@ const DraggableDinnerCard = memo(function DraggableDinnerCard({
   onEdit,
 }: DraggableDinnerCardProps) {
   const t = useT();
+  const categoryLabel = useDinnerCategoryLabel();
   const theme = useTheme();
   const scheme = useResolvedScheme();
   const warning = BadgeColors[scheme].warning;
@@ -374,6 +377,7 @@ const DraggableDinnerCard = memo(function DraggableDinnerCard({
   // grey in dark mode; border + soft shadow give it depth.
   const cardBg = scheme === 'dark' ? theme.backgroundElement : theme.background;
   const count = entry.ingredient_count;
+  const category = dinnerCategory(entry.dinner_category);
   const entryId = entry.id; // worklets capture this primitive, never the entry object
   // Drag is vertical-only (day to day), so the card never slides past the
   // list's side edges and get clipped.
@@ -466,12 +470,12 @@ const DraggableDinnerCard = memo(function DraggableDinnerCard({
           {count === 0 ? (
             <View style={[styles.warn, { backgroundColor: warning.bg }]}>
               <ThemedText type="small" style={{ color: warning.fg }} numberOfLines={1}>
-                {t('weekBoard.noIngredients')}
+                {t('weekBoard.noIngredients')}{category ? ` · ${categoryLabel(category)}` : ''}
               </ThemedText>
             </View>
           ) : (
             <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
-              {count} {count === 1 ? t('common.ingredient') : t('common.ingredients')}
+              {category ? `${categoryLabel(category)} · ` : ''}{count} {count === 1 ? t('common.ingredient') : t('common.ingredients')}
             </ThemedText>
           )}
         </View>

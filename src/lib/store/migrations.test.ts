@@ -19,7 +19,7 @@ describe('migrate — v0 → v1 (backfill timestamps)', () => {
   it('leaves rows that already have both timestamps untouched', () => {
     const row = { id: 'd1', name: 'Taco', created_at: 'A', updated_at: 'B' };
     const out = migrate({ dinners: { d1: { ...row } } }, 0) as Record<string, any>;
-    expect(out.dinners.d1).toEqual(row);
+    expect(out.dinners.d1).toEqual({ ...row, category: null });
   });
 
   it('walks every entity collection', () => {
@@ -109,4 +109,26 @@ it('recovers ghost outbox flags without dropping pending edits and preserves leg
   expect(out.meta.tombstones.dinners).toEqual({ deleted: 'now' });
   expect(out.meta.failed).toEqual({});
   expect(out.shoppingListItems.legacy.is_generated).toBe(false);
+});
+
+it('upgrades existing dinners without changing existing categories or marking them edited', () => {
+  const data = { dinners: {
+    old: { id: 'old', updated_at: 'old-time' },
+    categorized: { id: 'categorized', category: 'fish', updated_at: 'old-time' },
+    future: { id: 'future', category: 'future-category' },
+  }, meta: { dirty: { dinners: { old: true } } } };
+  const migrated = migrate(data, 5) as typeof data & { dinners: { old: { category: null } } };
+  expect(migrated.dinners.old).toEqual({ id: 'old', category: null, updated_at: 'old-time' });
+  expect(migrated.dinners.categorized.category).toBe('fish');
+  expect(migrated.dinners.future.category).toBe('future-category');
+  expect(migrated.meta.dirty).toEqual({ dinners: { old: true } });
+});
+
+it('adds a persisted category catalogue and refreshes the household cursor on upgrade', () => {
+  const snapshot = { meta: { cursor: 200, dirty: { dinners: { d1: true } } }, dinners: { d1: { category: 'fish' } } };
+  const migrated = migrate(snapshot, 6) as typeof snapshot & { dinnerCategories: object };
+  expect(migrated.dinnerCategories).toEqual({});
+  expect(migrated.meta.cursor).toBeNull();
+  expect(migrated.meta.dirty.dinners.d1).toBe(true);
+  expect(migrated.dinners.d1.category).toBe('fish');
 });

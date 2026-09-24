@@ -5,6 +5,7 @@ import type { ClassificationJob } from '@/lib/ai-classification';
 
 import type {
   LocalDinner,
+  LocalDinnerCategory,
   LocalDinnerItem,
   LocalDinnerPlan,
   LocalHousehold,
@@ -85,6 +86,7 @@ export const store$ = observable({
   },
   households: {} as Record<string, LocalHousehold>,
   ingredients: {} as Record<string, LocalIngredient>,
+  dinnerCategories: {} as Record<string, LocalDinnerCategory>,
   dinners: {} as Record<string, LocalDinner>,
   dinnerItems: {} as Record<string, LocalDinnerItem>,
   dinnerPlans: {} as Record<string, LocalDinnerPlan>,

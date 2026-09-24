@@ -2,6 +2,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 
+import { DinnerCategorySelect } from '@/components/dinner-category-select';
 import { Button } from '@/components/button';
 import { Card } from '@/components/card';
 import { HeaderMenu, MenuAction } from '@/components/header-menu';
@@ -14,6 +15,7 @@ import { ThemedText } from '@/components/themed-text';
 import { UnitChips } from '@/components/unit-chips';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { dinnerCategory } from '@/lib/dinner-categories';
 import { useT } from '@/lib/i18n';
 import { amountText, isAmountValid, parseAmount } from '@/lib/parse-line';
 import { openIngredientPicker, type IngredientPick } from '@/lib/sheets';
@@ -130,6 +132,8 @@ function DinnerEditorForm({ dinner }: { dinner: DinnerWithItems }) {
               returnKeyType="done"
               style={[styles.nameInput, { color: theme.text }]}
             />
+            <DinnerCategorySelect value={dinnerCategory(dinner.category) ?? 'none'}
+              onChange={(value) => patchDinner(dinner.id, { category: dinnerCategory(value) })} />
             <Card style={styles.servingsRow}>
               <ThemedText style={styles.servingsLabel}>{t('dinners.recipeServings')}</ThemedText>
               <Stepper
@@ -231,6 +235,7 @@ function DinnerEditorForm({ dinner }: { dinner: DinnerWithItems }) {
             </View>
             <IngredientSuggestions
               dinnerId={dinner.id}
+              category={dinnerCategory(dinner.category)}
               name={name}
               ingredients={items.map((item) => item.ingredient_name)}
               onAdd={(suggestion) => {

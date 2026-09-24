@@ -1,3 +1,4 @@
+import { useDinnerCategoryLabel } from '@/lib/store/dinner-categories';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useRef, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
@@ -33,6 +34,7 @@ export default function PlanWeekSheet() {
 
 function WeekPreview({ weekStart }: { weekStart: string }) {
   const t = useT();
+  const categoryLabel = useDinnerCategoryLabel();
   const theme = useTheme();
   const locale = useLocale();
   const context = useWeekPlanningContext(weekStart);
@@ -93,6 +95,7 @@ function WeekPreview({ weekStart }: { weekStart: string }) {
                   <View style={styles.dinner}>
                     <ThemedText type="smallBold">{entry.name}</ThemedText>
                     <ThemedText type="small" themeColor="textSecondary">
+                      {entry.category ? `${categoryLabel(entry.category)} · ` : ''}
                       {entry.servings} {t('common.servings')}
                     </ThemedText>
                   </View>

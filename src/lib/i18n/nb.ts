@@ -9,7 +9,7 @@ export const nb: Dictionary = {
     "busy": "Forslagstjenesten er opptatt. Prøv igjen om litt.",
     "requestSuggestions": "Foreslå ingredienser",
     "settingsTitle": "KI-hjelp",
-    "privacy": "Valgfri hjelp, avslått som standard. Når du slår den på, sendes ingrediens- og middagsnavn via serveren vår til OpenRouter og modelltilbyderne deres. Husstanden kan se kategorier og ingredienser du legger til. Listene fungerer fortsatt uten nett.",
+    "privacy": "Valgfri hjelp, avslått som standard. Når du slår den på, sendes ingrediens- og middagsnavn og valgt middagskategori via serveren vår til OpenRouter og modelltilbyderne deres. Husstanden kan se kategorier og ingredienser du legger til. Listene fungerer fortsatt uten nett.",
     "signIn": "Koble til en konto og husstand for å bruke KI-hjelp.",
     "categorization": "Kategoriser ukjente varer",
     "categorizationHint": "Finn en kategori når den lokale ordlisten ikke kjenner varen. Dine rettelser beholdes alltid.",
@@ -134,6 +134,16 @@ export const nb: Dictionary = {
   weekBoard: {
     addDinner: 'Legg til middag',
     noIngredients: 'Ingen ingredienser',
+  },
+  dinnerCategories: {
+    add: 'Legg til kategori', manage: 'Administrer kategorier', rename: 'Endre kategorinavn', delete: 'Slett kategori',
+    name: 'Kategorinavn', shared: 'Egne kategorier deles med husstanden din.',
+    duplicate: 'En kategori med dette navnet finnes allerede.', editNamed: 'Rediger {name}',
+    deleteMessage: 'Slette «{name}» for alle i husstanden? Middagene beholdes uten kategori.',
+    label: 'Kategori', optional: 'Kategori · valgfritt', all: 'Alle kategorier',
+    none: 'Ingen kategori', meat: 'Kjøtt', fish: 'Fisk og sjømat', vegetarian: 'Vegetar', other: 'Annet',
+    noMatches: 'Ingen middager passer i denne kategorien.', clearFilter: 'Vis alle kategorier',
+    createHint: 'Ny middag · {category}', existingHint: 'Allerede lagret · {category}',
   },
   dinnerPicker: {
     searchOrCreate: 'Søk eller opprett',

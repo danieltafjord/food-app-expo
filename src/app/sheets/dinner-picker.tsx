@@ -1,17 +1,20 @@
+import { useDinnerCategoryLabel } from '@/lib/store/dinner-categories';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useMemo, useRef, useState } from 'react';
 import { FlatList, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 
+import { DinnerCategorySelect } from '@/components/dinner-category-select';
 import { Icon } from '@/components/icon';
 import { SheetScreen } from '@/components/sheet';
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
 import { BadgeColors, Spacing } from '@/constants/theme';
 import { useResolvedScheme, useTheme } from '@/hooks/use-theme';
+import { dinnerCategory, matchesDinnerCategory, searchDinners, type DinnerCategoryFilter } from '@/lib/dinner-categories';
 import { formatDate, formatDay } from '@/lib/format';
 import { useT, type TFunction } from '@/lib/i18n';
-import { findExact, indexByName, searchIndex } from '@/lib/search';
+import { indexByName } from '@/lib/search';
 import {
   createDinner,
   createPlanEntry,
@@ -57,12 +60,14 @@ function recencyLabel(t: TFunction, lastPlanned: string | null, todayMs: number)
  */
 export default function DinnerPickerSheet() {
   const t = useT();
+  const categoryLabel = useDinnerCategoryLabel();
   const theme = useTheme();
   const brand = BadgeColors[useResolvedScheme()].brand;
   const locale = useLocale();
   const { date } = useLocalSearchParams<{ date: string }>();
   const dinners = useDinnerOptions();
   const [query, setQuery] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState<DinnerCategoryFilter>('all');
   // One create per typed name — a "done" + tap double-fire would otherwise
   // create two dinners with the same name.
   const created = useRef(false);
@@ -71,13 +76,12 @@ export default function DinnerPickerSheet() {
   // Fold every name once per store change, not once per keystroke.
   const index = useMemo(() => indexByName(dinners, (dinner) => dinner.name), [dinners]);
   const trimmed = query.trim();
-  const results = useMemo(() => searchIndex(index, trimmed), [index, trimmed]);
-  const exact = useMemo(() => findExact(index, trimmed), [index, trimmed]);
+  const { results, exact } = useMemo(() => searchDinners(index, trimmed, categoryFilter), [index, trimmed, categoryFilter]);
   const action: 'idle' | 'create' | 'add' = !trimmed ? 'idle' : exact ? 'add' : 'create';
   // The options are already recency-ordered; the chips are the planned head of it.
   const recent = useMemo(
-    () => dinners.filter((d) => d.last_planned).slice(0, RECENT_COUNT),
-    [dinners],
+    () => dinners.filter((d) => d.last_planned && matchesDinnerCategory(d.category, categoryFilter)).slice(0, RECENT_COUNT),
+    [dinners, categoryFilter],
   );
   const todayMs = fromDateKey(toDateKey(new Date())).getTime();
 
@@ -104,7 +108,7 @@ export default function DinnerPickerSheet() {
   function onCreate() {
     if (action !== 'create' || created.current) return;
     created.current = true;
-    const id = createDinner({ name: trimmed });
+    const id = createDinner({ name: trimmed, category: dinnerCategory(categoryFilter) });
     // Read the row back synchronously — the reactive list above hasn't
     // re-rendered yet, and the store seeded the household's default servings.
     const dinner = getDinner(id);
@@ -126,9 +130,9 @@ export default function DinnerPickerSheet() {
         : t('dinnerPicker.idleTitle');
   const actionHint =
     action === 'create'
-      ? t('dinnerPicker.createHint')
+      ? t('dinnerCategories.createHint', { category: categoryLabel(dinnerCategory(categoryFilter) ?? 'none') })
       : action === 'add'
-        ? t('dinnerPicker.addExistingHint')
+        ? t('dinnerCategories.existingHint', { category: categoryLabel(dinnerCategory(exact?.category) ?? 'none') })
         : t('dinnerPicker.idleHint');
   const idle = action === 'idle';
 
@@ -156,6 +160,8 @@ export default function DinnerPickerSheet() {
         submitBehavior="submit"
         onSubmitEditing={onSubmit}
       />
+
+      <DinnerCategorySelect filter value={categoryFilter} onChange={setCategoryFilter} />
 
       {/* Fixed-height slot: the card crossfades between states but never
           resizes, so the list below stays put while typing. */}
@@ -252,9 +258,14 @@ export default function DinnerPickerSheet() {
               { borderBottomColor: theme.border },
               pressed && styles.pressed,
             ]}>
-            <ThemedText style={styles.flex} numberOfLines={1}>
-              {dinner.name}
-            </ThemedText>
+            <View style={styles.flex}>
+              <ThemedText numberOfLines={1}>{dinner.name}</ThemedText>
+              {dinnerCategory(dinner.category) ? (
+                <ThemedText type="small" themeColor="textSecondary">
+                  {categoryLabel(dinnerCategory(dinner.category)!)}
+                </ThemedText>
+              ) : null}
+            </View>
             <ThemedText type="small" themeColor="textSecondary">
               {recencyLabel(t, dinner.last_planned, todayMs)}
             </ThemedText>
@@ -263,8 +274,11 @@ export default function DinnerPickerSheet() {
         ListEmptyComponent={
           <Animated.View entering={FADE_IN} style={styles.empty}>
             <ThemedText type="small" themeColor="textSecondary">
-              {trimmed ? t('dinnerPicker.noMatches') : t('dinnerPicker.empty')}
+              {categoryFilter !== 'all' ? t('dinnerCategories.noMatches') : trimmed ? t('dinnerPicker.noMatches') : t('dinnerPicker.empty')}
             </ThemedText>
+            {categoryFilter !== 'all' ? <Pressable accessibilityRole="button" style={{ minHeight: 44, justifyContent: 'center' }} onPress={() => setCategoryFilter('all')}>
+              <ThemedText style={{ color: theme.tint }}>{t('dinnerCategories.clearFilter')}</ThemedText>
+            </Pressable> : null}
           </Animated.View>
         }
       />

@@ -16,6 +16,7 @@ function dinner(over: Partial<LocalDinner> & { id: string }): LocalDinner {
     name: 'Dinner',
     default_servings: 4,
     notes: null,
+    category: null,
     created_at: TS,
     updated_at: TS,
     ...over,

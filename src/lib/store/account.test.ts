@@ -8,6 +8,7 @@ import {
 import { store$ } from '@/lib/store/collections';
 
 function seedLocalData() {
+  store$.dinnerCategories.set({ c1: { id: 'c1', household_id: 'h', name: 'Quick', created_at: 'x', updated_at: 'x' } });
   store$.dinners.set({
     d1: {
       id: 'd1',
@@ -15,6 +16,7 @@ function seedLocalData() {
       name: 'Tacos',
       default_servings: 2,
       notes: null,
+      category: null,
       created_at: 'x',
       updated_at: 'x',
     },
@@ -52,6 +54,7 @@ describe('account binding', () => {
     clearLocalData();
     expect(getBoundAccountId()).toBeNull();
     expect(store$.dinners.get()).toEqual({});
+    expect(store$.dinnerCategories.get()).toEqual({});
     expect(store$.shoppingLists.get()).toEqual({});
     expect(store$.meta.cursor.get()).toBeNull();
     expect(store$.meta.serverHouseholdId.get()).toBeNull();
@@ -82,6 +85,7 @@ describe('account binding', () => {
 
     expect(getBoundAccountId()).toBe(2);
     expect(store$.dinners.get()).toEqual({});
+    expect(store$.dinnerCategories.get()).toEqual({});
     expect(store$.shoppingLists.get()).toEqual({});
     expect(store$.meta.dirty.get()).toEqual({});
     expect(store$.meta.tombstones.get()).toEqual({});

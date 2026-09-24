@@ -10,22 +10,26 @@ import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { aiSettingsKey, useAiSettings } from '@/lib/api/ai';
 import { ApiError } from '@/lib/api/client';
+import { DINNER_CATEGORIES, type BuiltinDinnerCategory, type DinnerCategory } from '@/lib/dinner-categories';
 import { suggestionQueryOptions } from '@/lib/ai-suggestions';
 import { useSession } from '@/lib/auth/session';
 import { useT } from '@/lib/i18n';
+import { useDinnerCategories } from '@/lib/store/dinner-categories';
 import { store$ } from '@/lib/store/collections';
 import { useLocale } from '@/lib/store/settings';
 
-type Props = { dinnerId: string; name: string; ingredients: string[]; onAdd: (name: string) => void };
+type Props = { category: DinnerCategory | null; dinnerId: string; name: string; ingredients: string[]; onAdd: (name: string) => void };
 
-export function IngredientSuggestions({ dinnerId, name, ingredients, onAdd }: Props) {
+export function IngredientSuggestions({ dinnerId, name, ingredients, onAdd, category }: Props) {
   const t = useT();
   const theme = useTheme();
   const locale = useLocale();
   const { user, request } = useSession();
   const { settings } = useAiSettings();
   const client = useQueryClient();
-  const context = JSON.stringify({ name: name.trim(), ingredients: [...ingredients].sort(), locale });
+  const categories = useDinnerCategories();
+  const categoryContext = DINNER_CATEGORIES.includes(category as BuiltinDinnerCategory) ? category : categories.find((row) => row.id === category)?.name ?? null;
+  const context = JSON.stringify({ name: name.trim(), ingredients: [...ingredients].sort(), locale, category: categoryContext });
   const dismissed = useValue(() => store$.meta.aiDismissedSuggestions.get()?.[dinnerId]) ?? [];
   const boundAccount = useValue(store$.meta.accountId);
   const boundHousehold = useValue(store$.meta.serverHouseholdId);

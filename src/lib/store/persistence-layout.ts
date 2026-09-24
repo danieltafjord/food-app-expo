@@ -16,6 +16,7 @@ export const PERSISTED_KEYS = [
   'meta',
   'households',
   'ingredients',
+  'dinnerCategories',
   'dinners',
   'dinnerItems',
   'dinnerPlans',

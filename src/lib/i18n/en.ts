@@ -13,7 +13,7 @@ export const en = {
     "busy": "Suggestions are busy. Try again shortly.",
     "requestSuggestions": "Suggest ingredients",
     "settingsTitle": "AI assistance",
-    "privacy": "Optional help, off by default. When enabled, ingredient and dinner names are sent through our server to OpenRouter and its model providers. Your household may see categories and ingredients you add. Your lists still work offline.",
+    "privacy": "Optional help, off by default. When enabled, ingredient and dinner names, along with the chosen dinner category, are sent through our server to OpenRouter and its model providers. Your household may see categories and ingredients you add. Your lists still work offline.",
     "signIn": "Connect an account and household to use AI assistance.",
     "categorization": "Categorize unfamiliar items",
     "categorizationHint": "Find an aisle when the offline dictionary cannot. Your corrections are always kept.",
@@ -138,6 +138,16 @@ export const en = {
   weekBoard: {
     addDinner: 'Add dinner',
     noIngredients: 'No ingredients',
+  },
+  dinnerCategories: {
+    add: 'Add category', manage: 'Manage categories', rename: 'Rename category', delete: 'Delete category',
+    name: 'Category name', shared: 'Custom categories are shared with your household.',
+    duplicate: 'A category with this name already exists.', editNamed: 'Edit {name}',
+    deleteMessage: 'Delete “{name}” for everyone in your household? Its dinners will be kept without a category.',
+    label: 'Category', optional: 'Category · optional', all: 'All categories',
+    none: 'No category', meat: 'Meat', fish: 'Fish & seafood', vegetarian: 'Vegetarian', other: 'Other',
+    noMatches: 'No matching dinners in this category.', clearFilter: 'Show all categories',
+    createHint: 'New dinner · {category}', existingHint: 'Already saved · {category}',
   },
   dinnerPicker: {
     searchOrCreate: 'Search or create',

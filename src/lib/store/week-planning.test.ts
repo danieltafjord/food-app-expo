@@ -169,3 +169,35 @@ it('revalidates draft dates and dinner uniqueness before creating a plan', () =>
   expect(store$.dinnerPlans.get()).toEqual({});
   expect(store$.planEntries.get()).toEqual({});
 });
+
+it.each(['meat', '12345678-1234-4234-8234-123456789abc'])('softly favors categories not already planned, including %s', (category) => {
+  const meat = createDinner({ name: 'Meat dinner', category });
+  const fish = createDinner({ name: 'Fish dinner', category: 'fish' });
+  const planned = createDinner({ name: 'Already planned meat', category });
+  schedule(planned, WEEK);
+  const snapshot = context(WEEK, '2026-10-04');
+  // Keep a fixed candidate order so this proves the preference rather than UUID ordering.
+  snapshot.candidates.sort((a) => a.id === meat ? -1 : 1);
+  const diverse = suggestWeek(snapshot, null, () => 0.4)!;
+  expect(diverse.entries[0]).toMatchObject({ dinnerId: fish, category: 'fish' });
+  expect(suggestWeek(snapshot, null, () => 0)!.entries[0].dinnerId).toBe(meat);
+});
+
+it('can fill a week entirely from one category or uncategorized recipes', () => {
+  const ids = dinners(7);
+  ids.forEach((id) => patchDinner(id, { category: 'fish' }));
+  expect(suggestWeek(context(), null, () => 0.5)?.entries).toHaveLength(7);
+  ids.forEach((id) => patchDinner(id, { category: null }));
+  expect(suggestWeek(context(), null, () => 0.5)?.entries).toHaveLength(7);
+});
+
+it('requires a new preview when a candidate or already planned dinner changes category', () => {
+  const ids = dinners(8);
+  schedule(ids[0], WEEK);
+  const draft = suggestWeek(context())!;
+  patchDinner(ids[0], { category: 'meat' });
+  expect(applyWeekDraft(draft, 'Week', TODAY)).toBe(false);
+  const refreshed = suggestWeek(context())!;
+  patchDinner(refreshed.entries[0].dinnerId, { category: 'fish' });
+  expect(applyWeekDraft(refreshed, 'Week', TODAY)).toBe(false);
+});

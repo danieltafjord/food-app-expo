@@ -1,6 +1,7 @@
 import { useValue } from '@legendapp/state/react';
 
 import { nameCollator } from '@/lib/intl';
+import type { DinnerCategory } from '@/lib/dinner-categories';
 import { dateKeyOf } from '@/lib/week';
 import { store$ } from './collections';
 import { derived } from './derived';
@@ -128,6 +129,7 @@ export type CreateDinnerInput = {
   name: string;
   default_servings?: number;
   notes?: string | null;
+  category?: DinnerCategory | null;
 };
 
 export function createDinner(input: CreateDinnerInput): string {
@@ -139,6 +141,7 @@ export function createDinner(input: CreateDinnerInput): string {
     name: input.name,
     default_servings: input.default_servings ?? getHouseholdDefaultServings(),
     notes: input.notes ?? null,
+    category: input.category ?? null,
     created_at: ts,
     updated_at: ts,
   });
@@ -155,6 +158,7 @@ export type UpdateDinnerInput = {
   name: string;
   default_servings: number;
   notes?: string | null;
+  category?: DinnerCategory | null;
   /** The dinner's full ingredient list after the update (diffed by ingredient). */
   items: DinnerItemInput[];
 };
@@ -166,6 +170,7 @@ export function updateDinner(id: string, input: UpdateDinnerInput): void {
     name: input.name,
     default_servings: input.default_servings,
     notes: input.notes ?? null,
+    ...(input.category !== undefined ? { category: input.category } : {}),
     updated_at: nowIso(),
   });
   setDinnerItems(id, input.items);

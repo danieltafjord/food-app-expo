@@ -38,12 +38,21 @@ export type LocalIngredient = {
   updated_at: string;
 };
 
+export type LocalDinnerCategory = {
+  id: string;
+  household_id: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export type LocalDinner = {
   id: string;
   household_id: string;
   name: string;
   default_servings: number;
   notes: string | null;
+  category: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -110,6 +119,7 @@ export type DinnerWithItems = LocalDinner & { items: LocalDinnerItem[] };
 
 export type PlanEntryWithDinner = LocalPlanEntry & {
   dinner_name: string | null;
+  dinner_category: string | null;
   /** How many ingredients the dinner has — 0 means it adds nothing to a shopping list. */
   ingredient_count: number;
 };

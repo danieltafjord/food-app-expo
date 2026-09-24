@@ -56,6 +56,7 @@ function wipeLocalData(): void {
   batch(() => {
     store$.households.set({});
     store$.ingredients.set({});
+    store$.dinnerCategories.set({});
     store$.dinners.set({});
     store$.dinnerItems.set({});
     store$.dinnerPlans.set({});
