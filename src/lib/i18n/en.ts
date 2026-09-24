@@ -128,6 +128,17 @@ export const en = {
       '{names} will add nothing to the list. Open a dinner to add its ingredients.',
     makeAnyway: 'Make the list anyway',
   },
+  ingredientExclusions: {
+    section: 'Food preferences', title: 'Ingredients to avoid', placeholder: 'Mushrooms, coriander, prawns',
+    sharedHint: 'Separate ingredients with commas. Saved for your household and used for AI suggestions.',
+    localHint: 'Separate ingredients with commas. Saved on this device and used for AI suggestions.',
+    ownerHint: 'A household owner can edit these exclusions.',
+    loading: 'Loading household food preferences…',
+    saveFirst: 'Save your ingredient exclusions before planning dinners.',
+    loadFailed: 'Couldn’t load household food preferences. Retry before requesting suggestions.',
+    invalid: 'Use up to 30 ingredients, each at most 80 characters, without < or >.',
+    saveFailed: 'Couldn’t save the exclusions. Your changes are kept here; please try again.',
+  },
   weekPlanning: {
     preferences: 'What do you like to eat?',
     placeholder: 'We like pasta and chicken. Easy dinners, and no fish.',

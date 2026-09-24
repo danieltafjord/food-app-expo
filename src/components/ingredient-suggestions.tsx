@@ -10,6 +10,8 @@ import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { aiSettingsKey, useAiSettings } from '@/lib/api/ai';
 import { ApiError } from '@/lib/api/client';
+import { useHouseholdIngredientExclusions } from '@/lib/api/ingredient-exclusions';
+import { hasExcludedIngredient } from '@/lib/ingredient-exclusions';
 import { DINNER_CATEGORIES, type BuiltinDinnerCategory, type DinnerCategory } from '@/lib/dinner-categories';
 import { suggestionQueryOptions } from '@/lib/ai-suggestions';
 import { useSession } from '@/lib/auth/session';
@@ -26,15 +28,16 @@ export function IngredientSuggestions({ dinnerId, name, ingredients, onAdd, cate
   const locale = useLocale();
   const { user, request } = useSession();
   const { settings } = useAiSettings();
+  const { exclusions, ready: exclusionsReady } = useHouseholdIngredientExclusions();
   const client = useQueryClient();
   const categories = useDinnerCategories();
   const categoryContext = DINNER_CATEGORIES.includes(category as BuiltinDinnerCategory) ? category : categories.find((row) => row.id === category)?.name ?? null;
-  const context = JSON.stringify({ name: name.trim(), ingredients: [...ingredients].sort(), locale, category: categoryContext });
+  const context = JSON.stringify({ name: name.trim(), ingredients: [...ingredients].sort(), locale, category: categoryContext, excluded_ingredients: exclusions });
   const dismissed = useValue(() => store$.meta.aiDismissedSuggestions.get()?.[dinnerId]) ?? [];
   const boundAccount = useValue(store$.meta.accountId);
   const boundHousehold = useValue(store$.meta.serverHouseholdId);
   const enabled = boundAccount === user?.id && boundHousehold === user?.current_household?.id && !!user?.current_household && !!settings?.available && settings.email_verified
-    && settings.suggestions_enabled;
+    && settings.suggestions_enabled && exclusionsReady;
   const valid = name.trim().length >= 2 && name.length <= 120
     && ingredients.length <= 40 && ingredients.every((item) => item.length <= 120);
   const query = useQuery(suggestionQueryOptions(request,
@@ -49,7 +52,8 @@ export function IngredientSuggestions({ dinnerId, name, ingredients, onAdd, cate
   if (!enabled || !valid) return null;
   const errorCode = query.error instanceof ApiError ? (query.error.body as { code?: string } | undefined)?.code : undefined;
   const existing = new Set(ingredients.map((item) => item.trim().toLocaleLowerCase()));
-  const names = (query.data?.ingredients ?? []).filter((item) => !existing.has(item.toLocaleLowerCase()) && !dismissed.includes(item));
+  const names = (query.data?.ingredients ?? []).filter((item) => !existing.has(item.toLocaleLowerCase()) && !dismissed.includes(item)
+    && !hasExcludedIngredient([item], exclusions));
   return (
     <View style={styles.section}>
       <Button title={t(query.isError ? 'error.retry' : 'ai.requestSuggestions')} size="small" variant="secondary"

@@ -20,6 +20,15 @@ it('reuses the active household without provisioning another', async () => {
   expect(request).toHaveBeenCalledTimes(1);
 });
 
+it('carries guest exclusions into the first shared household without overwriting an existing household', async () => {
+  const request = jest.fn().mockResolvedValueOnce(me).mockResolvedValueOnce(household);
+  await setupAccount(request, { ...options(), excludedIngredients: ['Sopp', 'Reker'] });
+  expect(request.mock.calls[1][1].body.excluded_ingredients).toEqual(['Sopp', 'Reker']);
+  const existing = jest.fn().mockResolvedValue({ ...me, current_household: household });
+  await setupAccount(existing, { ...options(), excludedIngredients: ['Sopp'] });
+  expect(existing).toHaveBeenCalledTimes(1);
+});
+
 it.each(['/sign-in', '/oauth/callback', '/invitations/invite-token'])(
   'does not provision while auth or invitation navigation is active: %s', async (pathname) => {
     const request = jest.fn().mockResolvedValue(me);

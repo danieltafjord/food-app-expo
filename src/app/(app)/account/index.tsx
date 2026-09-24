@@ -5,6 +5,7 @@ import { Alert } from 'react-native';
 import { useDeferredTab } from '@/hooks/use-deferred-tab';
 import { AiSettingsSection } from '@/components/ai-settings';
 import { AccountSetupCard } from '@/components/account-setup-card';
+import { IngredientExclusions } from '@/components/ingredient-exclusions';
 import { Badge } from '@/components/badge';
 import { OptionGroup, type Option } from '@/components/option-group';
 import { Screen } from '@/components/screen';
@@ -229,6 +230,9 @@ function AccountScreenContent() {
       </SettingsSection>
 
       <AiSettingsSection />
+      <SettingsSection title={t('ingredientExclusions.section')}>
+        <IngredientExclusions />
+      </SettingsSection>
 
       {isAuthenticated ? (
         <SettingsSection title={t('account.accountSection')}>

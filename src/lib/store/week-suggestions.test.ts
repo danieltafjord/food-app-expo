@@ -127,3 +127,36 @@ it('clears personal preferences and rejected dinners when switching household', 
   resetLocalDataForHousehold(12);
   expect(store$.meta.planningPreferences.get()).toEqual({ text: '', shortcuts: [], excluded: [] });
 });
+
+it('filters saved recipes and invalidates previews when household exclusions change', () => {
+  const id = createDinner({ name: 'Family pasta' });
+  upsertDinnerItem(id, { ingredient_id: createIngredient({ name: 'Pasta' }), quantity: 200, unit: 'g' });
+  const preview = draft();
+  store$.households[store$.meta.localHouseholdId.get()].excluded_ingredients.set(['pasta']);
+
+  expect(getSuggestionContext(WEEK, TODAY).recipes).toEqual([]);
+  expect(acceptSuggestedWeek(preview, 'Week', TODAY)).toBeNull();
+  expect(acceptSuggestedWeek(draft(), 'Week', TODAY)).toBeNull();
+  expect(store$.planEntries.get()).toEqual({});
+});
+
+it('collects ingredients from all plans in the target week without leaking other weeks or households', () => {
+  const planned = createDinner({ name: 'Planned pasta' });
+  const nextWeek = createDinner({ name: 'Next week' });
+  upsertDinnerItem(planned, { ingredient_id: createIngredient({ name: 'Tomato' }), quantity: 300, unit: 'g' });
+  upsertDinnerItem(nextWeek, { ingredient_id: createIngredient({ name: 'Chicken' }), quantity: 400, unit: 'g' });
+  const plan = createDinnerPlan({ name: 'Week', start_date: WEEK });
+  createPlanEntry(plan, { dinner_id: planned, scheduled_date: TODAY, servings: 2 });
+  createPlanEntry(plan, { dinner_id: nextWeek, scheduled_date: '2026-09-28', servings: 2 });
+  const otherPlan = createDinnerPlan({ name: 'Other household', start_date: WEEK });
+  store$.dinnerPlans[otherPlan].household_id.set('other-household');
+  createPlanEntry(otherPlan, { dinner_id: nextWeek, scheduled_date: TODAY, servings: 2 });
+
+  expect(getSuggestionContext(WEEK, TODAY).plannedIngredients).toEqual(['Tomato']);
+});
+
+it('clears ingredient exclusions when the local household is replaced', () => {
+  store$.households[store$.meta.localHouseholdId.get()].excluded_ingredients.set(['Pasta']);
+  resetLocalDataForHousehold(12);
+  expect(getSuggestionContext(WEEK, TODAY).excludedIngredients).toEqual([]);
+});

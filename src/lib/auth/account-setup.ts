@@ -13,7 +13,7 @@ type Request = <T>(path: string, options?: RequestOptions) => Promise<T>;
 /** Fetch the account and safely provision its first household, without marking data synced. */
 export async function setupAccount(
   request: Request,
-  options: { defer: boolean; name: string; defaultServings: number; signal: AbortSignal },
+  options: { defer: boolean; name: string; defaultServings: number; excludedIngredients?: string[]; signal: AbortSignal },
 ): Promise<User> {
   const me = await request<User>('/me', { signal: options.signal });
   if (options.signal.aborted) throw new Error('Setup cancelled');
@@ -21,7 +21,8 @@ export async function setupAccount(
 
   const household = await request<Household>('/household/setup', {
     method: 'POST',
-    body: { name: options.name, default_servings: options.defaultServings },
+    body: { name: options.name, default_servings: options.defaultServings,
+      ...(options.excludedIngredients ? { excluded_ingredients: options.excludedIngredients } : {}) },
     signal: options.signal,
   });
   if (options.signal.aborted) throw new Error('Setup cancelled');

@@ -1,6 +1,7 @@
 import { batch } from '@legendapp/state';
 import { createShoppingListFromPlan, updateShoppingListFromPlan } from '@/lib/shopping/generate';
-import { addDays, fromDateKey, toDateKey } from '@/lib/week';
+import { addDays, dateKeyOf, fromDateKey, toDateKey } from '@/lib/week';
+import { hasExcludedIngredient } from '@/lib/ingredient-exclusions';
 import { mealNameKey, type SuggestedDinner } from '@/lib/week-suggestions';
 import { store$ } from './collections';
 import { createDinner, dinnerItemsOf, upsertDinnerItem } from './dinners';
@@ -24,19 +25,30 @@ export function getSuggestionContext(weekStart: string, today = toDateKey(new Da
   // One tracked read of each table, not one per dinner and ingredient.
   const dinners = store$.dinners.get();
   const ingredientRows = store$.ingredients.get();
+  const householdId = store$.meta.localHouseholdId.get();
+  const excludedIngredients = store$.households[householdId].excluded_ingredients.get() ?? [];
+  const planIds = new Set(Object.values(store$.dinnerPlans.get())
+    .filter((plan) => plan.household_id === householdId).map((plan) => plan.id));
+  const weekEnd = toDateKey(addDays(fromDateKey(weekStart), 6));
+  const plannedDinnerIds = new Set(Object.values(store$.planEntries.get())
+    .filter((entry) => planIds.has(entry.dinner_plan_id) && dateKeyOf(entry.scheduled_date) >= weekStart
+      && dateKeyOf(entry.scheduled_date) <= weekEnd).map((entry) => entry.dinner_id));
+  const plannedIngredients = [...new Set([...plannedDinnerIds].flatMap((id) => dinnerItemsOf(id)
+    .map((item) => ingredientRows[item.ingredient_id]?.name ?? '').filter(Boolean)))];
   for (const candidate of [...planning.candidates].sort((a, b) => b.weight - a.weight)) {
     const dinner = dinners[candidate.id]!;
     const ingredients = dinnerItemsOf(candidate.id).map((item) => ({
       name: ingredientRows[item.ingredient_id]?.name ?? '', quantity: item.quantity ?? 0, unit: item.unit,
     }));
-    if (!ingredients.length || ingredients.some((item) => !item.name || item.quantity <= 0)) continue;
+    if (!ingredients.length || ingredients.some((item) => !item.name || item.quantity <= 0)
+      || hasExcludedIngredient(ingredients.map((item) => item.name), excludedIngredients)) continue;
     recipes.push({ existingId: dinner.id, name: dinner.name, category: dinner.category, notes: dinner.notes,
       baseServings: dinner.default_servings, ingredients });
   }
   const allNames = Object.values(dinners)
     .filter((dinner) => dinner.household_id === store$.meta.localHouseholdId.get()).map((dinner) => dinner.name);
-  return { ...planning, recipes, allNames,
-    key: JSON.stringify([planning.key, store$.meta.serverHouseholdId.get(), recipes]) };
+  return { ...planning, recipes, allNames, plannedIngredients, excludedIngredients,
+    key: JSON.stringify([planning.key, store$.meta.serverHouseholdId.get(), recipes, plannedIngredients, excludedIngredients]) };
 }
 
 /**
@@ -60,6 +72,7 @@ export function acceptSuggestedWeek(draft: SuggestedWeekDraft, name: string, tod
     || new Set(draft.entries.map((entry) => entry.date)).size !== draft.entries.length
     || new Set(draft.entries.map((entry) => mealNameKey(entry.dinner.name))).size !== draft.entries.length) return null;
   for (const { date, dinner } of draft.entries) {
+    if (hasExcludedIngredient(dinner.ingredients.map((item) => item.name), context.excludedIngredients)) return null;
     if (!context.dates.includes(date) || !dinner.name.trim() || !dinner.ingredients.length
       || !Number.isInteger(dinner.baseServings) || dinner.baseServings < 1 || dinner.baseServings > 99
       || dinner.ingredients.some((item) => !item.name.trim() || !Number.isFinite(item.quantity) || item.quantity <= 0)) return null;

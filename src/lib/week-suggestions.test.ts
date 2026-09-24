@@ -24,6 +24,15 @@ it('rejects excluded names and duplicates regardless of casing or surrounding sp
   expect(() => parseWeekSuggestions({ dinners: [dinner, { ...dinner, name: ' TOMATPASTA ' }] }, { ...input, count: 2 }, [])).toThrow();
 });
 
+it('rejects excluded ingredients even in otherwise complete generated or saved recipes', () => {
+  expect(() => parseWeekSuggestions({ dinners: [dinner] }, { ...input, excluded_ingredients: ['pasta'] }, [])).toThrow();
+  const existing: SuggestedDinner = { existingId: 'local', name: 'Family pasta', category: null,
+    baseServings: 2, notes: null, ingredients: dinner.ingredients };
+  expect(() => parseWeekSuggestions({ dinners: [{ ...dinner, existing_id: 'local' }] }, {
+    ...input, excluded_ingredients: ['pasta'], available: [{ id: 'local', name: existing.name, category: null, ingredients: ['Pasta'] }],
+  }, [existing])).toThrow();
+});
+
 it('uses the reviewed local recipe for an allowed reference, ignoring generated replacements', () => {
   const existing: SuggestedDinner = { existingId: 'local', name: 'My pasta', baseServings: 4, category: null,
     notes: 'My instructions', ingredients: [{ name: 'Pasta', quantity: 400, unit: 'g' }] };

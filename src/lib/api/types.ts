@@ -14,6 +14,7 @@ export type Household = {
   id: number;
   name: string;
   default_servings: number;
+  excluded_ingredients?: string[] | null;
 };
 
 /** A household from `/households`, carrying the caller's role in it. */

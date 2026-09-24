@@ -5,6 +5,7 @@ import { Keyboard, Pressable, ScrollView, StyleSheet, View } from 'react-native'
 
 import { Button } from '@/components/button';
 import { Icon } from '@/components/icon';
+import { IngredientExclusions } from '@/components/ingredient-exclusions';
 import { SheetScreen } from '@/components/sheet';
 import { Stepper } from '@/components/stepper';
 import { TextField } from '@/components/text-field';
@@ -12,6 +13,8 @@ import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { ApiError } from '@/lib/api/client';
+import { useHouseholdIngredientExclusions } from '@/lib/api/ingredient-exclusions';
+import { hasExcludedIngredient } from '@/lib/ingredient-exclusions';
 import { formatQuantity } from '@/lib/format';
 import { useT } from '@/lib/i18n';
 import { pushOnce } from '@/lib/navigation';
@@ -40,6 +43,9 @@ function WeekPlanner({ weekStart }: { weekStart: string }) {
   const locale = useLocale();
   const householdServings = useHouseholdDefaultServings();
   const preferences = useValue(store$.meta.planningPreferences);
+  const { exclusions, ready: exclusionsLoaded } = useHouseholdIngredientExclusions();
+  const [editingExclusions, setEditingExclusions] = useState(false);
+  const exclusionsReady = exclusionsLoaded && !editingExclusions;
   const context = useValue(suggestionContext$(weekStart));
   const defaultServings = preferences?.servings ?? householdServings;
   const [servingsByDate, setServingsByDate] = useState<Record<string, number>>({});
@@ -57,7 +63,8 @@ function WeekPlanner({ weekStart }: { weekStart: string }) {
   const dates = selected.filter((date) => context.dates.includes(date));
   const excluded = preferences?.excluded ?? [];
   const excludedKeys = new Set(excluded.map(mealNameKey));
-  const eligible = context.recipes.filter((recipe) => !excludedKeys.has(mealNameKey(recipe.name)));
+  const eligible = context.recipes.filter((recipe) => !excludedKeys.has(mealNameKey(recipe.name))
+    && !hasExcludedIngredient(recipe.ingredients.map((item) => item.name), exclusions));
   const stale = saveRejected || (!!draft && draft.contextKey !== context.key);
   const hasRejected = draft?.entries.some(({ dinner }) => excludedKeys.has(mealNameKey(dinner.name)));
 
@@ -67,7 +74,7 @@ function WeekPlanner({ weekStart }: { weekStart: string }) {
   }
 
   async function generate(date?: string, disliked?: string) {
-    if (activeRequest.current) return;
+    if (activeRequest.current || !exclusionsReady) return;
     Keyboard.dismiss();
     const live = getSuggestionContext(weekStart);
     const requestDates = date ? [date] : selected.filter((value) => live.dates.includes(value));
@@ -80,6 +87,7 @@ function WeekPlanner({ weekStart }: { weekStart: string }) {
     remember({ servings, excluded: hiddenNames });
     const available = live.recipes.filter((recipe) => recipe.name.length <= 120 && recipe.ingredients.length <= 20
       && recipe.ingredients.every((item) => item.name.length <= 120)
+      && !hasExcludedIngredient(recipe.ingredients.map((item) => item.name), exclusions)
       && !hiddenNames.some((name) => mealNameKey(name) === mealNameKey(recipe.name)))
       .slice(0, 20);
     const availableIds = new Set(available.map((recipe) => recipe.existingId));
@@ -97,6 +105,10 @@ function WeekPlanner({ weekStart }: { weekStart: string }) {
     const payload = {
       count: requestDates.length, servings, locale, preferences: preferences?.text.trim() ?? '',
       shortcuts: preferences?.shortcuts ?? [], exclude: excludedNames,
+      excluded_ingredients: exclusions,
+      reuse_ingredients: [...new Set([...live.plannedIngredients,
+        ...(date ? draft?.entries.filter((entry) => entry.date !== date).flatMap((entry) => entry.dinner.ingredients.map((item) => item.name)) ?? [] : []),
+      ])].filter((name) => name.length <= 120 && !hasExcludedIngredient([name], exclusions)).slice(0, 140),
       available: available.filter((recipe) => !blocked.has(mealNameKey(recipe.name))).map((recipe) => ({
         id: recipe.existingId!, name: recipe.name, category: recipe.category,
         ingredients: recipe.ingredients.map((item) => item.name),
@@ -135,6 +147,7 @@ function WeekPlanner({ weekStart }: { weekStart: string }) {
   }
 
   function useSavedDinners() {
+    if (!exclusionsReady) return;
     const ids = new Set(eligible.map((recipe) => recipe.existingId));
     const candidates = context.candidates.filter((candidate) => ids.has(candidate.id));
     const suggestion = suggestWeek({ ...context, dates, candidates, missing: Math.max(0, dates.length - candidates.length) });
@@ -149,7 +162,7 @@ function WeekPlanner({ weekStart }: { weekStart: string }) {
   }
 
   function save() {
-    if (!draft || saved.current || activeRequest.current || hasRejected) return;
+    if (!draft || saved.current || activeRequest.current || hasRejected || !exclusionsReady) return;
     const listId = acceptSuggestedWeek(draft, t('plans.weekOf', { label: weekLabel(fromDateKey(weekStart), locale) }));
     if (!listId) { setSaveRejected(true); return; }
     saved.current = true;
@@ -167,6 +180,8 @@ function WeekPlanner({ weekStart }: { weekStart: string }) {
               placeholder={t('weekPlanning.placeholder')} multiline maxLength={600} editable={!busy}
               value={preferences?.text ?? ''} onChangeText={(text) => remember({ text })} style={styles.input} />
             <ThemedText type="small" themeColor="textSecondary">{t('weekPlanning.optional')}</ThemedText>
+            <IngredientExclusions onPendingChange={setEditingExclusions} disabled={!!busy} />
+            {editingExclusions ? <ThemedText type="small">{t('ingredientExclusions.saveFirst')}</ThemedText> : null}
             <View style={styles.chips}>
               {PLANNING_SHORTCUTS.map((value) => {
                 const checked = preferences?.shortcuts.includes(value);
@@ -203,7 +218,7 @@ function WeekPlanner({ weekStart }: { weekStart: string }) {
             {!dates.length ? <ThemedText type="small">{t('weekPlanning.noneSelected')}</ThemedText> : null}
             <ThemedText type="small" themeColor="textSecondary">{t('weekPlanning.privacy')}</ThemedText>
             {eligible.length >= dates.length && dates.length > 0 ? <>
-              <Button title={t('weekPlanning.savedMeals')} variant="secondary" disabled={!!busy} onPress={useSavedDinners} />
+              <Button title={t('weekPlanning.savedMeals')} variant="secondary" disabled={!!busy || !exclusionsReady} onPress={useSavedDinners} />
               <ThemedText type="small" themeColor="textSecondary">{t('weekPlanning.savedHint')}</ThemedText>
             </> : null}
             {excluded.length > 0 ? <Button size="small" variant="secondary" disabled={!!busy}
@@ -234,13 +249,13 @@ function WeekPlanner({ weekStart }: { weekStart: string }) {
         {!editing && hasRejected ? <ThemedText type="small">{t('weekPlanning.rejected')}</ThemedText> : null}
       </ScrollView>
       {context.dates.length > 0 ? editing ? (
-        <Button title={t(error ? 'error.retry' : 'weekPlanning.generate')} loading={busy === 'all'} disabled={!!busy || !dates.length}
+        <Button title={t(error ? 'error.retry' : 'weekPlanning.generate')} loading={busy === 'all'} disabled={!!busy || !dates.length || !exclusionsReady}
           onPress={() => { void generate(); }} />
       ) : stale ? (
         <Button title={t('weekPlanning.refresh')} onPress={() => { setEditing(true); setSaveRejected(false); }} />
       ) : <View style={styles.actions}>
         <ThemedText type="small" themeColor="textSecondary" style={styles.center}>{t('weekPlanning.saveHint')}</ThemedText>
-        <Button title={t('weekPlanning.usePlan')} disabled={!!busy || !draft?.entries.length || hasRejected} onPress={save} />
+        <Button title={t('weekPlanning.usePlan')} disabled={!!busy || !draft?.entries.length || hasRejected || !exclusionsReady} onPress={save} />
       </View> : null}
       <Button title={t('common.cancel')} variant="secondary" onPress={() => router.back()} />
     </SheetScreen>

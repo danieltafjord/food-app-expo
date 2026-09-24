@@ -1,6 +1,7 @@
 import { apiRequest, ApiError } from '@/lib/api/client';
 import { requestAi } from '@/lib/ai-request';
 import type { Locale } from '@/lib/i18n/locale';
+import { hasExcludedIngredient } from '@/lib/ingredient-exclusions';
 
 export const PLANNING_SHORTCUTS = ['quick', 'budget', 'vegetarian'] as const;
 export type PlanningShortcut = (typeof PLANNING_SHORTCUTS)[number];
@@ -21,6 +22,8 @@ export type WeekSuggestionInput = {
   preferences: string;
   shortcuts: PlanningShortcut[];
   exclude: string[];
+  excluded_ingredients?: string[];
+  reuse_ingredients?: string[];
   available: { id: string; name: string; category: string | null; ingredients: string[] }[];
 };
 
@@ -58,6 +61,7 @@ export function parseWeekSuggestions(value: unknown, input: WeekSuggestionInput,
         baseServings: input.servings, ingredients };
     }
     const key = mealNameKey(dinner.name);
+    if (hasExcludedIngredient(dinner.ingredients.map((item) => item.name), input.excluded_ingredients ?? [])) throw invalid();
     if (seen.has(key)) throw invalid();
     seen.add(key);
     return dinner;
@@ -65,6 +69,6 @@ export function parseWeekSuggestions(value: unknown, input: WeekSuggestionInput,
 }
 
 export async function requestWeekSuggestions(input: WeekSuggestionInput, available: SuggestedDinner[], signal: AbortSignal) {
-  const result = await requestAi<unknown>(apiRequest, '/ai/plan-week', { method: 'POST', body: input, signal }, 60_000);
+  const result = await requestAi<unknown>(apiRequest, '/ai/plan-week', { method: 'POST', body: input, signal }, 85_000);
   return parseWeekSuggestions(result, input, available);
 }

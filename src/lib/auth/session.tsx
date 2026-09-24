@@ -162,6 +162,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         defer: deferSetup,
         name: translate(store$.settings.locale.get() || getDeviceLocale(), 'household.localDefaultName'),
         defaultServings: getHouseholdDefaultServings(),
+        excludedIngredients: store$.households[store$.meta.localHouseholdId.get()].excluded_ingredients.get() ?? [],
         signal: abort.signal,
       });
       if (!isCurrent()) return;

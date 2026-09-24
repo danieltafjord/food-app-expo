@@ -124,6 +124,17 @@ export const nb: Dictionary = {
       '{names} bidrar ikke med noe til lista. Åpne middagen for å legge til ingredienser.',
     makeAnyway: 'Lag lista likevel',
   },
+  ingredientExclusions: {
+    section: 'Matpreferanser', title: 'Ingredienser å unngå', placeholder: 'Sopp, koriander, reker',
+    sharedHint: 'Skill ingrediensene med komma. Lagres for husstanden og brukes i KI-forslag.',
+    localHint: 'Skill ingrediensene med komma. Lagres på denne enheten og brukes i KI-forslag.',
+    ownerHint: 'En eier av husstanden kan endre disse valgene.',
+    loading: 'Henter husstandens matpreferanser…',
+    saveFirst: 'Lagre ingrediensene du vil unngå før du planlegger middager.',
+    loadFailed: 'Kunne ikke hente husstandens matpreferanser. Prøv igjen før du ber om forslag.',
+    invalid: 'Bruk opptil 30 ingredienser med høyst 80 tegn hver, uten < eller >.',
+    saveFailed: 'Kunne ikke lagre ingrediensene. Endringene er beholdt her; prøv igjen.',
+  },
   weekPlanning: {
     preferences: 'Hva liker dere å spise?',
     placeholder: 'Vi liker pasta og kylling. Helst enkelt og raskt, og ikke fisk.',

@@ -23,6 +23,7 @@ export type LocalHousehold = {
   name: string;
   /** Seeds the servings field when a new dinner is created in this household. */
   default_servings: number;
+  excluded_ingredients?: string[];
   created_at: string;
   updated_at: string;
 };
