@@ -4,9 +4,11 @@ import { openDatabaseSync, type SQLiteDatabase } from 'expo-sqlite';
 import Storage from 'expo-sqlite/kv-store';
 import { AppState, Platform } from 'react-native';
 
+import { setArchiveBackend, type ArchiveBackend } from './archive';
 import { store$ } from './collections';
 import { PERSIST_PREFIX, PERSISTED_KEYS, splitLegacyBlob, type KvStorage } from './persistence-layout';
 import { RowPersistPlugin, type RowOp, type RowStore } from './row-persist';
+import type { LocalShoppingListItem } from './schema';
 
 /**
  * Persist the store to SQLite, one row per entity (see `./row-persist`).
@@ -88,15 +90,86 @@ class SqliteRowStore implements RowStore {
   }
 }
 
+/**
+ * Items of archived shopping lists (see `./archive`): same database, but a
+ * table hydration never reads.
+ */
+class SqliteArchive implements ArchiveBackend {
+  constructor(private readonly db: SQLiteDatabase) {
+    db.execSync(
+      'CREATE TABLE IF NOT EXISTS archived_items (list_id TEXT NOT NULL, id TEXT NOT NULL, checked INTEGER NOT NULL, json TEXT NOT NULL, PRIMARY KEY (list_id, id)) WITHOUT ROWID;' +
+        'CREATE INDEX IF NOT EXISTS archived_items_id ON archived_items (id);',
+    );
+  }
+
+  stash(listId: string, items: readonly LocalShoppingListItem[]): void {
+    this.db.withTransactionSync(() => {
+      const insert = this.db.prepareSync('INSERT OR REPLACE INTO archived_items (list_id, id, checked, json) VALUES (?, ?, ?, ?)');
+      try {
+        for (const item of items) insert.executeSync(listId, item.id, item.is_checked ? 1 : 0, JSON.stringify(item));
+      } finally {
+        insert.finalizeSync();
+      }
+    });
+  }
+
+  read(listId: string): LocalShoppingListItem[] {
+    const items: LocalShoppingListItem[] = [];
+    for (const row of this.db.getAllSync<{ json: string }>('SELECT json FROM archived_items WHERE list_id = ?', listId)) {
+      try {
+        items.push(JSON.parse(row.json) as LocalShoppingListItem);
+      } catch {
+        // A corrupt row is skipped rather than failing the restore.
+      }
+    }
+    return items;
+  }
+
+  drop(listIds: readonly string[]): void {
+    this.deleteWhere('list_id', listIds);
+  }
+
+  forgetItems(itemIds: readonly string[]): void {
+    this.deleteWhere('id', itemIds);
+  }
+
+  listIds(): string[] {
+    return this.db.getAllSync<{ list_id: string }>('SELECT DISTINCT list_id FROM archived_items').map((row) => row.list_id);
+  }
+
+  counts(): Record<string, { total: number; checked: number }> {
+    const counts: Record<string, { total: number; checked: number }> = {};
+    const rows = this.db.getAllSync<{ list_id: string; total: number; checked: number }>(
+      'SELECT list_id, COUNT(*) AS total, SUM(checked) AS checked FROM archived_items GROUP BY list_id',
+    );
+    for (const row of rows) counts[row.list_id] = { total: row.total, checked: row.checked ?? 0 };
+    return counts;
+  }
+
+  private deleteWhere(column: 'list_id' | 'id', values: readonly string[]): void {
+    if (values.length === 0) return;
+    this.db.withTransactionSync(() => {
+      const remove = this.db.prepareSync(`DELETE FROM archived_items WHERE ${column} = ?`);
+      try {
+        for (const value of values) remove.executeSync(value);
+      } finally {
+        remove.finalizeSync();
+      }
+    });
+  }
+}
+
 // Installs that persisted before the per-collection split hold a single
 // `food-app-local` row. Split it into per-collection kv rows once, so the
 // row-table import below has one layout to read.
 splitLegacyBlob(Storage as KvStorage);
 
-const plugin = new RowPersistPlugin(new SqliteRowStore(openDatabaseSync(DB_NAME)), {
+const db = openDatabaseSync(DB_NAME);
+const plugin = new RowPersistPlugin(new SqliteRowStore(db), {
   legacy: Storage as KvStorage,
   onError: (error) => console.error('[store] persist failed', error),
 });
+setArchiveBackend(new SqliteArchive(db), () => plugin.flush());
 
 const states = PERSISTED_KEYS.map((key) =>
   // Indexing by a union of keys yields a union of observable types, which the

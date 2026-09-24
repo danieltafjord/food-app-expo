@@ -103,6 +103,8 @@ export type LocalShoppingList = {
   household_id: string;
   dinner_plan_id: string | null;
   name: string;
+  /** Set while the list is archived (its items then live in the archive table). */
+  archived_at?: string | null;
   created_at: string;
   updated_at: string;
 };

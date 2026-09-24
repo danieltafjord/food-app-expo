@@ -32,6 +32,7 @@ import { useT } from '@/lib/i18n';
 import { pushOnce } from '@/lib/navigation';
 import { updateShoppingListFromPlan, usePlanListDrift } from '@/lib/shopping/generate';
 import {
+  archiveShoppingList,
   deleteShoppingList,
   removeShoppingItems,
   setShoppingListDensity,
@@ -117,6 +118,11 @@ export default function ShoppingListScreen() {
     deleteWithUndo(message, ids, () => removeShoppingItems(ids));
   }
 
+  function onArchiveList() {
+    router.back();
+    archiveShoppingList(listId);
+  }
+
   function onDeleteList() {
     router.back();
     deleteWithUndo(t('undo.listDeleted', { name: listName }), [listId], () =>
@@ -147,6 +153,9 @@ export default function ShoppingListScreen() {
         </MenuAction>
         <MenuAction icon="checkmark.circle" disabled={checked === 0} onPress={onClearChecked}>
           {t('shopping.clearChecked')}
+        </MenuAction>
+        <MenuAction icon="archivebox" onPress={onArchiveList}>
+          {t('shopping.archiveList')}
         </MenuAction>
         <MenuAction icon="trash" destructive onPress={onDeleteList}>
           {t('shopping.deleteList')}

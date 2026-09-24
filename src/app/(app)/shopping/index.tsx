@@ -16,6 +16,7 @@ import { pushOnce } from '@/lib/navigation';
 import {
   createShoppingList,
   deleteShoppingList,
+  useArchivedShoppingLists,
   useShoppingList,
   useShoppingListCounts,
   useShoppingListIds,
@@ -36,6 +37,7 @@ function ShoppingListsScreenContent() {
   const theme = useTheme();
   const hidden = useHiddenIds();
   const listIds = useShoppingListIds().filter((id) => !hidden[id]);
+  const archivedCount = useArchivedShoppingLists().length;
 
   // No naming step: a new list gets today's date as its name and opens at
   // once. It can be renamed from the list's menu.
@@ -60,6 +62,21 @@ function ShoppingListsScreenContent() {
       ) : (
         <EmptyState icon="cart" title={t('shopping.emptyTitle')} message={t('shopping.empty')} />
       )}
+      {archivedCount > 0 ? (
+        <Pressable
+          onPress={() => pushOnce({ pathname: '/shopping/archived' })}
+          accessibilityRole="button"
+          style={({ pressed }) => [
+            styles.row,
+            styles.archivedRow,
+            { backgroundColor: pressed ? theme.backgroundSelected : theme.backgroundElement },
+          ]}>
+          <Icon name="archivebox" size={15} color={theme.textSecondary} />
+          <ThemedText style={styles.flex}>{t('shopping.archivedLists')}</ThemedText>
+          <ThemedText themeColor="textSecondary">{archivedCount}</ThemedText>
+          <Icon name="chevron.right" size={13} color={theme.textSecondary} />
+        </Pressable>
+      ) : null}
     </Screen>
   );
 }
@@ -122,5 +139,10 @@ const styles = StyleSheet.create({
   },
   flex: {
     flexShrink: 1,
+    flexGrow: 1,
+  },
+  archivedRow: {
+    marginTop: Spacing.four,
+    borderRadius: Spacing.three,
   },
 });

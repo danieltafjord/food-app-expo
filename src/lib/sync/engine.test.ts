@@ -11,6 +11,8 @@ jest.mock('react-native', () => ({
 
 import { ApiError } from '@/lib/api/client';
 import { setupAccount } from '@/lib/auth/account-setup';
+import { archive, MemoryArchive, setArchiveBackend } from '@/lib/store/archive';
+import { archiveShoppingList } from '@/lib/store/archiving';
 import { store$ } from '@/lib/store/collections';
 import { saveDinnerCategory } from '@/lib/store/dinner-categories';
 import { createDinner, deleteDinner, setDinnerItems } from '@/lib/store/dinners';
@@ -68,6 +70,8 @@ function resetStore() {
       schemaVersion: 3,
       localHouseholdId: 'local-h',
       accountId: 1,
+      // A device an account has claimed, as the upgrade migration marks it.
+      linked: true,
       cursor: null,
       serverHouseholdId: null,
       dirty: {},
@@ -91,6 +95,7 @@ function resetStore() {
 beforeEach(() => {
   jest.useFakeTimers();
   __resetEngineForTests();
+  setArchiveBackend(new MemoryArchive(), async () => undefined);
   resetStore();
   cursor = 10;
   me.current_household.id = 7;
@@ -119,6 +124,54 @@ describe('change tracking', () => {
     deleteDinner(id);
     expect(store$.meta.dirty.dinners[id].get()).toBeUndefined();
     expect(typeof store$.meta.tombstones.dinners[id].get()).toBe('string');
+  });
+});
+
+describe('a device never linked to the cloud', () => {
+  it('keeps no outbox, then uploads everything once its first sync links it', async () => {
+    store$.meta.assign({ accountId: null, linked: false });
+    ensureChangeTracking();
+    const kept = createDinner({ name: 'Tacos' });
+    deleteDinner(createDinner({ name: 'Gone' }));
+    expect(store$.meta.dirty.get()).toEqual({});
+    expect(store$.meta.tombstones.get()).toEqual({});
+    expect(hasPending()).toBe(false);
+
+    const server = fakeServer();
+    await connect(server);
+    expect(store$.meta.linked.get()).toBe(true);
+    const push = server.calls.find((call) => call.path === '/sync');
+    expect(push?.body.changes.dinners.map((row: { id: string }) => row.id)).toEqual([kept]);
+
+    // Once linked, deletes are recorded again.
+    deleteDinner(kept);
+    expect(typeof store$.meta.tombstones.dinners[kept].get()).toBe('string');
+  });
+});
+
+describe('paged first sync', () => {
+  it('fetches every page, applying each, and stores the cursor only after the last', async () => {
+    ensureChangeTracking();
+    const row = (id: string, name: string) => ({ id, name, default_unit: null, category: null, category_source: null,
+      created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z', deleted_at: null, erasure_version: 0 });
+    let cursorWhilePaging: unknown = 'unset';
+    const server = fakeServer([
+      () => me,
+      () => ({ ...emptySync(), cursor: 50, changes: { ingredients: [row('i-1', 'Beef')] }, next_page: '50.1.9' }),
+      (call) => {
+        cursorWhilePaging = store$.meta.cursor.get();
+        expect(call.body).toMatchObject({ cursor: null, paged: true, page: '50.1.9', changes: {} });
+        return { ...emptySync(), cursor: 50, changes: { ingredients: [row('i-2', 'Rice')] }, next_page: null };
+      },
+    ]);
+    await connect(server);
+
+    const first = server.calls.find((call) => call.path === '/sync');
+    expect(first?.body.paged).toBe(true);
+    expect(cursorWhilePaging).toBeNull();
+    expect(store$.meta.cursor.get()).toBe(50);
+    expect(Object.keys(store$.ingredients.get()).sort()).toEqual(['i-1', 'i-2']);
+    expect(hasPending()).toBe(false);
   });
 });
 
@@ -861,4 +914,65 @@ it('clears a remotely deleted category while retaining a recipe edit made during
   await syncNow();
   expect(store$.dinnerCategories[category].get()).toBeUndefined();
   expect(store$.dinners[dinner].get()).toMatchObject({ name: 'My soup', category: null });
+});
+
+describe('archived shopping lists', () => {
+  it('syncs archiving as a change to the list only, never as deleted items', async () => {
+    ensureChangeTracking();
+    const server = fakeServer();
+    await connect(server);
+    const list = createShoppingList('Last week');
+    const item = addShoppingItem(list, { name: 'Milk' });
+    await syncNow();
+
+    archiveShoppingList(list);
+    expect(store$.shoppingListItems[item].get()).toBeUndefined();
+    expect(store$.meta.tombstones.get() ?? {}).toEqual({});
+    await syncNow();
+
+    const sentLists = server.calls.flatMap((call) => call.body?.changes?.shopping_lists ?? []);
+    const sentItems = server.calls.flatMap((call) => call.body?.changes?.shopping_list_items ?? []);
+    expect(sentLists.at(-1)).toMatchObject({ id: list, archived_at: expect.any(String) });
+    expect(sentItems.some((row: { deleted_at?: string | null }) => row.deleted_at)).toBe(false);
+  });
+
+  it('brings the items back when another device restores the list', async () => {
+    ensureChangeTracking();
+    const server = fakeServer();
+    await connect(server);
+    const list = createShoppingList('Last week');
+    const item = addShoppingItem(list, { name: 'Milk' });
+    await syncNow();
+    archiveShoppingList(list);
+    await syncNow();
+    const row = store$.shoppingLists[list].get();
+
+    server.handlers.push(() => ({
+      ...emptySync(),
+      changes: { shopping_lists: [{ ...row, archived_at: null, updated_at: '2999-01-01T00:00:00.000Z', deleted_at: null }] },
+    }));
+    await syncNow();
+
+    expect(store$.shoppingLists[list].archived_at.get()).toBeNull();
+    expect(store$.shoppingListItems[item].name.get()).toBe('Milk');
+    expect(store$.meta.dirty.shoppingListItems?.[item].get()).toBeUndefined();
+  });
+
+  it('uploads the items of lists archived before the device was first linked', async () => {
+    store$.meta.assign({ accountId: null, linked: false });
+    ensureChangeTracking();
+    const list = createShoppingList('Old list');
+    const item = addShoppingItem(list, { name: 'Rice' });
+    archiveShoppingList(list);
+    expect(archive().read(list)).toHaveLength(1);
+
+    const server = fakeServer();
+    await connect(server);
+
+    const uploaded = server.calls.flatMap((call) => call.body?.changes?.shopping_list_items ?? []);
+    expect(uploaded.map((row: { id: string }) => row.id)).toContain(item);
+    // Uploaded, so it moves back out of the store.
+    expect(store$.shoppingListItems[item].get()).toBeUndefined();
+    expect(archive().read(list)).toHaveLength(1);
+  });
 });

@@ -20,6 +20,7 @@ const ICONS = {
   camera: 'photo_camera',
   'photo.on.rectangle': 'photo_library',
   trash: 'delete',
+  archivebox: 'inventory_2',
   pencil: 'edit',
   'exclamationmark.triangle.fill': 'warning',
 } as const;

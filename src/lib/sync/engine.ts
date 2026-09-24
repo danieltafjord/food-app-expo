@@ -3,11 +3,14 @@ import { AppState, type AppStateStatus, type NativeEventSubscription } from 'rea
 
 import { ApiError, type RequestOptions } from '@/lib/api/client';
 import { resetLocalDataForHousehold } from '@/lib/store/account';
+import { archive } from '@/lib/store/archive';
+import { restoreAllArchivedItems, settleArchive } from '@/lib/store/archiving';
 import { bootStore } from '@/lib/store/boot';
 import { store$ } from '@/lib/store/collections';
 import { getLocalHouseholdId } from '@/lib/store/household';
 import { nowIso } from '@/lib/store/ids';
 import { whenHydrated } from '@/lib/store/persistence';
+import { isTrackingSuspended } from '@/lib/store/tracking';
 
 import { getSyncRequest, type SyncRequest } from './auth-bridge';
 import { markSyncError, markSynced, markSyncing, setPendingCount, setRejectedCount } from './status';
@@ -112,6 +115,8 @@ export type SyncResponse = {
   changes: Record<string, ServerRow[]>;
   rejected?: Record<string, Rejection[]>;
   remaps?: Record<string, Record<string, string>>;
+  /** More of a paged first sync to fetch; absent from servers that don't page. */
+  next_page?: string | null;
 };
 
 /** What a single push sent, so we can clear exactly those entries on success. */
@@ -306,7 +311,10 @@ export function __resetEngineForTests(): void {
 /* ---- change tracking ----------------------------------------------------- */
 
 function handleStoreChange(params: ListenerParams): void {
-  if (applyingRemote || params.isFromPersist) return;
+  // Archived items moving in and out of the store are not edits.
+  if (applyingRemote || params.isFromPersist || isTrackingSuspended()) return;
+  // Nothing local is on the server yet: the first sync uploads every row.
+  if (!store$.meta.linked.peek()) return;
 
   let touched = false;
   // One notification for all the outbox writes of this change set, instead of
@@ -477,21 +485,45 @@ async function runCycle(request: SyncRequest, generation: number): Promise<void>
     // Push in dependency-ordered chunks; the last request also carries the pull.
     for (const snapshot of collectPushChunks()) {
       refreshSnapshot(snapshot);
-      const response = await timed<SyncResponse>(request, '/sync', {
+      // A first sync downloads the household page by page, so a long history
+      // neither arrives as one huge response nor lands in the store at once.
+      const firstSync = store$.meta.cursor.get() === null;
+      let response = await timed<SyncResponse>(request, '/sync', {
         method: 'POST',
         body: {
           cursor: store$.meta.cursor.get(),
           household_id: store$.meta.serverHouseholdId.get(),
           changes: snapshot.changes,
+          ...(firstSync ? { paged: true } : {}),
         },
       });
       if (!isCurrent()) return; // a previous session must never touch the current store
 
-      const applied = applyResponse(snapshot, response);
-      received += applied.received;
+      received += applyResponse(snapshot, response).received;
+      while (response.next_page) {
+        response = await timed<SyncResponse>(request, '/sync', {
+          method: 'POST',
+          body: {
+            cursor: null,
+            household_id: store$.meta.serverHouseholdId.get(),
+            changes: {},
+            paged: true,
+            page: response.next_page,
+          },
+        });
+        if (!isCurrent()) return;
+        received += applyResponse(emptySnapshot(), response).received;
+      }
     }
 
     retryAttempt = 0; // connectivity restored — reset the backoff
+    // Items of lists archived or restored (here or elsewhere) move once their
+    // changes are on the server.
+    try {
+      settleArchive();
+    } catch {
+      // Retried after the next sync.
+    }
     const moved = hasPush || received > 0;
     quietPulls = moved ? 0 : quietPulls + 1;
     markSynced(countFailed(), moved);
@@ -552,6 +584,10 @@ async function prepareFirstSync(request: SyncRequest, isCurrent: () => boolean):
   } else {
     store$.meta.serverHouseholdId.set(active);
   }
+  // From here on every edit and delete is recorded; the seed covers the rest,
+  // including items of archived lists, which only this device has.
+  restoreAllArchivedItems();
+  store$.meta.linked.set(true);
   seedOutboxFromLocal();
   return true;
 }
@@ -627,8 +663,10 @@ function applyResponse(
   applyRemaps(response.remaps ?? {});
   const received = applyRemote(response.changes ?? {});
   // Only write when something moved: every store write is a persist to disk,
-  // and an idle poll that brings back nothing must not cost one.
-  if (store$.meta.cursor.get() !== response.cursor) {
+  // and an idle poll that brings back nothing must not cost one. A paged first
+  // sync keeps its cursor unset until the last page is in, so a sync cut off
+  // halfway starts over rather than skipping the pages it never received.
+  if (!response.next_page && store$.meta.cursor.get() !== response.cursor) {
     store$.meta.cursor.set(response.cursor);
   }
   if (store$.meta.serverHouseholdId.get() !== response.household_id) {
@@ -760,6 +798,8 @@ function refreshSnapshot(snapshot: PushSnapshot): void {
 /** Fold pulled rows into the store; returns how many rows the server sent. */
 function applyRemote(changes: Record<string, ServerRow[]>): number {
   let received = 0;
+  const deletedLists: string[] = [];
+  const deletedItems: string[] = [];
   applyingRemote = true;
   try {
     batch(() => {
@@ -785,6 +825,8 @@ function applyRemote(changes: Record<string, ServerRow[]>): number {
             }
             if (existing) node(collection)[uuid].delete();
             deleted.add(uuid);
+            if (collection === 'shoppingLists') deletedLists.push(uuid);
+            if (collection === 'shoppingListItems') deletedItems.push(uuid);
             continue;
           }
 
@@ -798,6 +840,7 @@ function applyRemote(changes: Record<string, ServerRow[]>): number {
               if (!(field in local)) local[field] = existing?.[field] ?? null;
             }
           }
+          if (collection === 'shoppingLists' && !('archived_at' in local)) local.archived_at = existing?.archived_at ?? null;
           delete local.deleted_at;
           if (household) local.household_id = getLocalHouseholdId();
           // The server echoes the rows this device just pushed. Writing an
@@ -824,6 +867,9 @@ function applyRemote(changes: Record<string, ServerRow[]>): number {
   } finally {
     applyingRemote = false;
   }
+  // Items kept for archived lists are not in the store: forget deleted ones.
+  if (deletedLists.length > 0) archive().drop(deletedLists);
+  if (deletedItems.length > 0) archive().forgetItems(deletedItems);
   return received;
 }
 

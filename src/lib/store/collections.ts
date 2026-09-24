@@ -66,6 +66,14 @@ export const store$ = observable({
      */
     accountId: null as number | null,
     /**
+     * Whether this device's data is linked to a server household (set when the
+     * first sync starts). Until then nothing local exists on the server: the
+     * first sync uploads every row anyway, and a delete needs no tombstone, so
+     * edits aren't recorded in the outbox at all — for a device that never
+     * signs in, that outbox would otherwise grow to every row it ever had.
+     */
+    linked: false as boolean,
+    /**
      * Cloud-sync bookkeeping (Phase 2). All persisted with the store, so the
      * outbox survives restarts. Keyed by client collection name
      * (`dinnerItems`, `planEntries`, …).

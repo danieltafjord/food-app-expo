@@ -119,6 +119,24 @@ function v3_recoverOutbox(data: Json): Json {
   return data;
 }
 
+/**
+ * v9 → v10: only a device whose data is linked to a server household records
+ * an outbox. A device an account has claimed may hold rows that are on the
+ * server (earlier migrations cleared its cursor), so it keeps recording; one
+ * never signed in has nothing there, and its outbox only grew with every row
+ * it ever had.
+ */
+function v9_linkedOutbox(data: Json): Json {
+  const meta = (data.meta ??= {}) as Json;
+  meta.linked = meta.accountId != null;
+  if (!meta.linked) {
+    meta.dirty = {};
+    meta.tombstones = {};
+    meta.failed = {};
+  }
+  return data;
+}
+
 /** Ordered migrations. Append a new function to bump the schema version by one. */
 const MIGRATIONS: Migration[] = [v0_backfillTimestamps, v1_categorizeIngredients, v2_integerCursor, v3_recoverOutbox,
   (data) => {
@@ -150,6 +168,13 @@ const MIGRATIONS: Migration[] = [v0_backfillTimestamps, v1_categorizeIngredients
       }
     }
     ((data.meta ??= {}) as Json).pendingImages ??= {};
+    return data;
+  },
+  v9_linkedOutbox,
+  (data) => {
+    for (const row of Object.values((data.shoppingLists ?? {}) as Rows)) {
+      if (row && typeof row === 'object') row.archived_at ??= null;
+    }
     return data;
   },
 ];

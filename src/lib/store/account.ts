@@ -73,6 +73,7 @@ function wipeLocalData(): void {
     store$.meta.tombstones.set({});
     store$.meta.cursor.set(null);
     store$.meta.serverHouseholdId.set(null);
+    store$.meta.linked.set(false);
     store$.meta.localHouseholdId.set('');
   });
   // Recreate the implicit on-device household so the app always has somewhere to write.

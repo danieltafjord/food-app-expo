@@ -44,3 +44,4 @@ export * from './ingredients';
 export * from './dinners';
 export * from './plans';
 export * from './shopping-lists';
+export * from './archiving';

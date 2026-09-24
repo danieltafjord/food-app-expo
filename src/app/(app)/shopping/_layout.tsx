@@ -28,6 +28,7 @@ export default function ShoppingLayout() {
       {/* The list screen sets its own title (the list's name). */}
       <Stack.Screen name="[id]" options={{ title: '' }} />
       <Stack.Screen name="add" options={{ title: t('shopping.addItems') }} />
+      <Stack.Screen name="archived" options={{ title: t('shopping.archivedLists') }} />
     </Stack>
   );
 }

@@ -10,6 +10,7 @@ import {
 import { translate } from '@/lib/i18n';
 import { nameCollator } from '@/lib/intl';
 
+import { archive } from './archive';
 import { planIdsForWeekOf } from './plans';
 import { store$ } from './collections';
 import { derived, derivedById } from './derived';
@@ -92,6 +93,7 @@ let listIdsCache: { key: string; ids: string[] } | undefined;
  */
 const shoppingListIds$ = derived((): string[] => {
   const ids = Object.values(store$.shoppingLists.get())
+    .filter((list) => !list.archived_at)
     .sort((a, b) => compareIso(b.created_at, a.created_at))
     .map((list) => list.id);
   const key = ids.join(',');
@@ -125,7 +127,8 @@ export function useShoppingListForPlan(planId: string | undefined): LocalShoppin
     const planIds = planIdsForWeekOf(planId);
     let newest: LocalShoppingList | undefined;
     for (const list of Object.values(store$.shoppingLists.get())) {
-      if (!list.dinner_plan_id || !planIds.has(list.dinner_plan_id)) continue;
+      // An archived week's list is history; the week gets a fresh one.
+      if (!list.dinner_plan_id || !planIds.has(list.dinner_plan_id) || list.archived_at) continue;
       if (!newest || (compareIso(list.created_at, newest.created_at) || compareIds(list.id, newest.id)) > 0) newest = list;
     }
     return newest;
@@ -346,6 +349,8 @@ export function deleteShoppingList(id: string): void {
     // deleting the missing row would queue a tombstone for nothing.
     if (store$.shoppingLists[id].peek()) store$.shoppingLists[id].delete();
   });
+  // An archived list's items are kept outside the store.
+  archive().drop([id]);
   sectionsCache.delete(id);
 }
 

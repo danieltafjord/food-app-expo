@@ -85,7 +85,7 @@ export function acceptSuggestedWeek(draft: SuggestedWeekDraft, name: string, tod
     }
     const planIds = planIdsForWeekOf(planId);
     const list = Object.values(store$.shoppingLists.get())
-      .filter((row) => row.dinner_plan_id && planIds.has(row.dinner_plan_id))
+      .filter((row) => row.dinner_plan_id && planIds.has(row.dinner_plan_id) && !row.archived_at)
       .sort((a, b) => compareIso(b.created_at, a.created_at) || compareIds(b.id, a.id))[0];
     if (list) {
       updateShoppingListFromPlan(list.id, planId);

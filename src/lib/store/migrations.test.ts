@@ -45,7 +45,7 @@ describe('migrate — v0 → v1 (backfill timestamps)', () => {
   it('replaces the timestamp cursor with the integer cursor and household binding', () => {
     const out = migrate({ meta: { lastSync: 'x', accountId: 3 }, dinners: {} }, 0) as Record<string, any>;
     expect(out.meta).toEqual({ accountId: 3, cursor: null, serverHouseholdId: null, failed: {}, aiClassificationJobs: {},
-      planningPreferences: { text: '', shortcuts: [], excluded: [] }, pendingImages: {} });
+      planningPreferences: { text: '', shortcuts: [], excluded: [] }, pendingImages: {}, linked: true });
   });
 });
 
@@ -103,7 +103,7 @@ describe('migrate — version gating', () => {
 
 
 it('recovers ghost outbox flags without dropping pending edits and preserves legacy shopping rows', () => {
-  const out = migrate({ meta: { dirty: { dinnerItems: { ghost: true, live: true } }, tombstones: { dinners: { deleted: 'now' } } },
+  const out = migrate({ meta: { accountId: 1, dirty: { dinnerItems: { ghost: true, live: true } }, tombstones: { dinners: { deleted: 'now' } } },
     dinnerItems: { live: { id: 'live' } }, shoppingListItems: { legacy: { id: 'legacy' } },
   }, 3) as Record<string, any>;
   expect(out.meta.dirty.dinnerItems).toEqual({ live: true });
@@ -117,7 +117,7 @@ it('upgrades existing dinners without changing existing categories or marking th
     old: { id: 'old', updated_at: 'old-time' },
     categorized: { id: 'categorized', category: 'fish', updated_at: 'old-time' },
     future: { id: 'future', category: 'future-category' },
-  }, meta: { dirty: { dinners: { old: true } } } };
+  }, meta: { accountId: 1, dirty: { dinners: { old: true } } } };
   const migrated = migrate(data, 5) as typeof data & { dinners: { old: { category: null } } };
   expect(migrated.dinners.old).toEqual({ id: 'old', category: null, emoji: null, image_path: null, image_thumbhash: null, updated_at: 'old-time' });
   expect(migrated.dinners.categorized.category).toBe('fish');
@@ -126,7 +126,7 @@ it('upgrades existing dinners without changing existing categories or marking th
 });
 
 it('adds a persisted category catalogue and refreshes the household cursor on upgrade', () => {
-  const snapshot = { meta: { cursor: 200, dirty: { dinners: { d1: true } } }, dinners: { d1: { category: 'fish' } } };
+  const snapshot = { meta: { accountId: 1, cursor: 200, dirty: { dinners: { d1: true } } }, dinners: { d1: { category: 'fish' } } };
   const migrated = migrate(snapshot, 6) as typeof snapshot & { dinnerCategories: object };
   expect(migrated.dinnerCategories).toEqual({});
   expect(migrated.meta.cursor).toBeNull();
@@ -144,4 +144,16 @@ it('gives existing dinners empty picture fields and a pending upload map without
   expect(migrated.dinners.d2.emoji).toBe('🍕');
   expect(migrated.meta.pendingImages).toEqual({});
   expect(migrated.meta.dirty).toEqual({});
+});
+
+describe('migrate — v9 → v10 (outbox only for linked devices)', () => {
+  it('clears the outbox of a device no account ever claimed', () => {
+    const out = migrate({ meta: { accountId: null, dirty: { dinners: { d1: true } }, tombstones: { dinners: { d2: 'x' } }, failed: {} } }, 9) as Record<string, any>;
+    expect(out.meta).toMatchObject({ linked: false, dirty: {}, tombstones: {}, failed: {} });
+  });
+
+  it('keeps recording for a device an account has claimed', () => {
+    const out = migrate({ meta: { accountId: 4, cursor: null, dirty: { dinners: { d1: true } }, tombstones: { dinners: { d2: 'x' } } } }, 9) as Record<string, any>;
+    expect(out.meta).toMatchObject({ linked: true, dirty: { dinners: { d1: true } }, tombstones: { dinners: { d2: 'x' } } });
+  });
 });
