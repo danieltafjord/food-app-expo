@@ -67,6 +67,11 @@ export const nb: Dictionary = {
     removeIngredient: 'Fjern ingrediens',
     toggleItem: 'Merk {name}',
   },
+  presence: {
+    one: '{a} er her også',
+    two: '{a} og {b} er her også',
+    many: '{a}, {b} og {count} til er her også',
+  },
   tabs: {
     plans: 'Ukeplan',
     dinners: 'Middager',

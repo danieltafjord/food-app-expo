@@ -22,7 +22,9 @@ import { markSyncError, markSynced, markSyncing, setPendingCount, setRejectedCou
  * This engine watches the store, batches the changed rows, and exchanges them
  * with the Laravel `POST /api/v1/sync` endpoint — one debounced push/pull that
  * also pulls on app-foreground so the other device in the household sees the
- * newest data promptly.
+ * newest data promptly. With live sync up (`@/lib/realtime`), the server rings
+ * a doorbell after every committed write and peers pull at once; the adaptive
+ * poll below is the fallback for when the socket is down.
  *
  * Contract (mirrors `App\Actions\Sync\ApplySyncBatch`):
  *  - rows carry a client UUID `id`; last-write-wins by client `updated_at`;
@@ -41,6 +43,11 @@ import { markSyncError, markSynced, markSyncing, setPendingCount, setRejectedCou
  */
 
 const DEBOUNCE_MS = 1500;
+/**
+ * Push debounce while someone else has the same list or week open: they are
+ * watching, so a tick should reach them now rather than in a batch.
+ */
+const DEBOUNCE_LIVE_MS = 250;
 /** Retry backoff: first retry ~4s, doubling each consecutive failure, capped at
  *  5 min, with jitter so many devices don't retry in lockstep against a struggling
  *  server. Reset to 0 on any successful sync. */
@@ -59,11 +66,15 @@ const POLL_IDLE_MS = 30_000;
 const POLL_IDLE_MAX_MS = 5 * 60_000;
 /**
  * Faster pull cadence while the app is foregrounded and recently active, so a
- * peer's edits surface within seconds during live planning. A websocket
- * "doorbell" (Reverb/Pusher → `syncNow()`) would slot in here later; this
- * adaptive poll is the no-infra version and the always-on fallback beneath it.
+ * peer's edits surface within seconds during live planning when there is no
+ * live socket.
  */
 const POLL_ACTIVE_MS = 8_000;
+/**
+ * While the live socket is up, peers' writes arrive as doorbells and the poll
+ * is only a safety net for a missed one.
+ */
+const POLL_LIVE_MS = 3 * 60_000;
 /** How long after the last local edit / foreground we keep the fast cadence. */
 const ACTIVE_WINDOW_MS = 60_000;
 /**
@@ -147,6 +158,10 @@ let foreground = true;
 let lastActivityAt = 0; // epoch ms of the last local edit / foreground / manual sync
 let retryAttempt = 0; // consecutive sync failures, for exponential backoff
 let quietPulls = 0; // consecutive pulls that carried no changes, for idle backoff
+let pullAgain = false; // a doorbell rang mid-cycle: pull again straight after
+let realtimeLive = false; // the live socket is subscribed to the household
+let socketId: string | null = null; // sent so the server skips our own doorbell
+let peersPresent = false; // someone else has the same list or week open
 
 let disposeListener: (() => void) | null = null;
 let appStateSub: NativeEventSubscription | null = null;
@@ -294,6 +309,45 @@ export function disconnectCollections(): void {
   pollTimer = debounceTimer = retryTimer = initialTimer = null;
   retryAttempt = 0;
   rerun = false;
+  pullAgain = false;
+}
+
+/* ---- live sync ------------------------------------------------------------ */
+
+/**
+ * The live socket went up or down (see `@/lib/realtime`). While it is up the
+ * poll relaxes to a safety net; coming up, it pulls once, since anything
+ * announced while it was down was missed.
+ */
+export function setRealtimeLink(live: boolean, id: string | null): void {
+  socketId = live ? id : null;
+  if (live === realtimeLive) return;
+  realtimeLive = live;
+  if (!started) return;
+  schedulePoll();
+  if (live && !initialTimer) pullNow();
+}
+
+/** Whether anyone else has the list or week this device shows open. */
+export function setPeersPresent(present: boolean): void {
+  peersPresent = present;
+}
+
+/** A doorbell: the household committed `version`. Pull unless we already have it. */
+export function handleRemoteVersion(version: number): void {
+  const cursor = store$.meta.cursor.peek();
+  if (typeof version === 'number' && cursor !== null && version <= cursor) return;
+  pullNow();
+}
+
+/** Pull right away; mid-cycle, right after the cycle in flight. */
+function pullNow(): void {
+  if (!started || initialTimer) return;
+  if (inFlight) {
+    pullAgain = true;
+    return;
+  }
+  void pushPull();
 }
 
 /** Test-only: forget all module state (listeners, timers, flags). */
@@ -306,6 +360,9 @@ export function __resetEngineForTests(): void {
   inFlight = null;
   lastActivityAt = 0;
   quietPulls = 0;
+  realtimeLive = false;
+  socketId = null;
+  peersPresent = false;
 }
 
 /* ---- change tracking ----------------------------------------------------- */
@@ -368,7 +425,7 @@ function handleStoreChange(params: ListenerParams): void {
 function scheduleSync(): void {
   if (!started || retryTimer) return;
   if (debounceTimer) clearTimeout(debounceTimer);
-  debounceTimer = setTimeout(() => void pushPull(), DEBOUNCE_MS);
+  debounceTimer = setTimeout(() => void pushPull(), peersPresent ? DEBOUNCE_LIVE_MS : DEBOUNCE_MS);
 }
 
 function scheduleRetry(): void {
@@ -395,6 +452,7 @@ function bumpActivity(): void {
  * quiet, and slower still the longer nothing arrives (see `POLL_IDLE_MAX_MS`).
  */
 function pollDelay(): number {
+  if (realtimeLive) return POLL_LIVE_MS;
   if (Date.now() - lastActivityAt < ACTIVE_WINDOW_MS) return POLL_ACTIVE_MS;
   return Math.min(POLL_IDLE_MAX_MS, POLL_IDLE_MS * 2 ** Math.min(quietPulls, 4));
 }
@@ -463,7 +521,12 @@ function pushPull(): Promise<void> {
   inFlight = runCycle(request, connectionGeneration).finally(() => {
     inFlight = null;
     updatePending();
-    if (started && (rerun || hasSendable())) scheduleSync();
+    if (started && pullAgain) {
+      pullAgain = false;
+      void pushPull();
+    } else if (started && (rerun || hasSendable())) {
+      scheduleSync();
+    }
   });
   return inFlight;
 }
@@ -490,6 +553,7 @@ async function runCycle(request: SyncRequest, generation: number): Promise<void>
       const firstSync = store$.meta.cursor.get() === null;
       let response = await timed<SyncResponse>(request, '/sync', {
         method: 'POST',
+        headers: syncHeaders(),
         body: {
           cursor: store$.meta.cursor.get(),
           household_id: store$.meta.serverHouseholdId.get(),
@@ -503,6 +567,7 @@ async function runCycle(request: SyncRequest, generation: number): Promise<void>
       while (response.next_page) {
         response = await timed<SyncResponse>(request, '/sync', {
           method: 'POST',
+          headers: syncHeaders(),
           body: {
             cursor: null,
             household_id: store$.meta.serverHouseholdId.get(),
@@ -547,6 +612,11 @@ async function runCycle(request: SyncRequest, generation: number): Promise<void>
       scheduleRetry();
     }
   }
+}
+
+/** The live socket's id, so the server's doorbell for this write skips us. */
+function syncHeaders(): Record<string, string> | undefined {
+  return socketId ? { 'X-Socket-ID': socketId } : undefined;
 }
 
 function isHouseholdMismatch(body: unknown): body is { code: string; household_id: number } {

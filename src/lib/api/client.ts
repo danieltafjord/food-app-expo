@@ -30,6 +30,8 @@ export type RequestOptions = {
   /** Bearer token; the session layer injects a valid one. */
   accessToken?: string | null;
   signal?: AbortSignal;
+  /** Extra request headers (e.g. the live-sync socket id). */
+  headers?: Record<string, string>;
 };
 
 function safeJsonParse(text: string): unknown {
@@ -52,7 +54,7 @@ function hasKey<K extends string>(value: unknown, key: K): value is Record<K, un
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { method = 'GET', body, accessToken, signal } = options;
 
-  const headers: Record<string, string> = { Accept: 'application/json' };
+  const headers: Record<string, string> = { ...options.headers, Accept: 'application/json' };
   if (accessToken) {
     headers.Authorization = `Bearer ${accessToken}`;
   }

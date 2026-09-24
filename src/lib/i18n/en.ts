@@ -71,6 +71,11 @@ export const en = {
     removeIngredient: 'Remove ingredient',
     toggleItem: 'Toggle {name}',
   },
+  presence: {
+    one: '{a} is here too',
+    two: '{a} and {b} are here too',
+    many: '{a}, {b} and {count} more are here too',
+  },
   tabs: {
     plans: 'Plan',
     dinners: 'Dinners',

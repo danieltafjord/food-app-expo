@@ -27,8 +27,11 @@ import {
   disconnectCollections,
   ensureChangeTracking,
   ensureSyncedBeforeRebind,
+  handleRemoteVersion,
   hasPending,
   getSyncFailures,
+  setPeersPresent,
+  setRealtimeLink,
   SyncPendingError,
   syncNow,
   type SyncResponse,
@@ -38,13 +41,13 @@ import { resetSyncStatus, syncStatus$ } from '@/lib/sync/status';
 declare const global: { __DEV__?: boolean };
 global.__DEV__ = false;
 
-type Call = { path: string; body?: any };
+type Call = { path: string; body?: any; headers?: Record<string, string> };
 
 /** A scripted server: records every request and answers from a queue of handlers. */
 function fakeServer(handlers: ((call: Call) => unknown)[] = []) {
   const calls: Call[] = [];
   const request = async <T,>(path: string, options: any = {}): Promise<T> => {
-    const call = { path, body: options.body };
+    const call = { path, body: options.body, headers: options.headers };
     calls.push(call);
     const handler = handlers.shift() ?? defaultHandler;
     return handler(call) as T;
@@ -716,6 +719,77 @@ describe('failures and state transitions', () => {
     expect(push.body.cursor).not.toBeNull(); // resumed as a delta, not a first sync
     expect(push.body.changes.dinners[0]).toMatchObject({ id: dinner, deleted_at: expect.any(String) });
     expect(hasPending()).toBe(false);
+  });
+});
+
+describe('live sync', () => {
+  const syncCalls = (server: ReturnType<typeof fakeServer>) => server.calls.filter((call) => call.path === '/sync');
+
+  it('pulls at once when a peer announces a newer version, and ignores one it already has', async () => {
+    const server = fakeServer();
+    await connect(server);
+    const before = syncCalls(server).length;
+    const current = store$.meta.cursor.get() as number;
+
+    handleRemoteVersion(current);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(syncCalls(server)).toHaveLength(before);
+
+    handleRemoteVersion(current + 1);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(syncCalls(server)).toHaveLength(before + 1);
+  });
+
+  it('pulls again straight after the cycle in flight when a doorbell rings mid-request', async () => {
+    let release!: () => void;
+    const server = fakeServer();
+    await connect(server);
+    const before = syncCalls(server).length;
+    server.handlers.push(() => new Promise((resolve) => {
+      release = () => resolve(emptySync());
+    }));
+
+    const flight = syncNow();
+    await jest.advanceTimersByTimeAsync(0);
+    handleRemoteVersion((store$.meta.cursor.get() as number) + 5);
+    release();
+    await flight;
+    await jest.advanceTimersByTimeAsync(0);
+
+    // No debounce wait: the follow-up pull went out immediately.
+    expect(syncCalls(server)).toHaveLength(before + 2);
+  });
+
+  it('identifies its socket so its own doorbell skips it, and relaxes the poll while live', async () => {
+    const server = fakeServer();
+    await connect(server);
+    setRealtimeLink(true, '123.456');
+    await jest.advanceTimersByTimeAsync(0);
+    expect(syncCalls(server).at(-1)?.headers).toEqual({ 'X-Socket-ID': '123.456' });
+    expect(__pollDelayForTests()).toBe(3 * 60_000);
+
+    setRealtimeLink(false, null);
+    await syncNow();
+    expect(syncCalls(server).at(-1)?.headers).toBeUndefined();
+    expect(__pollDelayForTests()).toBe(8_000);
+  });
+
+  it('pushes quickly while someone else has the same screen open', async () => {
+    const server = fakeServer();
+    await connect(server);
+    const before = syncCalls(server).length;
+
+    setPeersPresent(true);
+    createDinner({ name: 'Tacos' });
+    await jest.advanceTimersByTimeAsync(300);
+    expect(syncCalls(server)).toHaveLength(before + 1);
+
+    setPeersPresent(false);
+    createDinner({ name: 'Pizza' });
+    await jest.advanceTimersByTimeAsync(300);
+    expect(syncCalls(server)).toHaveLength(before + 1);
+    await jest.advanceTimersByTimeAsync(1500);
+    expect(syncCalls(server)).toHaveLength(before + 2);
   });
 });
 

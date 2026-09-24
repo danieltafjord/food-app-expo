@@ -18,6 +18,7 @@ import { Card } from '@/components/card';
 import { EmptyState } from '@/components/empty-state';
 import { Fab } from '@/components/fab';
 import { HeaderMenu, MenuAction } from '@/components/header-menu';
+import { PresenceBar } from '@/components/presence-bar';
 import { Icon } from '@/components/icon';
 import { ProgressBar } from '@/components/progress-bar';
 import { Screen } from '@/components/screen';
@@ -30,6 +31,8 @@ import { formatQuantity } from '@/lib/format';
 import { hapticSelection, hapticSuccess } from '@/lib/haptics';
 import { useT } from '@/lib/i18n';
 import { pushOnce } from '@/lib/navigation';
+import { listScope } from '@/lib/realtime/live';
+import { usePresence } from '@/lib/realtime/use-presence';
 import { updateShoppingListFromPlan, usePlanListDrift } from '@/lib/shopping/generate';
 import {
   archiveShoppingList,
@@ -72,6 +75,8 @@ export default function ShoppingListScreen() {
   const brand = BadgeColors[useResolvedScheme()].brand;
   const params = useLocalSearchParams<{ id: string }>();
   const list = useShoppingList(params.id);
+  // Who else in the household has this list open right now.
+  const others = usePresence(params.id ? listScope(params.id) : null);
   const compact = useShoppingListDensity() === 'compact';
   const hidden = useHiddenIds();
   const { sections, checkedIds, total, checked } = withoutHidden(
@@ -170,6 +175,8 @@ export default function ShoppingListScreen() {
             onPress={() => pushOnce({ pathname: '/shopping/add', params: { listId } })}
           />
         }>
+        <PresenceBar members={others} />
+
         {total > 0 ? (
           <View style={styles.progress}>
             <ThemedText

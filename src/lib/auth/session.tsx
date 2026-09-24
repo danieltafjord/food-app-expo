@@ -16,6 +16,7 @@ import {
 import { applyServerHouseholdSettings, applyServerSettings, getHouseholdDefaultServings, store$ } from '@/lib/store';
 import { whenHydrated } from '@/lib/store/persistence';
 import { getDeviceLocale, translate } from '@/lib/i18n';
+import { startRealtime, stopRealtime } from '@/lib/realtime/live';
 import { setSyncAuth } from '@/lib/sync/auth-bridge';
 import { connectCollections, disconnectCollections, syncNow } from '@/lib/sync/engine';
 import { resetSyncStatus } from '@/lib/sync/status';
@@ -183,8 +184,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     if (canSync) {
       setSyncAuth((path, options) => controller.request(path, options));
       void connectCollections().then(() => syncNow()).catch(() => undefined);
+      void startRealtime();
     }
     return () => {
+      stopRealtime();
       setSyncAuth(null);
       disconnectCollections();
     };

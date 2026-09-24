@@ -5,6 +5,7 @@ import { Alert, Pressable, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Icon, type IconName } from '@/components/icon';
+import { PresenceBar } from '@/components/presence-bar';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { WeekPager, type WeekPagerHandle } from '@/components/week-pager';
@@ -14,6 +15,8 @@ import { hapticLight, hapticSelection } from '@/lib/haptics';
 import { useT } from '@/lib/i18n';
 import { pushOnce } from '@/lib/navigation';
 import { setPlannerWeekKey, usePlannerWeekKey } from '@/lib/planner-state';
+import { weekScope } from '@/lib/realtime/live';
+import { usePresence } from '@/lib/realtime/use-presence';
 import { createShoppingListFromPlan, dinnersWithoutIngredients } from '@/lib/shopping/generate';
 import { useWeekHasOpenDays } from '@/lib/store/week-planning';
 import { useHiddenIds } from '@/lib/undo';
@@ -49,6 +52,8 @@ export default function PlansScreen() {
   const isCurrentWeek = weekStartKey === toDateKey(startOfWeek(new Date()));
 
   const currentPlan = usePlanForWeek(weekStartKey);
+  // Who else in the household is looking at this week right now.
+  const others = usePresence(weekScope(weekStartKey));
   // A dinner deleted with Undo still pending leaves the board at once.
   const hidden = useHiddenIds();
   const entries = usePlanEntries(currentPlan?.id).filter((entry) => !hidden[entry.dinner_id]);
@@ -161,6 +166,11 @@ export default function PlansScreen() {
               onPress={() => weekPager.current?.changeWeek(1)}
             />
           </View>
+          {others.length > 0 ? (
+            <View style={styles.presence}>
+              <PresenceBar members={others} align="center" />
+            </View>
+          ) : null}
         </View>
 
         <WeekPager
@@ -343,6 +353,9 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     fontWeight: 600,
     letterSpacing: -0.1,
+  },
+  presence: {
+    paddingTop: Spacing.two,
   },
   weekNav: {
     flexDirection: 'row',

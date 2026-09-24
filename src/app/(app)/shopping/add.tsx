@@ -11,6 +11,8 @@ import { useTheme } from '@/hooks/use-theme';
 import { formatQuantity } from '@/lib/format';
 import { useT } from '@/lib/i18n';
 import { isAmountWithinLimits, parseItemLine } from '@/lib/parse-line';
+import { listScope } from '@/lib/realtime/live';
+import { usePresence } from '@/lib/realtime/use-presence';
 import { findExact, indexByName, searchIndex } from '@/lib/search';
 import {
   addShoppingItem,
@@ -36,6 +38,8 @@ export default function AddShoppingItemsScreen() {
   const theme = useTheme();
   const { listId } = useLocalSearchParams<{ listId: string }>();
   const list = useShoppingList(listId);
+  // Adding items still counts as being in the list.
+  usePresence(listId ? listScope(listId) : null);
   const items = useShoppingListItems(listId);
   // The catalogue is built once when the screen opens: it walks every item
   // ever put on a list, and rebuilding (and re-sorting) it after each tap would
