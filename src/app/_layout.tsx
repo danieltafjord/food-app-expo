@@ -6,6 +6,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { AiClassificationWorker } from '@/components/ai-classification-worker';
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
+import { DinnerImageUploader } from '@/components/dinner-image-uploader';
 import { SchemeContext, useResolvedSchemeSource } from '@/hooks/use-theme';
 import { Colors } from '@/constants/theme';
 import { queryClient } from '@/lib/api/query-client';
@@ -25,6 +26,7 @@ export default function RootLayout() {
           <StoreProvider>
             <ThemedRoot>
               <AiClassificationWorker />
+              <DinnerImageUploader />
               <AnimatedSplashOverlay />
               <RootNavigator />
             </ThemedRoot>
@@ -121,6 +123,7 @@ function RootNavigator() {
       <Stack.Screen name="sheets/dinner-picker" options={listSheet} />
       <Stack.Screen name="sheets/plan-week" options={{ ...listSheet, sheetInitialDetentIndex: 1 }} />
       <Stack.Screen name="sheets/ingredient-picker" options={listSheet} />
+      <Stack.Screen name="sheets/dinner-image" options={{ ...listSheet, sheetAllowedDetents: [0.75, 1] }} />
     </Stack>
   );
 }

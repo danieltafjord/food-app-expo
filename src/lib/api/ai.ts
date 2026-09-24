@@ -16,6 +16,8 @@ export type AiSettings = {
     resets_at: string;
     categorization: AiAllowance;
     suggestions: AiAllowance;
+    /** Missing on servers without dinner pictures. */
+    images?: AiAllowance;
   };
 };
 type AiAllowance = {

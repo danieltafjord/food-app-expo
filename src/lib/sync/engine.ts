@@ -809,6 +809,11 @@ function applyRemote(changes: Record<string, ServerRow[]>): number {
           const local: Record<string, unknown> = { ...row };
           // Older servers omit categories. Preserve local edits during rollout.
           if (collection === 'dinners' && !('category' in local)) local.category = existing?.category ?? null;
+          if (collection === 'dinners') {
+            for (const field of ['emoji', 'image_path', 'image_thumbhash'] as const) {
+              if (!(field in local)) local[field] = existing?.[field] ?? null;
+            }
+          }
           delete local.deleted_at;
           if (household) local.household_id = getLocalHouseholdId();
           // The server echoes the rows this device just pushed. Writing an

@@ -13,7 +13,7 @@ import { useDinnerCategoryLabel } from '@/lib/store/dinner-categories';
  */
 /* eslint-disable react-hooks/immutability */
 import { SymbolView } from 'expo-symbols';
-import { memo } from 'react';
+import { memo, useMemo } from 'react';
 import {
   Pressable,
   RefreshControl,
@@ -21,7 +21,7 @@ import {
   View,
   type LayoutChangeEvent,
 } from 'react-native';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { Gesture, GestureDetector, type PanGesture } from 'react-native-gesture-handler';
 import Animated, {
   LinearTransition,
   measure,
@@ -37,6 +37,7 @@ import Animated, {
   type SharedValue,
 } from 'react-native-reanimated';
 
+import { DinnerImage } from '@/components/dinner-image';
 import { Icon } from '@/components/icon';
 import { ThemedText } from '@/components/themed-text';
 import { useSyncRefresh } from '@/hooks/use-sync-refresh';
@@ -102,6 +103,7 @@ type WeekBoardProps = {
   onMove: (entryId: string, toDate: string) => void;
   onAdd: (date: string) => void;
   onEdit: (entryId: string) => void;
+  weekSwipeGesture: PanGesture;
   /** A dock below the board already clears the tab bar; avoid reserving that space twice. */
   bottomContentInset?: number;
 };
@@ -113,9 +115,10 @@ type WeekBoardProps = {
  * card's editor sheet.
  * Long-press a dinner card to lift and drag it onto another day (the list
  * auto-scrolls when you drag near an edge); a quick tap opens the editor.
+ * Swipe left for the next week or right for the previous week.
  */
 export function WeekBoard({
-  days, entriesByDate, onMove, onAdd, onEdit,
+  days, entriesByDate, onMove, onAdd, onEdit, weekSwipeGesture,
   bottomContentInset = BottomTabInset + Spacing.three,
 }: WeekBoardProps) {
   const scrollRef = useAnimatedRef<Animated.ScrollView>();
@@ -129,6 +132,13 @@ export function WeekBoard({
   const dragging = useSharedValue(false);
   const pointerY = useSharedValue(0);
   const startScrollOffset = useSharedValue(0);
+
+  // The pager gets first choice of horizontal movement; vertical movement
+  // releases the scroll view. A card's long-press drag still competes normally.
+  const boardGesture = useMemo(
+    () => Gesture.Native().requireExternalGestureToFail(weekSwipeGesture),
+    [weekSwipeGesture],
+  );
 
   const dayDates = days.map((d) => d.date);
 
@@ -172,35 +182,37 @@ export function WeekBoard({
   );
 
   return (
-    <Animated.ScrollView
-      ref={scrollRef}
-      style={styles.scroll}
-      contentContainerStyle={[styles.content, { paddingBottom: bottomContentInset }]}
-      scrollEventThrottle={16}
-      showsVerticalScrollIndicator={false}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
-      {days.map((day, index) => (
-        <DaySection
-          key={day.date}
-          day={day}
-          index={index}
-          dayDates={dayDates}
-          entries={entriesByDate[day.date] ?? NO_ENTRIES}
-          scrollRef={scrollRef}
-          scrollOffset={scrollOffset}
-          layouts={layouts}
-          activeId={activeId}
-          activeSourceIndex={activeSourceIndex}
-          hoverIndex={hoverIndex}
-          dragging={dragging}
-          pointerY={pointerY}
-          startScrollOffset={startScrollOffset}
-          onMove={onMove}
-          onAdd={onAdd}
-          onEdit={onEdit}
-        />
-      ))}
-    </Animated.ScrollView>
+    <GestureDetector gesture={boardGesture} touchAction="pan-y">
+      <Animated.ScrollView
+        ref={scrollRef}
+        style={styles.scroll}
+        contentContainerStyle={[styles.content, { paddingBottom: bottomContentInset }]}
+        scrollEventThrottle={16}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
+        {days.map((day, index) => (
+          <DaySection
+            key={day.date}
+            day={day}
+            index={index}
+            dayDates={dayDates}
+            entries={entriesByDate[day.date] ?? NO_ENTRIES}
+            scrollRef={scrollRef}
+            scrollOffset={scrollOffset}
+            layouts={layouts}
+            activeId={activeId}
+            activeSourceIndex={activeSourceIndex}
+            hoverIndex={hoverIndex}
+            dragging={dragging}
+            pointerY={pointerY}
+            startScrollOffset={startScrollOffset}
+            onMove={onMove}
+            onAdd={onAdd}
+            onEdit={onEdit}
+          />
+        ))}
+      </Animated.ScrollView>
+    </GestureDetector>
   );
 }
 
@@ -461,6 +473,7 @@ const DraggableDinnerCard = memo(function DraggableDinnerCard({
   return (
     <GestureDetector gesture={gesture}>
       <Animated.View layout={REFLOW} style={[styles.card, { backgroundColor: cardBg }, cardStyle]}>
+        <DinnerImage dinnerId={entry.dinner_id} name={entry.dinner_name} size={40} />
         <View style={styles.cardText}>
           <ThemedText style={styles.cardName} numberOfLines={1}>
             {entry.dinner_name ?? t('common.dinnerFallback')}
@@ -468,9 +481,11 @@ const DraggableDinnerCard = memo(function DraggableDinnerCard({
           {/* What the dinner brings to the shopping list — a dinner with no
               ingredients is the one thing worth flagging on the board. */}
           {count === 0 ? (
-            <View style={[styles.warn, { backgroundColor: warning.bg }]}>
-              <ThemedText type="small" style={{ color: warning.fg }} numberOfLines={1}>
-                {t('weekBoard.noIngredients')}{category ? ` · ${categoryLabel(category)}` : ''}
+            <View style={styles.warn} accessible accessibilityLabel={`${category ? `${categoryLabel(category)}, ` : ''}${t('weekBoard.noIngredients')}`}>
+              <Icon name="exclamationmark.triangle.fill" size={10} color={warning.fg} />
+              <ThemedText type="small" themeColor="textSecondary" numberOfLines={1} style={styles.warnText}>
+                {category ? `${categoryLabel(category)} · ` : ''}
+                <ThemedText type="small" style={{ color: warning.fg }}>0 {t('common.ingredients')}</ThemedText>
               </ThemedText>
             </View>
           ) : (
@@ -550,7 +565,8 @@ const styles = StyleSheet.create({
     minHeight: CARD_HEIGHT,
     borderRadius: Spacing.three,
     paddingVertical: Spacing.two,
-    paddingHorizontal: Spacing.three,
+    paddingLeft: Spacing.two,
+    paddingRight: Spacing.three,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: 'rgba(128,128,128,0.18)',
     shadowColor: '#000',
@@ -566,10 +582,12 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   warn: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: Spacing.two,
-    paddingVertical: 1,
-    borderRadius: 999,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.one,
+  },
+  warnText: {
+    flexShrink: 1,
   },
   servings: {
     flexDirection: 'row',

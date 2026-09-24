@@ -5,6 +5,7 @@ import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 
 import { EmptyState } from '@/components/empty-state';
 import { DinnerCategorySelect } from '@/components/dinner-category-select';
+import { DinnerImage } from '@/components/dinner-image';
 import { Icon } from '@/components/icon';
 import { SwipeToDelete } from '@/components/swipe-to-delete';
 import { TextField } from '@/components/text-field';
@@ -226,12 +227,18 @@ function DinnerRow({ dinner, first, last, onPress, onDelete }: DinnerRowProps) {
             !first && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border },
             pressed && { backgroundColor: theme.backgroundSelected },
           ]}>
+          <DinnerImage dinnerId={dinner.id} name={dinner.name} size={44} />
           <View style={styles.rowText}>
             <ThemedText numberOfLines={1}>{dinner.name}</ThemedText>
             {count === 0 ? (
-              <ThemedText type="small" style={{ color: warning.fg }}>
-                {category ? `${categoryLabel(category)} · ` : ''}{t('weekBoard.noIngredients')} · {dinner.default_servings} {t('common.servings')}
-              </ThemedText>
+              <View style={styles.warn} accessible accessibilityLabel={`${category ? `${categoryLabel(category)}, ` : ''}${t('weekBoard.noIngredients')}, ${dinner.default_servings} ${t('common.servings')}`}>
+                <Icon name="exclamationmark.triangle.fill" size={10} color={warning.fg} />
+                <ThemedText type="small" themeColor="textSecondary" numberOfLines={1} style={styles.warnText}>
+                  {category ? `${categoryLabel(category)} · ` : ''}
+                  <ThemedText type="small" style={{ color: warning.fg }}>0 {t('common.ingredients')}</ThemedText>
+                  {' '}· {dinner.default_servings} {t('common.servings')}
+                </ThemedText>
+              </View>
             ) : (
               <ThemedText type="small" themeColor="textSecondary">
                 {category ? `${categoryLabel(category)} · ` : ''}{count} {count === 1 ? t('common.ingredient') : t('common.ingredients')} ·{' '}
@@ -309,7 +316,15 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: Spacing.three,
   },
   rowText: {
-    flexShrink: 1,
+    flex: 1,
     gap: Spacing.half,
+  },
+  warn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.one,
+  },
+  warnText: {
+    flexShrink: 1,
   },
 });

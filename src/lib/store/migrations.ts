@@ -137,6 +137,21 @@ const MIGRATIONS: Migration[] = [v0_backfillTimestamps, v1_categorizeIngredients
     ((data.meta ??= {}) as Json).cursor = null;
     return data;
   },
+  (data) => {
+    ((data.meta ??= {}) as Json).planningPreferences ??= { text: '', shortcuts: [], excluded: [] };
+    return data;
+  },
+  (data) => {
+    for (const row of Object.values((data.dinners ?? {}) as Rows)) {
+      if (row && typeof row === 'object') {
+        row.emoji ??= null;
+        row.image_path ??= null;
+        row.image_thumbhash ??= null;
+      }
+    }
+    ((data.meta ??= {}) as Json).pendingImages ??= {};
+    return data;
+  },
 ];
 
 export const CURRENT_SCHEMA_VERSION = MIGRATIONS.length;

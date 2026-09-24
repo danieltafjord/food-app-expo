@@ -1,15 +1,13 @@
-import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
+import { GlassContainer, GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
 import { SymbolView } from 'expo-symbols';
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import { Alert, Pressable, StyleSheet, View } from 'react-native';
-import Animated, { FadeIn, LayoutAnimationConfig } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Icon, type IconName } from '@/components/icon';
-import { PressableScale } from '@/components/pressable-scale';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { WeekBoard } from '@/components/week-board';
+import { WeekPager, type WeekPagerHandle } from '@/components/week-pager';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useResolvedScheme, useTheme } from '@/hooks/use-theme';
 import { hapticLight, hapticSelection } from '@/lib/haptics';
@@ -25,34 +23,28 @@ import {
   usePlanEntries,
   usePlanForWeek,
   useShoppingListForPlan,
-  type PlanEntryWithDinner,
 } from '@/lib/store';
 import {
   addWeeks,
-  buildWeek,
-  dateKeyOf,
   fromDateKey,
   startOfWeek,
   toDateKey,
   weekLabel,
 } from '@/lib/week';
 
-/** Height the floating plan button (and the gap under it) takes from the bottom of the board. */
-const PLAN_DOCK = 56 + Spacing.three;
-
-const WEEK_ENTER = FadeIn.duration(200);
+const ACTION_HEIGHT = 48;
+// Two equal halves read as a pair on phones without stretching into bars on iPad.
+const ACTION_DOCK_MAX_WIDTH = 440;
 
 const glass = isLiquidGlassAvailable();
 
 export default function PlansScreen() {
   const t = useT();
   const theme = useTheme();
-  const scheme = useResolvedScheme();
   const locale = useLocale();
   const weekStartKey = usePlannerWeekKey();
   const weekStart = fromDateKey(weekStartKey);
 
-  const days = buildWeek(weekStart, locale);
   const label = weekLabel(weekStart, locale);
   const isCurrentWeek = weekStartKey === toDateKey(startOfWeek(new Date()));
 
@@ -62,20 +54,19 @@ export default function PlansScreen() {
   const entries = usePlanEntries(currentPlan?.id).filter((entry) => !hidden[entry.dinner_id]);
   const planning = useWeekPlanningContext(weekStartKey);
   const showPlanAction = planning.dates.length > 0;
-  const canPlan = planning.missing === 0;
-  const planHint = canPlan
-    ? t('weekPlanning.actionHint')
-    : t(planning.missing === 1 ? 'weekPlanning.needOne' : 'weekPlanning.needMore', { count: planning.missing });
-  // The list generated from this week, if any: the header button opens it
+  const showListAction = entries.length > 0;
+  const showActionDock = showPlanAction || showListAction;
+  const [actionDockHeight, setActionDockHeight] = useState(ACTION_HEIGHT);
+  // The list generated from this week, if any: the shopping button opens it
   // instead of making a second one.
   const existingList = useShoppingListForPlan(currentPlan?.id);
   // One list per tap — a double tap before navigation would build two.
   const creating = useRef(false);
+  const weekPager = useRef<WeekPagerHandle>(null);
 
-  const entriesByDate: Record<string, PlanEntryWithDinner[]> = {};
-  for (const entry of entries) {
-    const key = dateKeyOf(entry.scheduled_date);
-    (entriesByDate[key] ??= []).push(entry);
+  function onChangeWeek(direction: -1 | 1) {
+    hapticLight();
+    setPlannerWeekKey(toDateKey(addWeeks(weekStart, direction)));
   }
 
   function onMove(entryId: string, toDate: string) {
@@ -133,7 +124,7 @@ export default function PlansScreen() {
             <NavButton
               icon="chevron.left"
               accessibilityLabel={t('a11y.previousWeek')}
-              onPress={() => setPlannerWeekKey(toDateKey(addWeeks(weekStart, -1)))}
+              onPress={() => weekPager.current?.changeWeek(-1)}
             />
             <View style={styles.weekLabel}>
               <Pressable
@@ -168,109 +159,104 @@ export default function PlansScreen() {
             <NavButton
               icon="chevron.right"
               accessibilityLabel={t('a11y.nextWeek')}
-              onPress={() => setPlannerWeekKey(toDateKey(addWeeks(weekStart, 1)))}
+              onPress={() => weekPager.current?.changeWeek(1)}
             />
           </View>
-
-          {/* The bridge from planning to shopping. Hidden until the week has a
-              dinner, so an empty board stays quiet. */}
-          {entries.length > 0 ? (
-            <PressableScale
-              onPress={existingList ? () => openList(existingList.id) : onMakeList}
-              accessibilityRole="button"
-              style={[
-                styles.listButton,
-                { backgroundColor: existingList ? theme.backgroundElement : theme.tint },
-              ]}>
-              <SymbolView
-                name={{ ios: 'cart.fill', android: 'shopping_cart', web: 'shopping_cart' }}
-                size={16}
-                tintColor={existingList ? theme.text : theme.onTint}
-                type="monochrome"
-              />
-              <ThemedText
-                type="smallBold"
-                style={{ color: existingList ? theme.text : theme.onTint }}>
-                {existingList ? t('plans.openList') : t('plans.makeList')}
-              </ThemedText>
-              <SymbolView
-                name={{ ios: 'chevron.right', android: 'chevron_right', web: 'chevron_right' }}
-                size={11}
-                tintColor={existingList ? theme.textSecondary : theme.onTint}
-                type="monochrome"
-              />
-            </PressableScale>
-          ) : null}
         </View>
 
-        {/* The board runs to the bottom edge and scrolls under the floating
-            plan button and the tab bar. Keyed by week so switching weeks fades
-            the new one in rather than swapping it in a single frame. */}
-        <LayoutAnimationConfig skipEntering>
-          <Animated.View key={weekStartKey} entering={WEEK_ENTER} style={styles.boardArea}>
-            <WeekBoard
-              days={days}
-              entriesByDate={entriesByDate}
-              onMove={onMove}
-              onAdd={onAdd}
-              onEdit={onEditEntry}
-              bottomContentInset={BottomTabInset + Spacing.three + (showPlanAction ? PLAN_DOCK : 0)}
-            />
-          </Animated.View>
-        </LayoutAnimationConfig>
+        <WeekPager
+          ref={weekPager}
+          weekKey={weekStartKey}
+          onMove={onMove}
+          onAdd={onAdd}
+          onEdit={onEditEntry}
+          onChangeWeek={onChangeWeek}
+          bottomContentInset={BottomTabInset + Spacing.three
+            + (showActionDock ? actionDockHeight + Spacing.two : 0)}
+        />
 
-        {showPlanAction ? (
-          <View pointerEvents="box-none" style={styles.planDock}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={t('weekPlanning.title')}
-              accessibilityHint={planHint}
-              accessibilityState={{ disabled: !canPlan }}
-              disabled={!canPlan}
-              onPress={() => {
-                hapticSelection();
-                pushOnce({ pathname: '/sheets/plan-week', params: { weekStart: weekStartKey } });
-              }}
-              style={({ pressed }) => [!glass && pressed && styles.pressed]}>
-              {/* Liquid Glass on iOS 26, matching the tab bar under it; tinted
-                  tomato once the week can be planned. Elsewhere GlassView is a
-                  plain view, so it gets a solid surface instead. */}
-              <GlassView
-                glassEffectStyle="regular"
-                isInteractive={canPlan}
-                tintColor={canPlan ? theme.accent : undefined}
-                colorScheme={scheme}
-                style={[
-                  styles.planButton,
-                  !glass && [
-                    styles.planButtonSolid,
-                    { backgroundColor: canPlan ? theme.accent : theme.backgroundElement },
-                  ],
-                ]}>
-                <Icon
-                  name="sparkles"
-                  size={16}
-                  color={canPlan ? theme.onTint : theme.textSecondary}
+        {showActionDock ? (
+          <View
+            pointerEvents="box-none"
+            style={styles.actionDock}
+            onLayout={(event) => setActionDockHeight(event.nativeEvent.layout.height)}>
+            <GlassContainer style={styles.actionRow}>
+              {showPlanAction ? (
+                <PlannerAction
+                  icon="sparkles"
+                  label={t('weekPlanning.title')}
+                  prominent
+                  accessibilityHint={t('weekPlanning.actionHint')}
+                  onPress={() => {
+                    hapticSelection();
+                    pushOnce({ pathname: '/sheets/plan-week', params: { weekStart: weekStartKey } });
+                  }}
                 />
-                <View style={styles.planText}>
-                  <ThemedText
-                    type="smallBold"
-                    numberOfLines={1}
-                    style={{ color: canPlan ? theme.onTint : theme.text }}>
-                    {t('weekPlanning.title')}
-                  </ThemedText>
-                  {!canPlan ? (
-                    <ThemedText type="small" themeColor="textSecondary" numberOfLines={1} style={styles.planHint}>
-                      {planHint}
-                    </ThemedText>
-                  ) : null}
-                </View>
-              </GlassView>
-            </Pressable>
+              ) : null}
+              {showListAction ? (
+                <PlannerAction
+                  icon="cart"
+                  label={existingList ? t('plans.openList') : t('plans.makeList')}
+                  prominent={!showPlanAction}
+                  onPress={existingList ? () => openList(existingList.id) : onMakeList}
+                />
+              ) : null}
+            </GlassContainer>
           </View>
         ) : null}
       </SafeAreaView>
     </ThemedView>
+  );
+}
+
+// Monochrome, not brand blue: the prominent action is ink on the page (black in
+// light mode, white in dark), the other is plain glass. Only one is ever
+// prominent, so the pair has a clear lead without a second colour.
+function PlannerAction({
+  icon, label, accessibilityHint, prominent = false, onPress,
+}: {
+  icon: IconName;
+  label: string;
+  accessibilityHint?: string;
+  prominent?: boolean;
+  onPress: () => void;
+}) {
+  const theme = useTheme();
+  const scheme = useResolvedScheme();
+  const color = prominent ? theme.background : theme.text;
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityHint={accessibilityHint}
+      onPress={onPress}
+      style={({ pressed }) => [styles.action, !glass && pressed && styles.actionPressed]}>
+      <GlassView
+        glassEffectStyle="regular"
+        tintColor={prominent ? theme.text : undefined}
+        isInteractive
+        colorScheme={scheme}
+        style={[
+          styles.actionButton,
+          !glass && [
+            styles.actionButtonSolid,
+            prominent
+              ? { backgroundColor: theme.text }
+              : { backgroundColor: theme.background, borderColor: theme.border, borderWidth: StyleSheet.hairlineWidth },
+          ],
+        ]}>
+        <Icon name={icon} size={14} color={color} />
+        <ThemedText
+          type="smallBold"
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.85}
+          style={[styles.actionLabel, { color }]}>
+          {label}
+        </ThemedText>
+      </GlassView>
+    </Pressable>
   );
 }
 
@@ -286,10 +272,7 @@ function NavButton({
   const theme = useTheme();
   return (
     <Pressable
-      onPress={() => {
-        hapticLight();
-        onPress();
-      }}
+      onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       hitSlop={10}
@@ -316,47 +299,51 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.four,
     paddingTop: Spacing.two,
     paddingBottom: Spacing.two,
-    gap: Spacing.two,
   },
-  listButton: {
-    alignSelf: 'center',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.two,
-    paddingVertical: Spacing.two,
-    paddingLeft: Spacing.three,
-    paddingRight: Spacing.two,
-    borderRadius: 999,
-  },
-  planDock: {
+  // Each action takes an equal share, so the pair stays mirrored whatever the
+  // labels say, and a lone action spans the dock instead of floating off-centre.
+  actionDock: {
     position: 'absolute',
     left: Spacing.four,
     right: Spacing.four,
     bottom: BottomTabInset + Spacing.two,
     alignItems: 'center',
   },
-  planButton: {
-    minHeight: 48,
+  actionRow: {
+    width: '100%',
+    maxWidth: ACTION_DOCK_MAX_WIDTH,
+    flexDirection: 'row',
+    gap: Spacing.two,
+  },
+  action: {
+    flex: 1,
+  },
+  actionButton: {
+    flex: 1,
+    minHeight: ACTION_HEIGHT,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.two,
-    paddingHorizontal: Spacing.four,
-    paddingVertical: Spacing.two,
+    justifyContent: 'center',
+    gap: Spacing.one + Spacing.half,
+    paddingHorizontal: Spacing.two + Spacing.one,
+    paddingVertical: Spacing.one + Spacing.half,
     borderRadius: 999,
   },
-  planButtonSolid: {
+  actionButtonSolid: {
     shadowColor: '#000',
-    shadowOpacity: 0.14,
+    shadowOpacity: 0.08,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 4 },
-    elevation: 6,
+    elevation: 3,
   },
-  planText: {
+  actionPressed: {
+    opacity: 0.85,
+    transform: [{ scale: 0.98 }],
+  },
+  actionLabel: {
     flexShrink: 1,
-  },
-  planHint: {
-    fontSize: 12,
-    lineHeight: 16,
+    fontWeight: 600,
+    letterSpacing: -0.1,
   },
   weekNav: {
     flexDirection: 'row',
@@ -378,10 +365,6 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  boardArea: {
-    flex: 1,
-    paddingHorizontal: Spacing.four,
   },
   pressed: {
     opacity: 0.5,

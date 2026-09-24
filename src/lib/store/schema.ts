@@ -53,6 +53,15 @@ export type LocalDinner = {
   default_servings: number;
   notes: string | null;
   category: string | null;
+  /**
+   * The dinner's picture: an emoji, or an uploaded/generated image stored on
+   * the server as square WebP variants under `image_path` (see
+   * `@/lib/dinner-images`). Choosing one clears the other.
+   */
+  emoji: string | null;
+  image_path: string | null;
+  /** Tiny blurred preview shown while the image loads. */
+  image_thumbhash: string | null;
   created_at: string;
   updated_at: string;
 };

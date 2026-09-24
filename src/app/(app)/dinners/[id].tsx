@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 
 import { DinnerCategorySelect } from '@/components/dinner-category-select';
+import { DinnerImage } from '@/components/dinner-image';
 import { Button } from '@/components/button';
 import { Card } from '@/components/card';
 import { HeaderMenu, MenuAction } from '@/components/header-menu';
@@ -17,6 +18,7 @@ import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { dinnerCategory } from '@/lib/dinner-categories';
 import { useT } from '@/lib/i18n';
+import { pushOnce } from '@/lib/navigation';
 import { amountText, isAmountValid, parseAmount } from '@/lib/parse-line';
 import { openIngredientPicker, type IngredientPick } from '@/lib/sheets';
 import {
@@ -30,6 +32,8 @@ import {
   type DinnerWithItems,
 } from '@/lib/store';
 import { deleteWithUndo } from '@/lib/undo';
+
+const PICTURE_SIZE = 88;
 
 export default function DinnerEditorScreen() {
   const t = useT();
@@ -118,6 +122,16 @@ function DinnerEditorForm({ dinner }: { dinner: DinnerWithItems }) {
       <Screen topInset={false} refreshable={false}>
         <View style={styles.page}>
           <View style={styles.hero}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={t('dinnerImage.change')}
+              onPress={() => { setFocusedItem(null); pushOnce({ pathname: '/sheets/dinner-image', params: { dinnerId: dinner.id } }); }}
+              style={({ pressed }) => [styles.picture, pressed && styles.picturePressed]}>
+              <DinnerImage dinnerId={dinner.id} name={name} size={PICTURE_SIZE} />
+              <View style={[styles.pictureBadge, { backgroundColor: theme.tint, borderColor: theme.background }]}>
+                <Icon name="pencil" size={11} weight="bold" color={theme.onTint} />
+              </View>
+            </Pressable>
             <TextInput
               accessibilityLabel={t('dinners.name')}
               value={name}
@@ -277,6 +291,23 @@ const styles = StyleSheet.create({
   },
   hero: {
     gap: Spacing.three,
+  },
+  picture: {
+    alignSelf: 'flex-start',
+  },
+  picturePressed: {
+    opacity: 0.8,
+  },
+  pictureBadge: {
+    position: 'absolute',
+    right: -4,
+    bottom: -4,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   nameInput: {
     padding: 0,

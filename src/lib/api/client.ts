@@ -25,7 +25,7 @@ export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 export type RequestOptions = {
   method?: HttpMethod;
-  /** Serialized as JSON. Omit for GET/DELETE. */
+  /** Serialized as JSON, except `FormData`, which is sent as multipart. Omit for GET/DELETE. */
   body?: unknown;
   /** Bearer token; the session layer injects a valid one. */
   accessToken?: string | null;
@@ -56,14 +56,15 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   if (accessToken) {
     headers.Authorization = `Bearer ${accessToken}`;
   }
-  if (body !== undefined) {
+  const multipart = body instanceof FormData;
+  if (body !== undefined && !multipart) {
     headers['Content-Type'] = 'application/json';
   }
 
   const response = await fetch(`${API_V1_URL}${path}`, {
     method,
     headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
+    body: multipart ? body : body !== undefined ? JSON.stringify(body) : undefined,
     signal,
   });
 

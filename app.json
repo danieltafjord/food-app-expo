@@ -55,6 +55,14 @@
             "NSPrivacyCollectedDataTypePurposes": [
               "NSPrivacyCollectedDataTypePurposeAppFunctionality"
             ]
+          },
+          {
+            "NSPrivacyCollectedDataType": "NSPrivacyCollectedDataTypePhotosorVideos",
+            "NSPrivacyCollectedDataTypeLinked": true,
+            "NSPrivacyCollectedDataTypeTracking": false,
+            "NSPrivacyCollectedDataTypePurposes": [
+              "NSPrivacyCollectedDataTypePurposeAppFunctionality"
+            ]
           }
         ]
       }
@@ -104,6 +112,14 @@
       "expo-localization",
       "expo-font",
       "expo-image",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow $(PRODUCT_NAME) to use your photos as pictures for your dinners.",
+          "cameraPermission": "Allow $(PRODUCT_NAME) to take pictures of your dinners.",
+          "microphonePermission": false
+        }
+      ],
       "expo-status-bar",
       "expo-web-browser"
     ],

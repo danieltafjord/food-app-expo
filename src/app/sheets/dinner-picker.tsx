@@ -5,6 +5,7 @@ import { FlatList, Pressable, ScrollView, StyleSheet, View } from 'react-native'
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 
 import { DinnerCategorySelect } from '@/components/dinner-category-select';
+import { DinnerImage } from '@/components/dinner-image';
 import { Icon } from '@/components/icon';
 import { SheetScreen } from '@/components/sheet';
 import { TextField } from '@/components/text-field';
@@ -227,7 +228,8 @@ export default function DinnerPickerSheet() {
                   { backgroundColor: theme.backgroundElement, borderColor: theme.border },
                   pressed && styles.pressed,
                 ]}>
-                <ThemedText type="small" numberOfLines={1}>
+                <DinnerImage dinnerId={dinner.id} name={dinner.name} size={22} style={styles.chipImage} />
+                <ThemedText type="small" numberOfLines={1} style={styles.chipText}>
                   {dinner.name}
                 </ThemedText>
               </Pressable>
@@ -258,6 +260,7 @@ export default function DinnerPickerSheet() {
               { borderBottomColor: theme.border },
               pressed && styles.pressed,
             ]}>
+            <DinnerImage dinnerId={dinner.id} name={dinner.name} size={40} />
             <View style={styles.flex}>
               <ThemedText numberOfLines={1}>{dinner.name}</ThemedText>
               {dinnerCategory(dinner.category) ? (
@@ -330,11 +333,21 @@ const styles = StyleSheet.create({
     gap: Spacing.two,
   },
   chip: {
-    maxWidth: 180,
-    paddingVertical: Spacing.two,
-    paddingHorizontal: Spacing.three,
+    maxWidth: 200,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.one + Spacing.half,
+    paddingVertical: Spacing.one + Spacing.half,
+    paddingLeft: Spacing.one + Spacing.half,
+    paddingRight: Spacing.three,
     borderRadius: 999,
     borderWidth: StyleSheet.hairlineWidth,
+  },
+  chipText: {
+    flexShrink: 1,
+  },
+  chipImage: {
+    borderRadius: 11,
   },
   empty: {
     paddingVertical: Spacing.three,

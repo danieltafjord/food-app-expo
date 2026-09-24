@@ -17,6 +17,11 @@ const ICONS = {
   'fork.knife': 'restaurant',
   'list.bullet': 'list',
   sparkles: 'auto_awesome',
+  camera: 'photo_camera',
+  'photo.on.rectangle': 'photo_library',
+  trash: 'delete',
+  pencil: 'edit',
+  'exclamationmark.triangle.fill': 'warning',
 } as const;
 
 export type IconName = keyof typeof ICONS;

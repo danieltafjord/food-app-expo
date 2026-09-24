@@ -2,7 +2,7 @@ import { ApiError, type RequestOptions } from '@/lib/api/client';
 import type { SyncRequest } from '@/lib/sync/auth-bridge';
 
 /** Also settles when a transport ignores cancellation, so a worker cannot hang. */
-export async function requestAi<T>(request: SyncRequest, path: string, options: RequestOptions): Promise<T> {
+export async function requestAi<T>(request: SyncRequest, path: string, options: RequestOptions, timeoutMs = 25_000): Promise<T> {
   const abort = new AbortController();
   const cancel = () => abort.abort();
   const cancelled = new Promise<never>((_, reject) => {
@@ -19,7 +19,7 @@ export async function requestAi<T>(request: SyncRequest, path: string, options: 
     timer = setTimeout(() => {
       reject(new ApiError(408, 'AI request timed out'));
       abort.abort();
-    }, 25_000);
+    }, timeoutMs);
   });
   try {
     if (abort.signal.aborted) return await cancelled;

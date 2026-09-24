@@ -1,3 +1,4 @@
+import { batch } from '@legendapp/state';
 import { useValue } from '@legendapp/state/react';
 
 import { nameCollator } from '@/lib/intl';
@@ -142,6 +143,9 @@ export function createDinner(input: CreateDinnerInput): string {
     default_servings: input.default_servings ?? getHouseholdDefaultServings(),
     notes: input.notes ?? null,
     category: input.category ?? null,
+    emoji: null,
+    image_path: null,
+    image_thumbhash: null,
     created_at: ts,
     updated_at: ts,
   });
@@ -270,5 +274,26 @@ export function deleteDinner(id: string): void {
   for (const e of Object.values(store$.planEntries.get()).filter((x) => x.dinner_id === id)) {
     store$.planEntries[e.id].delete();
   }
+  store$.meta.pendingImages[id].delete();
   store$.dinners[id].delete();
+}
+
+/** What a dinner shows as its picture. Setting one kind clears the other. */
+export type DinnerPicture =
+  | { kind: 'emoji'; emoji: string }
+  | { kind: 'image'; path: string; thumbhash: string }
+  | { kind: 'none' };
+
+export function setDinnerPicture(id: string, picture: DinnerPicture): void {
+  if (!store$.dinners[id].peek()) return;
+  batch(() => {
+    // An explicit choice replaces a photo still waiting to upload.
+    store$.meta.pendingImages[id].delete();
+    store$.dinners[id].assign({
+      emoji: picture.kind === 'emoji' ? picture.emoji : null,
+      image_path: picture.kind === 'image' ? picture.path : null,
+      image_thumbhash: picture.kind === 'image' ? picture.thumbhash : null,
+      updated_at: nowIso(),
+    });
+  });
 }

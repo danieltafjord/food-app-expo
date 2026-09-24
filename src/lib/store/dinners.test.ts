@@ -8,6 +8,7 @@ import {
   upsertDinnerItem,
   removeDinnerItem,
   setDinnerItems,
+  setDinnerPicture,
 } from '@/lib/store/dinners';
 import type { LocalPlanEntry } from '@/lib/store/schema';
 
@@ -17,6 +18,7 @@ beforeEach(() => {
   store$.planEntries.set({});
   store$.households.set({});
   store$.meta.localHouseholdId.set('');
+  store$.meta.pendingImages.set({});
 });
 
 function itemsOf(dinnerId: string) {
@@ -206,4 +208,28 @@ it('stores, preserves and clears categories without changing recipe ingredients'
   expect(getDinner(id)).toMatchObject({ category: 'vegetarian', notes: 'Serve hot', items });
   patchDinner(id, { category: null });
   expect(getDinner(id)).toMatchObject({ category: null, items });
+});
+
+describe('setDinnerPicture', () => {
+  it('keeps exactly one kind of picture and replaces a photo still waiting to upload', () => {
+    const id = createDinner({ name: 'Pizza' });
+    store$.meta.pendingImages[id].set({ file: 'a.jpg', created_at: 'x', attempts: 0, retry_at: null });
+
+    setDinnerPicture(id, { kind: 'emoji', emoji: '🍕' });
+    expect(store$.meta.pendingImages.get()[id]).toBeUndefined();
+    expect(getDinner(id)).toMatchObject({ emoji: '🍕', image_path: null, image_thumbhash: null });
+
+    setDinnerPicture(id, { kind: 'image', path: 'dinner-images/abc', thumbhash: 'hash' });
+    expect(getDinner(id)).toMatchObject({ emoji: null, image_path: 'dinner-images/abc', image_thumbhash: 'hash' });
+
+    setDinnerPicture(id, { kind: 'none' });
+    expect(getDinner(id)).toMatchObject({ emoji: null, image_path: null, image_thumbhash: null });
+  });
+
+  it('forgets a pending upload when its dinner is deleted', () => {
+    const id = createDinner({ name: 'Pizza' });
+    store$.meta.pendingImages[id].set({ file: 'a.jpg', created_at: 'x', attempts: 0, retry_at: null });
+    deleteDinner(id);
+    expect(store$.meta.pendingImages.get()[id]).toBeUndefined();
+  });
 });

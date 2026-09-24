@@ -30,6 +30,12 @@ export const API_BASE_URL = resolveApiBaseUrl();
 /** Versioned REST surface — every resource endpoint lives under here. */
 export const API_V1_URL = `${API_BASE_URL}/api/v1`;
 
+/**
+ * Where dinner pictures are served from (the media disk's public URL — a CDN
+ * in production). Defaults to the backend's local `/storage` link.
+ */
+export const MEDIA_BASE_URL = stripTrailingSlash(process.env.EXPO_PUBLIC_MEDIA_URL?.trim() || `${API_BASE_URL}/storage`);
+
 /** Public Passport client id. Register one with `php artisan passport:client --public`. */
 export const OAUTH_CLIENT_ID = process.env.EXPO_PUBLIC_OAUTH_CLIENT_ID?.trim() ?? '';
 

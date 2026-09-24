@@ -1,8 +1,9 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { SymbolView } from 'expo-symbols';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import { Button } from '@/components/button';
+import { DinnerImage } from '@/components/dinner-image';
+import { Icon, type IconName } from '@/components/icon';
 import { SheetScreen } from '@/components/sheet';
 import { Stepper } from '@/components/stepper';
 import { ThemedText } from '@/components/themed-text';
@@ -78,11 +79,28 @@ function EntryForm({ entry }: { entry: PlanEntryWithDinner }) {
     router.back();
   }
 
+  const current = days.find((day) => day.date === scheduled);
+
   return (
-    <SheetScreen title={entry.dinner_name ?? t('common.dinnerFallback')}>
-      <View style={styles.field}>
-        <ThemedText type="smallBold">{t('entryEditor.servings')}</ThemedText>
+    <SheetScreen>
+      <View style={styles.header}>
+        <DinnerImage dinnerId={entry.dinner_id} name={entry.dinner_name} size={48} />
+        <View style={styles.headerText}>
+          <ThemedText type="subtitle" numberOfLines={2} style={styles.title}>
+            {entry.dinner_name ?? t('common.dinnerFallback')}
+          </ThemedText>
+          {current ? (
+            <ThemedText type="small" themeColor="textSecondary" style={styles.capitalize}>
+              {current.weekday} {current.dayOfMonth}.
+            </ThemedText>
+          ) : null}
+        </View>
+      </View>
+
+      <View style={[styles.group, styles.servingsRow, { backgroundColor: theme.backgroundElement }]}>
+        <ThemedText style={styles.rowTitle}>{t('entryEditor.servings')}</ThemedText>
         <Stepper
+          compact
           value={entry.servings}
           onChange={(servings) => updatePlanEntry(entry.id, { servings })}
           min={1}
@@ -92,7 +110,7 @@ function EntryForm({ entry }: { entry: PlanEntryWithDinner }) {
       </View>
 
       <View style={styles.field}>
-        <ThemedText type="smallBold">{t('entryEditor.moveTo')}</ThemedText>
+        <ThemedText type="small" themeColor="textSecondary" style={styles.fieldLabel}>{t('entryEditor.moveTo')}</ThemedText>
         <View style={styles.days}>
           {days.map((day) => {
             const selected = day.date === scheduled;
@@ -110,7 +128,7 @@ function EntryForm({ entry }: { entry: PlanEntryWithDinner }) {
                 ]}>
                 <ThemedText
                   type="small"
-                  style={[styles.dayName, selected && { color: theme.onTint }]}
+                  style={[styles.capitalize, selected && { color: theme.onTint }]}
                   themeColor={selected ? undefined : 'textSecondary'}>
                   {day.weekday}
                 </ThemedText>
@@ -128,65 +146,98 @@ function EntryForm({ entry }: { entry: PlanEntryWithDinner }) {
         </View>
       </View>
 
-      <Pressable
-        onPress={editDinner}
-        accessibilityRole="button"
-        style={({ pressed }) => [
-          styles.link,
-          { backgroundColor: noIngredients ? warning.bg : theme.backgroundElement },
-          pressed && styles.pressed,
-        ]}>
-        <View style={styles.linkText}>
-          <ThemedText type="smallBold" style={noIngredients ? { color: warning.fg } : undefined}>
-            {t('entryEditor.editDinner')}
-          </ThemedText>
-          <ThemedText
-            type="small"
-            themeColor={noIngredients ? undefined : 'textSecondary'}
-            style={noIngredients ? { color: warning.fg } : undefined}>
-            {noIngredients ? t('entryEditor.noIngredientsHint') : t('entryEditor.editDinnerHint')}
-          </ThemedText>
-        </View>
-        <SymbolView
-          name={{ ios: 'chevron.right', android: 'chevron_right', web: 'chevron_right' }}
-          size={13}
-          tintColor={noIngredients ? warning.fg : theme.textSecondary}
-          type="monochrome"
+      <View style={[styles.group, { backgroundColor: theme.backgroundElement }]}>
+        <LinkRow
+          icon="fork.knife"
+          title={t('entryEditor.editDinner')}
+          hint={noIngredients ? t('entryEditor.noIngredientsHint') : t('entryEditor.editDinnerHint')}
+          warning={noIngredients ? warning.fg : undefined}
+          onPress={editDinner}
         />
-      </Pressable>
+        <View style={[styles.separator, { backgroundColor: theme.border }]} />
+        <LinkRow
+          icon="plus"
+          title={t('entryEditor.addAnother')}
+          hint={t('entryEditor.addAnotherHint')}
+          onPress={addAnother}
+        />
+      </View>
 
       <Pressable
-        onPress={addAnother}
+        onPress={remove}
         accessibilityRole="button"
-        style={({ pressed }) => [
-          styles.link,
-          { backgroundColor: theme.backgroundElement },
-          pressed && styles.pressed,
-        ]}>
-        <View style={styles.linkText}>
-          <ThemedText type="smallBold">{t('entryEditor.addAnother')}</ThemedText>
-          <ThemedText type="small" themeColor="textSecondary">
-            {t('entryEditor.addAnotherHint')}
-          </ThemedText>
-        </View>
-        <SymbolView
-          name={{ ios: 'plus', android: 'add', web: 'add' }}
-          size={13}
-          tintColor={theme.textSecondary}
-          type="monochrome"
-        />
+        style={({ pressed }) => [styles.group, styles.removeRow, { backgroundColor: theme.backgroundElement }, pressed && styles.pressed]}>
+        <ThemedText style={[styles.rowTitle, { color: theme.danger }]}>{t('entryEditor.remove')}</ThemedText>
       </Pressable>
-
-      <View style={[styles.divider, { backgroundColor: theme.border }]} />
-
-      <Button title={t('entryEditor.remove')} variant="danger" onPress={remove} />
     </SheetScreen>
   );
 }
 
+/** One tappable row in a grouped card: leading icon, title and hint, chevron. */
+function LinkRow({ icon, title, hint, warning, onPress }: {
+  icon: IconName; title: string; hint: string; warning?: string; onPress: () => void;
+}) {
+  const theme = useTheme();
+  return (
+    <Pressable onPress={onPress} accessibilityRole="button" accessibilityHint={hint}
+      style={({ pressed }) => [styles.linkRow, pressed && { backgroundColor: theme.backgroundSelected }]}>
+      <View style={[styles.linkIcon, { backgroundColor: theme.backgroundSelected }]}>
+        <Icon name={icon} size={14} color={theme.text} />
+      </View>
+      <View style={styles.linkText}>
+        <ThemedText style={styles.rowTitle}>{title}</ThemedText>
+        <View style={styles.hint}>
+          {warning ? <Icon name="exclamationmark.triangle.fill" size={10} color={warning} /> : null}
+          <ThemedText type="small" themeColor={warning ? undefined : 'textSecondary'}
+            style={[styles.hintText, warning ? { color: warning } : undefined]}>
+            {hint}
+          </ThemedText>
+        </View>
+      </View>
+      <Icon name="chevron.right" size={13} color={theme.textSecondary} />
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.three,
+  },
+  headerText: {
+    flex: 1,
+    gap: Spacing.half,
+  },
+  title: {
+    fontSize: 22,
+    lineHeight: 28,
+  },
+  capitalize: {
+    textTransform: 'capitalize',
+  },
+  // Every card shares one radius and inset so their edges and text line up.
+  group: {
+    borderRadius: Spacing.three,
+    overflow: 'hidden',
+  },
+  servingsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.three,
+    minHeight: 56,
+    paddingLeft: Spacing.three,
+    paddingRight: Spacing.two,
+  },
+  rowTitle: {
+    fontWeight: 600,
+  },
   field: {
     gap: Spacing.two,
+  },
+  fieldLabel: {
+    paddingHorizontal: Spacing.three,
   },
   days: {
     flexDirection: 'row',
@@ -197,25 +248,44 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: Spacing.half,
     paddingVertical: Spacing.two,
-    borderRadius: Spacing.two,
+    borderRadius: Spacing.three,
   },
-  dayName: {
-    textTransform: 'capitalize',
-  },
-  link: {
+  linkRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.three,
-    padding: Spacing.three,
-    borderRadius: Spacing.three,
+    minHeight: 60,
+    paddingVertical: Spacing.two + Spacing.half,
+    paddingHorizontal: Spacing.three,
+  },
+  linkIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   linkText: {
     flex: 1,
     gap: Spacing.half,
   },
-  divider: {
+  hint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.one,
+  },
+  hintText: {
+    flexShrink: 1,
+  },
+  // Inset to start under the row text, past the icon.
+  separator: {
     height: StyleSheet.hairlineWidth,
-    marginVertical: Spacing.one,
+    marginLeft: Spacing.three + 30 + Spacing.three,
+  },
+  removeRow: {
+    minHeight: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   pressed: {
     opacity: 0.6,

@@ -2,6 +2,8 @@ import { observable } from '@legendapp/state';
 
 import type { Locale } from '@/lib/i18n/locale';
 import type { ClassificationJob } from '@/lib/ai-classification';
+import type { PendingImage } from '@/lib/dinner-images';
+import type { PlanningPreferences } from '@/lib/week-suggestions';
 
 import type {
   LocalDinner,
@@ -43,6 +45,8 @@ export const store$ = observable({
     locale: '' as Locale | '',
   },
   meta: {
+    /** Kept on this device and cleared when switching household/account. */
+    planningPreferences: { text: '', shortcuts: [], excluded: [] } as PlanningPreferences,
     /**
      * On-device schema version. Bumped by migrations (see `./migrations`) when
      * the shape in `schema.ts` changes, so persisted rows from an older app
@@ -52,6 +56,8 @@ export const store$ = observable({
     schemaVersion: 0 as number,
     aiDismissedSuggestions: {} as Record<string, string[]>,
     aiClassificationJobs: {} as Record<string, ClassificationJob>,
+    /** Photos picked on this device and not uploaded yet: dinner id → local file. */
+    pendingImages: {} as Record<string, PendingImage>,
     localHouseholdId: '' as string,
     /**
      * The server user id this device's local data is bound to (`null` until an
