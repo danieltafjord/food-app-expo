@@ -3,10 +3,12 @@
  *
  * Surfaces use the Tailwind CSS **neutral** palette; dark mode leans into the
  * very dark end (neutral-950/900/800) for a deep, high-contrast look. The brand
- * blue (`tint`) is the only chromatic accent and is brightened slightly in dark
- * mode so it stays legible on near-black. Every screen reads these through
- * `useTheme()` (resolved against the user's theme preference + OS scheme) so
- * nothing should hardcode a color outside this file.
+ * blue (`tint`) is the primary action colour; the tomato red from the app icon
+ * (`accent`) is a sparing secondary — today's date and the planning action.
+ * Both are brightened slightly in dark mode so they stay legible on near-black.
+ * Every screen reads these through `useTheme()` (resolved against the user's
+ * theme preference + OS scheme) so nothing should hardcode a color outside
+ * this file.
  */
 
 import '@/global.css';
@@ -21,8 +23,11 @@ export const Colors = {
     backgroundElement: '#f5f5f5', // neutral-100
     backgroundSelected: '#e5e5e5', // neutral-200
     border: '#e5e5e5', // neutral-200
+    borderStrong: '#d4d4d4', // neutral-300 — dashed outlines that must read on white
     tint: '#208AEF', // brand blue
     onTint: '#ffffff',
+    accent: '#E73722', // tomato, from the app icon
+    accentSoft: '#fde6e1',
     danger: '#dc2626', // red-600
   },
   dark: {
@@ -32,8 +37,11 @@ export const Colors = {
     backgroundElement: '#171717', // neutral-900
     backgroundSelected: '#262626', // neutral-800
     border: '#262626', // neutral-800
+    borderStrong: '#404040', // neutral-700
     tint: '#3b9eff', // brand blue, brightened for dark surfaces
     onTint: '#ffffff',
+    accent: '#ff5a43', // tomato, brightened for dark surfaces
+    accentSoft: '#3a1a14',
     danger: '#f87171', // red-400
   },
 } as const;

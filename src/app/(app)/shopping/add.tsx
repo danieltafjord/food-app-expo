@@ -2,6 +2,7 @@ import { useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, View } from 'react-native';
 
+import { Icon } from '@/components/icon';
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -17,6 +18,7 @@ import {
   createIngredient,
   getIngredient,
   removeShoppingItem,
+  useIngredients,
   useShoppingList,
   useShoppingListItems,
   type ShoppingSuggestion,
@@ -40,6 +42,12 @@ export default function AddShoppingItemsScreen() {
   // both cost that scan and shuffle rows under the finger. New entries typed
   // here are appended to the snapshot; on/off state stays live via `items`.
   const [suggestions, setSuggestions] = useState(buildShoppingSuggestions);
+  const ingredients = useIngredients();
+  // Keep the snapshot's order, but immediately drop remotely deleted entries.
+  const availableSuggestions = useMemo(() => {
+    const ids = new Set(ingredients.map((ingredient) => ingredient.id));
+    return suggestions.filter((suggestion) => !suggestion.ingredient_id || ids.has(suggestion.ingredient_id));
+  }, [ingredients, suggestions]);
   const [query, setQuery] = useState('');
 
   const parsed = parseItemLine(query);
@@ -49,7 +57,7 @@ export default function AddShoppingItemsScreen() {
   const amount = formatQuantity(parsed.quantity, parsed.unit);
   // The same ranked, diacritic- and case-insensitive search as the pickers, so
   // "rodlok" finds "Rødløk" and "ø" finds "Øl".
-  const index = useMemo(() => indexByName(suggestions, (s) => s.name), [suggestions]);
+  const index = useMemo(() => indexByName(availableSuggestions, (s) => s.name), [availableSuggestions]);
   const filtered = useMemo(() => searchIndex(index, name), [index, name]);
   const exact = useMemo(() => findExact(index, name), [index, name]);
   const exactMatch = !!exact;
@@ -72,6 +80,7 @@ export default function AddShoppingItemsScreen() {
       ? { quantity: parsed.quantity, unit: parsed.unit ?? s.default_unit }
       : { unit: s.default_unit };
     if (s.ingredient_id) {
+      if (!getIngredient(s.ingredient_id)) return;
       addShoppingItem(listId, { ingredient_id: s.ingredient_id, ...base });
     } else {
       addShoppingItem(listId, { name: s.name, ...base });
@@ -184,9 +193,7 @@ export default function AddShoppingItemsScreen() {
               ]}>
               <View
                 style={[styles.indicator, { backgroundColor: theme.tint, borderColor: theme.tint }]}>
-                <ThemedText themeColor="onTint" style={styles.indicatorText}>
-                  ＋
-                </ThemedText>
+                <Icon name="plus" size={12} weight="bold" color={theme.onTint} />
               </View>
               <ThemedText style={styles.flex} numberOfLines={1}>
                 {t('shopping.addNamed', { name })}
@@ -226,13 +233,12 @@ export default function AddShoppingItemsScreen() {
                   { borderColor: theme.border },
                   onList && { backgroundColor: theme.tint, borderColor: theme.tint },
                 ]}>
-                <ThemedText
-                  style={[
-                    styles.indicatorText,
-                    { color: onList ? theme.onTint : theme.textSecondary },
-                  ]}>
-                  {onList ? '✓' : '＋'}
-                </ThemedText>
+                <Icon
+                  name={onList ? 'checkmark' : 'plus'}
+                  size={12}
+                  weight="bold"
+                  color={onList ? theme.onTint : theme.textSecondary}
+                />
               </View>
               <ThemedText style={[styles.flex, onList ? { color: theme.tint } : null]} numberOfLines={1}>
                 {s.name}
@@ -280,11 +286,6 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  indicatorText: {
-    fontSize: 16,
-    lineHeight: 18,
-    fontWeight: 700,
   },
   empty: {
     paddingVertical: Spacing.four,

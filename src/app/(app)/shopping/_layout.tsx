@@ -19,9 +19,12 @@ export default function ShoppingLayout() {
         headerStyle: { backgroundColor: theme.background },
         headerTintColor: theme.text,
         headerShadowVisible: false,
+        headerLargeStyle: { backgroundColor: theme.background },
+        headerLargeTitleShadowVisible: false,
         contentStyle: { backgroundColor: theme.background },
       }}>
-      <Stack.Screen name="index" options={{ title: t('shopping.title') }} />
+      {/* Tab roots get the large iOS title that collapses as the page scrolls. */}
+      <Stack.Screen name="index" options={{ title: t('shopping.title'), headerLargeTitleEnabled: true }} />
       {/* The list screen sets its own title (the list's name). */}
       <Stack.Screen name="[id]" options={{ title: '' }} />
       <Stack.Screen name="add" options={{ title: t('shopping.addItems') }} />

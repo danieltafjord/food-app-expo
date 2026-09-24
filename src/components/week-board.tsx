@@ -36,6 +36,7 @@ import Animated, {
   type SharedValue,
 } from 'react-native-reanimated';
 
+import { Icon } from '@/components/icon';
 import { ThemedText } from '@/components/themed-text';
 import { useSyncRefresh } from '@/hooks/use-sync-refresh';
 import { useResolvedScheme, useTheme } from '@/hooks/use-theme';
@@ -240,10 +241,7 @@ function DaySection({
 }: DaySectionProps) {
   const t = useT();
   const theme = useTheme();
-  const scheme = useResolvedScheme();
   const hasEntries = entries.length > 0;
-  // The plus sits on a raised chip: white on the light-grey row, a step lighter in dark.
-  const chipBg = scheme === 'dark' ? theme.backgroundSelected : theme.background;
 
   // Record this section's position within the scroll content for drag hit-testing.
   function onLayout(event: LayoutChangeEvent) {
@@ -278,10 +276,10 @@ function DaySection({
         accessible
         accessibilityLabel={`${day.weekday} ${day.dayOfMonth}`}>
         <ThemedText
-          style={[styles.railWeekday, { color: day.isToday ? theme.tint : theme.textSecondary }]}>
+          style={[styles.railWeekday, { color: day.isToday ? theme.accent : theme.textSecondary }]}>
           {day.weekday}
         </ThemedText>
-        <ThemedText style={[styles.railDate, day.isToday && { color: theme.tint }]}>
+        <ThemedText style={[styles.railDate, day.isToday && { color: theme.accent }]}>
           {day.dayOfMonth}
         </ThemedText>
       </View>
@@ -308,22 +306,17 @@ function DaySection({
             />
           ))
         ) : (
+          // An open slot, not content: a dashed outline that stays quiet next
+          // to the planned dinners, and fills in softly under the finger.
           <Pressable
             onPress={() => onAdd(day.date)}
             accessibilityRole="button"
             style={({ pressed }) => [
               styles.addButton,
-              { backgroundColor: theme.backgroundElement },
-              pressed && styles.pressed,
+              { borderColor: theme.borderStrong },
+              pressed && { backgroundColor: theme.backgroundElement },
             ]}>
-            <View style={[styles.addChip, { backgroundColor: chipBg }]}>
-              <SymbolView
-                name={{ ios: 'plus', android: 'add', web: 'add' }}
-                size={13}
-                tintColor={theme.tint}
-                type="monochrome"
-              />
-            </View>
+            <Icon name="plus" size={14} color={theme.textSecondary} />
             <ThemedText themeColor="textSecondary">{t('weekBoard.addDinner')}</ThemedText>
           </Pressable>
         )}
@@ -539,21 +532,12 @@ const styles = StyleSheet.create({
   addButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.two + Spacing.one,
+    gap: Spacing.two,
     minHeight: CARD_HEIGHT,
     borderRadius: Spacing.three,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
     paddingHorizontal: Spacing.three,
-  },
-  addChip: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowRadius: 3,
-    shadowOffset: { width: 0, height: 1 },
   },
   card: {
     flexDirection: 'row',
@@ -587,8 +571,5 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.half,
-  },
-  pressed: {
-    opacity: 0.6,
   },
 });

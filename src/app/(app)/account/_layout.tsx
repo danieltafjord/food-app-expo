@@ -14,9 +14,12 @@ export default function AccountLayout() {
         headerStyle: { backgroundColor: theme.background },
         headerTintColor: theme.text,
         headerShadowVisible: false,
+        headerLargeStyle: { backgroundColor: theme.background },
+        headerLargeTitleShadowVisible: false,
         contentStyle: { backgroundColor: theme.background },
       }}>
-      <Stack.Screen name="index" options={{ title: t('account.title') }} />
+      {/* Tab roots get the large iOS title that collapses as the page scrolls. */}
+      <Stack.Screen name="index" options={{ title: t('account.title'), headerLargeTitleEnabled: true }} />
       <Stack.Screen name="households" options={{ title: t('household.householdsTitle') }} />
       <Stack.Screen name="create" options={{ title: t('household.newHouseholdTitle') }} />
       <Stack.Screen name="rename" options={{ title: t('household.rename') }} />

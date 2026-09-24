@@ -1,7 +1,9 @@
 import { useMemo, useRef, useState } from 'react';
-import { Alert, FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
+import { FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 
+import { EmptyState } from '@/components/empty-state';
+import { Icon } from '@/components/icon';
 import { SwipeToDelete } from '@/components/swipe-to-delete';
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
@@ -13,6 +15,7 @@ import { useT } from '@/lib/i18n';
 import { pushOnce } from '@/lib/navigation';
 import { findExact, indexByName, searchIndex } from '@/lib/search';
 import { createDinner, deleteDinner, useDinners, type DinnerWithItems } from '@/lib/store';
+import { deleteWithUndo, useHiddenIds } from '@/lib/undo';
 
 const SWAP = 140;
 const FADE_IN = FadeIn.duration(SWAP);
@@ -29,7 +32,12 @@ export default function DinnersScreen() {
   const t = useT();
   const theme = useTheme();
   const brand = BadgeColors[useResolvedScheme()].brand;
-  const dinners = useDinners();
+  const hidden = useHiddenIds();
+  const allDinners = useDinners();
+  const dinners = useMemo(
+    () => allDinners.filter((dinner) => !hidden[dinner.id]),
+    [allDinners, hidden],
+  );
   const { refreshing, onRefresh } = useSyncRefresh();
   const [query, setQuery] = useState('');
   // One create per typed name — a "done" + tap double-fire would otherwise
@@ -64,11 +72,10 @@ export default function DinnersScreen() {
     }
   }
 
-  function confirmDelete(dinner: DinnerWithItems) {
-    Alert.alert(t('dinners.deleteDinnerTitle'), t('dinners.deleteDinnerMessage'), [
-      { text: t('common.cancel'), style: 'cancel' },
-      { text: t('common.delete'), style: 'destructive', onPress: () => deleteDinner(dinner.id) },
-    ]);
+  function onDelete(dinner: DinnerWithItems) {
+    deleteWithUndo(t('undo.dinnerDeleted', { name: dinner.name }), [dinner.id], () =>
+      deleteDinner(dinner.id),
+    );
   }
 
   const actionTitle =
@@ -95,12 +102,13 @@ export default function DinnersScreen() {
             first={i === 0}
             last={i === results.length - 1}
             onPress={openDinner}
-            onDelete={confirmDelete}
+            onDelete={onDelete}
           />
         )}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
         automaticallyAdjustKeyboardInsets
+        contentInsetAdjustmentBehavior="automatic"
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         contentContainerStyle={styles.content}
         ListHeaderComponent={
@@ -140,11 +148,12 @@ export default function DinnersScreen() {
                       styles.actionBadge,
                       { backgroundColor: idle ? theme.backgroundSelected : theme.tint },
                     ]}>
-                    <ThemedText
-                      themeColor={idle ? 'textSecondary' : 'onTint'}
-                      style={styles.actionGlyph}>
-                      {action === 'open' ? '›' : '＋'}
-                    </ThemedText>
+                    <Icon
+                      name={action === 'open' ? 'chevron.right' : 'plus'}
+                      size={16}
+                      weight="bold"
+                      color={idle ? theme.textSecondary : theme.onTint}
+                    />
                   </View>
                   <View style={styles.flexText}>
                     <ThemedText
@@ -164,9 +173,11 @@ export default function DinnersScreen() {
           </View>
         }
         ListEmptyComponent={
-          <ThemedText themeColor="textSecondary">
-            {trimmed ? t('dinners.noMatches') : t('dinners.empty')}
-          </ThemedText>
+          trimmed ? (
+            <ThemedText themeColor="textSecondary">{t('dinners.noMatches')}</ThemedText>
+          ) : (
+            <EmptyState icon="fork.knife" title={t('dinners.emptyTitle')} message={t('dinners.empty')} />
+          )
         }
         // Rows render as one continuous card: the list itself carries the card
         // surface, and each row draws its own divider.
@@ -199,7 +210,7 @@ function DinnerRow({ dinner, first, last, onPress, onDelete }: DinnerRowProps) {
             styles.row,
             { backgroundColor: theme.backgroundElement },
             !first && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border },
-            pressed && styles.pressed,
+            pressed && { backgroundColor: theme.backgroundSelected },
           ]}>
           <View style={styles.rowText}>
             <ThemedText numberOfLines={1}>{dinner.name}</ThemedText>
@@ -214,9 +225,7 @@ function DinnerRow({ dinner, first, last, onPress, onDelete }: DinnerRowProps) {
               </ThemedText>
             )}
           </View>
-          <ThemedText type="small" themeColor="textSecondary">
-            ›
-          </ThemedText>
+          <Icon name="chevron.right" size={13} color={theme.textSecondary} />
         </Pressable>
       </SwipeToDelete>
     </View>
@@ -262,10 +271,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  actionGlyph: {
-    fontSize: 20,
-    lineHeight: 24,
-  },
   actionPressed: {
     opacity: 0.85,
     transform: [{ scale: 0.98 }],
@@ -292,8 +297,5 @@ const styles = StyleSheet.create({
   rowText: {
     flexShrink: 1,
     gap: Spacing.half,
-  },
-  pressed: {
-    opacity: 0.6,
   },
 });

@@ -1,3 +1,4 @@
+import { batch } from '@legendapp/state';
 import { useValue } from '@legendapp/state/react';
 
 import { categorize, type CategoryId } from '@/lib/categorize';
@@ -63,6 +64,19 @@ export function createIngredient(input: CreateIngredientInput): string {
     updated_at: ts,
   });
   return id;
+}
+
+/** Remove a catalogue entry and every recipe/shopping row that refers to it. */
+export function deleteIngredient(id: string): void {
+  batch(() => {
+    for (const item of Object.values(store$.dinnerItems.peek())) {
+      if (item.ingredient_id === id) store$.dinnerItems[item.id].delete();
+    }
+    for (const item of Object.values(store$.shoppingListItems.peek())) {
+      if (item.ingredient_id === id) store$.shoppingListItems[item.id].delete();
+    }
+    store$.ingredients[id].delete();
+  });
 }
 
 /**

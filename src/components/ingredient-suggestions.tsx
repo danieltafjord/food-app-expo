@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import { Button } from '@/components/button';
+import { Icon } from '@/components/icon';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
@@ -65,7 +66,8 @@ export function IngredientSuggestions({ dinnerId, name, ingredients, onAdd }: Pr
             {names.map((item) => (
               <Pressable key={item} accessibilityRole="button" accessibilityLabel={t('ai.add', { name: item })}
                 onPress={() => onAdd(item)} style={[styles.chip, { backgroundColor: theme.backgroundSelected }]}>
-                <ThemedText type="small">＋ {item}</ThemedText>
+                <Icon name="plus" size={11} weight="bold" color={theme.textSecondary} />
+                <ThemedText type="small">{item}</ThemedText>
               </Pressable>
             ))}
           </View>
@@ -79,5 +81,5 @@ const styles = StyleSheet.create({
   section: { gap: Spacing.two },
   header: { flexDirection: 'row', justifyContent: 'space-between', gap: Spacing.two },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two },
-  chip: { paddingHorizontal: Spacing.three, paddingVertical: Spacing.two, borderRadius: Spacing.three, minHeight: 40, justifyContent: 'center' },
+  chip: { flexDirection: 'row', alignItems: 'center', gap: Spacing.one + Spacing.half, paddingHorizontal: Spacing.three, paddingVertical: Spacing.two, borderRadius: Spacing.three, minHeight: 40 },
 });

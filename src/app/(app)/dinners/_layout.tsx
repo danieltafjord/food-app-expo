@@ -19,9 +19,12 @@ export default function DinnersLayout() {
         headerStyle: { backgroundColor: theme.background },
         headerTintColor: theme.text,
         headerShadowVisible: false,
+        headerLargeStyle: { backgroundColor: theme.background },
+        headerLargeTitleShadowVisible: false,
         contentStyle: { backgroundColor: theme.background },
       }}>
-      <Stack.Screen name="index" options={{ title: t('dinners.title') }} />
+      {/* Tab roots get the large iOS title that collapses as the page scrolls. */}
+      <Stack.Screen name="index" options={{ title: t('dinners.title'), headerLargeTitleEnabled: true }} />
       {/* The editor sets its own title (the dinner's name). */}
       <Stack.Screen name="[id]" options={{ title: '' }} />
     </Stack>

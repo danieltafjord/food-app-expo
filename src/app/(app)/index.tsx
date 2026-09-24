@@ -1,19 +1,24 @@
+import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
 import { SymbolView } from 'expo-symbols';
 import { useRef } from 'react';
 import { Alert, Pressable, StyleSheet, View } from 'react-native';
+import Animated, { FadeIn, LayoutAnimationConfig } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { Icon, type IconName } from '@/components/icon';
+import { PressableScale } from '@/components/pressable-scale';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { WeekBoard } from '@/components/week-board';
-import { BadgeColors, BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useResolvedScheme, useTheme } from '@/hooks/use-theme';
-import { hapticSelection } from '@/lib/haptics';
+import { hapticLight, hapticSelection } from '@/lib/haptics';
 import { useT } from '@/lib/i18n';
 import { pushOnce } from '@/lib/navigation';
 import { setPlannerWeekKey, usePlannerWeekKey } from '@/lib/planner-state';
 import { createShoppingListFromPlan, dinnersWithoutIngredients } from '@/lib/shopping/generate';
 import { useWeekPlanningContext } from '@/lib/store/week-planning';
+import { useHiddenIds } from '@/lib/undo';
 import {
   updatePlanEntry,
   useLocale,
@@ -32,10 +37,17 @@ import {
   weekLabel,
 } from '@/lib/week';
 
+/** Height the floating plan button (and the gap under it) takes from the bottom of the board. */
+const PLAN_DOCK = 56 + Spacing.three;
+
+const WEEK_ENTER = FadeIn.duration(200);
+
+const glass = isLiquidGlassAvailable();
+
 export default function PlansScreen() {
   const t = useT();
   const theme = useTheme();
-  const brand = BadgeColors[useResolvedScheme()].brand;
+  const scheme = useResolvedScheme();
   const locale = useLocale();
   const weekStartKey = usePlannerWeekKey();
   const weekStart = fromDateKey(weekStartKey);
@@ -45,7 +57,9 @@ export default function PlansScreen() {
   const isCurrentWeek = weekStartKey === toDateKey(startOfWeek(new Date()));
 
   const currentPlan = usePlanForWeek(weekStartKey);
-  const entries = usePlanEntries(currentPlan?.id);
+  // A dinner deleted with Undo still pending leaves the board at once.
+  const hidden = useHiddenIds();
+  const entries = usePlanEntries(currentPlan?.id).filter((entry) => !hidden[entry.dinner_id]);
   const planning = useWeekPlanningContext(weekStartKey);
   const showPlanAction = planning.dates.length > 0;
   const canPlan = planning.missing === 0;
@@ -117,7 +131,7 @@ export default function PlansScreen() {
         <View style={styles.header}>
           <View style={styles.weekNav}>
             <NavButton
-              label="‹"
+              icon="chevron.left"
               accessibilityLabel={t('a11y.previousWeek')}
               onPress={() => setPlannerWeekKey(toDateKey(addWeeks(weekStart, -1)))}
             />
@@ -140,7 +154,10 @@ export default function PlansScreen() {
                 </ThemedText>
               ) : (
                 <Pressable
-                  onPress={() => setPlannerWeekKey(toDateKey(startOfWeek(new Date())))}
+                  onPress={() => {
+                    hapticLight();
+                    setPlannerWeekKey(toDateKey(startOfWeek(new Date())));
+                  }}
                   hitSlop={6}>
                   <ThemedText type="small" style={{ color: theme.tint }}>
                     {t('plans.jumpToThisWeek')}
@@ -149,7 +166,7 @@ export default function PlansScreen() {
               )}
             </View>
             <NavButton
-              label="›"
+              icon="chevron.right"
               accessibilityLabel={t('a11y.nextWeek')}
               onPress={() => setPlannerWeekKey(toDateKey(addWeeks(weekStart, 1)))}
             />
@@ -158,13 +175,12 @@ export default function PlansScreen() {
           {/* The bridge from planning to shopping. Hidden until the week has a
               dinner, so an empty board stays quiet. */}
           {entries.length > 0 ? (
-            <Pressable
+            <PressableScale
               onPress={existingList ? () => openList(existingList.id) : onMakeList}
               accessibilityRole="button"
-              style={({ pressed }) => [
+              style={[
                 styles.listButton,
                 { backgroundColor: existingList ? theme.backgroundElement : theme.tint },
-                pressed && styles.pressed,
               ]}>
               <SymbolView
                 name={{ ios: 'cart.fill', android: 'shopping_cart', web: 'shopping_cart' }}
@@ -183,23 +199,28 @@ export default function PlansScreen() {
                 tintColor={existingList ? theme.textSecondary : theme.onTint}
                 type="monochrome"
               />
-            </Pressable>
+            </PressableScale>
           ) : null}
         </View>
 
-        <View style={styles.boardArea}>
-          <WeekBoard
-            days={days}
-            entriesByDate={entriesByDate}
-            onMove={onMove}
-            onAdd={onAdd}
-            onEdit={onEditEntry}
-            bottomContentInset={showPlanAction ? Spacing.two : undefined}
-          />
-        </View>
+        {/* The board runs to the bottom edge and scrolls under the floating
+            plan button and the tab bar. Keyed by week so switching weeks fades
+            the new one in rather than swapping it in a single frame. */}
+        <LayoutAnimationConfig skipEntering>
+          <Animated.View key={weekStartKey} entering={WEEK_ENTER} style={styles.boardArea}>
+            <WeekBoard
+              days={days}
+              entriesByDate={entriesByDate}
+              onMove={onMove}
+              onAdd={onAdd}
+              onEdit={onEditEntry}
+              bottomContentInset={BottomTabInset + Spacing.three + (showPlanAction ? PLAN_DOCK : 0)}
+            />
+          </Animated.View>
+        </LayoutAnimationConfig>
 
         {showPlanAction ? (
-          <View style={styles.planAction}>
+          <View pointerEvents="box-none" style={styles.planDock}>
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={t('weekPlanning.title')}
@@ -210,28 +231,42 @@ export default function PlansScreen() {
                 hapticSelection();
                 pushOnce({ pathname: '/sheets/plan-week', params: { weekStart: weekStartKey } });
               }}
-              style={({ pressed }) => [
-                styles.planButton,
-                {
-                  backgroundColor: canPlan ? brand.bg : theme.backgroundElement,
-                },
-                pressed && styles.planPressed,
-              ]}>
-              <SymbolView
-                name={{ ios: 'sparkles', android: 'auto_awesome', web: 'auto_awesome' }}
-                size={16}
-                tintColor={canPlan ? brand.fg : theme.textSecondary}
-                type="monochrome"
-              />
-              <ThemedText type="smallBold" style={[styles.planLabel, { color: canPlan ? brand.fg : theme.textSecondary }]}>
-                {t('weekPlanning.title')}
-              </ThemedText>
+              style={({ pressed }) => [!glass && pressed && styles.pressed]}>
+              {/* Liquid Glass on iOS 26, matching the tab bar under it; tinted
+                  tomato once the week can be planned. Elsewhere GlassView is a
+                  plain view, so it gets a solid surface instead. */}
+              <GlassView
+                glassEffectStyle="regular"
+                isInteractive={canPlan}
+                tintColor={canPlan ? theme.accent : undefined}
+                colorScheme={scheme}
+                style={[
+                  styles.planButton,
+                  !glass && [
+                    styles.planButtonSolid,
+                    { backgroundColor: canPlan ? theme.accent : theme.backgroundElement },
+                  ],
+                ]}>
+                <Icon
+                  name="sparkles"
+                  size={16}
+                  color={canPlan ? theme.onTint : theme.textSecondary}
+                />
+                <View style={styles.planText}>
+                  <ThemedText
+                    type="smallBold"
+                    numberOfLines={1}
+                    style={{ color: canPlan ? theme.onTint : theme.text }}>
+                    {t('weekPlanning.title')}
+                  </ThemedText>
+                  {!canPlan ? (
+                    <ThemedText type="small" themeColor="textSecondary" numberOfLines={1} style={styles.planHint}>
+                      {planHint}
+                    </ThemedText>
+                  ) : null}
+                </View>
+              </GlassView>
             </Pressable>
-            {!canPlan ? (
-              <ThemedText type="small" themeColor="textSecondary" style={styles.planHint}>
-                {planHint}
-              </ThemedText>
-            ) : null}
           </View>
         ) : null}
       </SafeAreaView>
@@ -240,24 +275,29 @@ export default function PlansScreen() {
 }
 
 function NavButton({
-  label,
+  icon,
   accessibilityLabel,
   onPress,
 }: {
-  label: string;
+  icon: IconName;
   accessibilityLabel: string;
   onPress: () => void;
 }) {
+  const theme = useTheme();
   return (
     <Pressable
-      onPress={onPress}
+      onPress={() => {
+        hapticLight();
+        onPress();
+      }}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       hitSlop={10}
-      style={({ pressed }) => [styles.navButton, pressed && styles.pressed]}>
-      <ThemedText type="title" style={styles.navButtonText}>
-        {label}
-      </ThemedText>
+      style={({ pressed }) => [
+        styles.navButton,
+        { backgroundColor: pressed ? theme.backgroundSelected : theme.backgroundElement },
+      ]}>
+      <Icon name={icon} size={15} weight="bold" color={theme.text} />
     </Pressable>
   );
 }
@@ -288,31 +328,35 @@ const styles = StyleSheet.create({
     paddingRight: Spacing.two,
     borderRadius: 999,
   },
-  planAction: {
+  planDock: {
+    position: 'absolute',
+    left: Spacing.four,
+    right: Spacing.four,
+    bottom: BottomTabInset + Spacing.two,
     alignItems: 'center',
-    gap: Spacing.one,
-    paddingHorizontal: Spacing.four,
-    paddingTop: Spacing.two,
-    paddingBottom: BottomTabInset + Spacing.three,
   },
   planButton: {
-    maxWidth: '100%',
-    minHeight: 44,
+    minHeight: 48,
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.two,
-    paddingHorizontal: Spacing.three,
+    paddingHorizontal: Spacing.four,
     paddingVertical: Spacing.two,
     borderRadius: 999,
   },
-  planLabel: {
+  planButtonSolid: {
+    shadowColor: '#000',
+    shadowOpacity: 0.14,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
+  },
+  planText: {
     flexShrink: 1,
   },
   planHint: {
-    textAlign: 'center',
-  },
-  planPressed: {
-    opacity: 0.85,
+    fontSize: 12,
+    lineHeight: 16,
   },
   weekNav: {
     flexDirection: 'row',
@@ -329,12 +373,11 @@ const styles = StyleSheet.create({
     gap: Spacing.one,
   },
   navButton: {
-    width: 44,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
-  },
-  navButtonText: {
-    fontSize: 28,
-    lineHeight: 32,
+    justifyContent: 'center',
   },
   boardArea: {
     flex: 1,

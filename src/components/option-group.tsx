@@ -1,5 +1,6 @@
 import { Pressable, StyleSheet, View } from 'react-native';
 
+import { Icon } from '@/components/icon';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
@@ -47,7 +48,7 @@ export function OptionGroup<T extends string>({
               ) : null}
             </View>
             {selected ? (
-              <ThemedText style={[styles.check, { color: theme.tint }]}>✓</ThemedText>
+              <Icon name="checkmark" size={16} weight="bold" color={theme.tint} />
             ) : null}
           </Pressable>
         );
@@ -72,10 +73,6 @@ const styles = StyleSheet.create({
   label: {
     flexShrink: 1,
     gap: Spacing.half,
-  },
-  check: {
-    fontSize: 18,
-    fontWeight: 700,
   },
   pressed: {
     opacity: 0.6,

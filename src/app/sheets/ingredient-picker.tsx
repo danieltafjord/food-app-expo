@@ -1,9 +1,11 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { FlatList, Pressable, StyleSheet, View } from 'react-native';
+import { Alert, FlatList, Pressable, StyleSheet, View } from 'react-native';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 
+import { Icon } from '@/components/icon';
 import { SheetScreen } from '@/components/sheet';
+import { SwipeToDelete } from '@/components/swipe-to-delete';
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
 import { BadgeColors, Spacing } from '@/constants/theme';
@@ -13,7 +15,7 @@ import { useT } from '@/lib/i18n';
 import { isAmountWithinLimits, parseItemLine } from '@/lib/parse-line';
 import { findExact, indexByName, searchIndex } from '@/lib/search';
 import { cancelSheet, resolveSheet } from '@/lib/sheets';
-import { createIngredient, getIngredient, useIngredients, type LocalIngredient } from '@/lib/store';
+import { createIngredient, deleteIngredient, getIngredient, useIngredients, type LocalIngredient } from '@/lib/store';
 
 const SWAP = 140;
 const FADE_IN = FadeIn.duration(SWAP);
@@ -53,7 +55,7 @@ export default function IngredientPickerSheet() {
 
   function pick(ingredient: LocalIngredient) {
     // Once per sheet: a "done" + tap double-fire would otherwise pop two screens.
-    if (picked.current || !amountOk) return;
+    if (picked.current || !amountOk || !getIngredient(ingredient.id)) return;
     picked.current = true;
     resolveSheet(request, {
       ingredient,
@@ -73,6 +75,17 @@ export default function IngredientPickerSheet() {
   function onSubmit() {
     if (exact) pick(exact);
     else onCreate();
+  }
+
+  function onDelete(ingredient: LocalIngredient) {
+    Alert.alert(
+      t('ingredientPicker.deleteTitle', { name: ingredient.name }),
+      t('ingredientPicker.deleteMessage'),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        { text: t('common.delete'), style: 'destructive', onPress: () => deleteIngredient(ingredient.id) },
+      ],
+    );
   }
 
   const actionTitle =
@@ -132,9 +145,12 @@ export default function IngredientPickerSheet() {
                 styles.actionBadge,
                 { backgroundColor: idle ? theme.backgroundSelected : theme.tint },
               ]}>
-              <ThemedText themeColor={idle ? 'textSecondary' : 'onTint'} style={styles.actionGlyph}>
-                {action === 'add' ? '✓' : '＋'}
-              </ThemedText>
+              <Icon
+                name={action === 'add' ? 'checkmark' : 'plus'}
+                size={16}
+                weight="bold"
+                color={idle ? theme.textSecondary : theme.onTint}
+              />
             </View>
             <View style={styles.flex}>
               <ThemedText
@@ -166,21 +182,31 @@ export default function IngredientPickerSheet() {
         windowSize={5}
         removeClippedSubviews
         renderItem={({ item: ingredient }) => (
-          <Pressable
-            onPress={() => pick(ingredient)}
-            accessibilityRole="button"
-            style={({ pressed }) => [
-              styles.row,
-              { borderBottomColor: theme.border },
-              pressed && styles.pressed,
-            ]}>
-            <ThemedText style={styles.flex} numberOfLines={1}>
-              {ingredient.name}
-            </ThemedText>
-            <ThemedText type="small" themeColor="textSecondary">
-              {amount || ingredient.default_unit || ''}
-            </ThemedText>
-          </Pressable>
+          <View style={styles.clip}>
+            <SwipeToDelete label={t('common.delete')} onDelete={() => onDelete(ingredient)}>
+              <Pressable
+                onPress={() => pick(ingredient)}
+                accessibilityRole="button"
+                accessibilityActions={[
+                  { name: 'delete', label: t('ingredientPicker.delete', { name: ingredient.name }) },
+                ]}
+                onAccessibilityAction={({ nativeEvent }) => {
+                  if (nativeEvent.actionName === 'delete') onDelete(ingredient);
+                }}
+                style={({ pressed }) => [
+                  styles.row,
+                  { backgroundColor: theme.background, borderBottomColor: theme.border },
+                  pressed && styles.pressed,
+                ]}>
+                <ThemedText style={styles.flex} numberOfLines={1}>
+                  {ingredient.name}
+                </ThemedText>
+                <ThemedText type="small" themeColor="textSecondary">
+                  {amount || ingredient.default_unit || ''}
+                </ThemedText>
+              </Pressable>
+            </SwipeToDelete>
+          </View>
         )}
         ListEmptyComponent={
           <Animated.View entering={FADE_IN} style={styles.empty}>
@@ -198,13 +224,16 @@ const styles = StyleSheet.create({
   list: {
     flex: 1,
   },
+  clip: {
+    overflow: 'hidden',
+  },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    borderBottomWidth: StyleSheet.hairlineWidth,
     gap: Spacing.three,
     paddingVertical: Spacing.three,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    minHeight: 44,
   },
   actionSlot: {
     height: 36 + Spacing.three * 2,
@@ -223,10 +252,6 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  actionGlyph: {
-    fontSize: 20,
-    lineHeight: 24,
   },
   actionPressed: {
     opacity: 0.85,

@@ -1,14 +1,15 @@
-import { router, Stack, useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
-import { Alert, Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 
-import { IngredientSuggestions } from '@/components/ingredient-suggestions';
 import { Button } from '@/components/button';
 import { Card } from '@/components/card';
 import { HeaderMenu, MenuAction } from '@/components/header-menu';
+import { Icon } from '@/components/icon';
+import { IngredientSuggestions } from '@/components/ingredient-suggestions';
 import { Screen } from '@/components/screen';
 import { Stepper } from '@/components/stepper';
-import { TextField } from '@/components/text-field';
+import { SwipeToDelete } from '@/components/swipe-to-delete';
 import { ThemedText } from '@/components/themed-text';
 import { UnitChips } from '@/components/unit-chips';
 import { Spacing } from '@/constants/theme';
@@ -26,6 +27,7 @@ import {
   useDinner,
   type DinnerWithItems,
 } from '@/lib/store';
+import { deleteWithUndo } from '@/lib/undo';
 
 export default function DinnerEditorScreen() {
   const t = useT();
@@ -94,17 +96,9 @@ function DinnerEditorForm({ dinner }: { dinner: DinnerWithItems }) {
   }
 
   function onDelete() {
-    Alert.alert(t('dinners.deleteDinnerTitle'), t('dinners.deleteDinnerMessage'), [
-      { text: t('common.cancel'), style: 'cancel' },
-      {
-        text: t('common.delete'),
-        style: 'destructive',
-        onPress: () => {
-          deleteDinner(dinner.id);
-          router.back();
-        },
-      },
-    ]);
+    const id = dinner.id;
+    router.back();
+    deleteWithUndo(t('undo.dinnerDeleted', { name: dinner.name }), [id], () => deleteDinner(id));
   }
 
   const focused = items.find((item) => item.id === focusedItem);
@@ -112,7 +106,7 @@ function DinnerEditorForm({ dinner }: { dinner: DinnerWithItems }) {
 
   return (
     <>
-      <Stack.Screen options={{ title: name.trim() || dinner.name }} />
+      {/* The name is the page's own title below; repeating it in the bar read as a duplicate. */}
       <HeaderMenu>
         <MenuAction icon="trash" destructive onPress={onDelete}>
           {t('dinners.deleteDinner')}
@@ -120,133 +114,275 @@ function DinnerEditorForm({ dinner }: { dinner: DinnerWithItems }) {
       </HeaderMenu>
 
       <Screen topInset={false} refreshable={false}>
-        <TextField
-          label={t('dinners.name')}
-          value={name}
-          onChangeText={setName}
-          autoCapitalize="sentences"
-          maxLength={255}
-        />
+        <View style={styles.page}>
+          <View style={styles.hero}>
+            <TextInput
+              accessibilityLabel={t('dinners.name')}
+              value={name}
+              onChangeText={setName}
+              onFocus={() => setFocusedItem(null)}
+              placeholder={t('dinners.placeholder')}
+              placeholderTextColor={theme.textSecondary}
+              autoCapitalize="sentences"
+              maxLength={255}
+              multiline
+              submitBehavior="blurAndSubmit"
+              returnKeyType="done"
+              style={[styles.nameInput, { color: theme.text }]}
+            />
+            <Card style={styles.servingsRow}>
+              <ThemedText style={styles.servingsLabel}>{t('dinners.recipeServings')}</ThemedText>
+              <Stepper
+                compact
+                value={servings}
+                onChange={(default_servings) => patchDinner(dinner.id, { default_servings })}
+                min={1}
+                max={99}
+                accessibilityLabel={t('dinners.defaultServings')}
+              />
+            </Card>
+          </View>
 
-        <View style={styles.section}>
-          <ThemedText type="smallBold">{t('dinners.defaultServings')}</ThemedText>
-          <Stepper
-            value={servings}
-            onChange={(default_servings) => patchDinner(dinner.id, { default_servings })}
-            min={1}
-            max={99}
-            unit={t('common.servings')}
-            accessibilityLabel={t('dinners.defaultServings')}
-          />
-        </View>
-
-        <View style={styles.section}>
-          <ThemedText type="smallBold">{t('dinners.ingredients')}</ThemedText>
-          <Card style={styles.itemsCard}>
-            {items.length === 0 ? (
-              <ThemedText type="small" themeColor="textSecondary">
-                {t('dinners.noIngredients')}
-              </ThemedText>
-            ) : (
-              items.map((item, index) => (
-                <View
-                  key={item.id}
-                  style={[
-                    styles.item,
-                    index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border },
-                  ]}>
-                  <ThemedText style={styles.itemName} numberOfLines={1}>
-                    {item.ingredient_name}
-                  </ThemedText>
-                  <TextInput
-                    value={item.amount}
-                    onChangeText={(value) => updateAmount(item.id, value)}
-                    onFocus={() => setFocusedItem(item.id)}
-                    placeholder={t('dinners.amountPlaceholder')}
-                    placeholderTextColor={theme.textSecondary}
-                    accessibilityLabel={`${t('dinners.amount')} ${item.ingredient_name}`}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    style={[
-                      styles.amount,
-                      { backgroundColor: theme.backgroundSelected, color: theme.text },
-                      !isAmountValid(item.amount) && { borderWidth: 1, borderColor: theme.danger },
-                    ]}
-                  />
-                  <Pressable
-                    onPress={() => removeItem(item.id)}
-                    accessibilityRole="button"
-                    accessibilityLabel={t('a11y.removeIngredient')}
-                    hitSlop={10}
-                    style={styles.removeItem}>
-                    <ThemedText themeColor="textSecondary">✕</ThemedText>
-                  </Pressable>
+          <View style={styles.section}>
+            <View style={styles.sectionHeading}>
+              <ThemedText accessibilityRole="header" style={styles.sectionTitle}>{t('dinners.ingredients')}</ThemedText>
+              {items.length > 0 ? (
+                <View style={[styles.countBadge, { backgroundColor: theme.backgroundSelected }]}>
+                  <ThemedText type="smallBold" themeColor="textSecondary" style={styles.count}>{items.length}</ThemedText>
                 </View>
-              ))
-            )}
-          </Card>
-          {items.some((item) => !isAmountValid(item.amount)) ? (
-            <ThemedText type="small" style={{ color: theme.danger }}>
-              {t('dinners.amountInvalid')}
-            </ThemedText>
-          ) : null}
-          {focused ? <UnitChips value={focusedUnit} onPick={pickUnit} /> : null}
-          <IngredientSuggestions
-            dinnerId={dinner.id}
-            name={name}
-            ingredients={items.map((item) => item.ingredient_name)}
-            onAdd={(suggestion) => {
-              const ingredient = getIngredient(createIngredient({ name: suggestion }));
-              if (ingredient) addIngredient({ ingredient, quantity: null, unit: null });
-            }}
-          />
-          <Button
-            title={t('dinners.addIngredient')}
-            variant="secondary"
-            size="small"
-            onPress={() => openIngredientPicker(addIngredient)}
-          />
-        </View>
+              ) : null}
+            </View>
+            <View style={styles.group}>
+              <Card style={styles.itemsCard}>
+                {items.length === 0 ? (
+                  <ThemedText style={styles.empty} type="small" themeColor="textSecondary">
+                    {t('dinners.noIngredients')}
+                  </ThemedText>
+                ) : (
+                  items.map((item, index) => (
+                    <View
+                      key={item.id}
+                      style={index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border }}>
+                      <SwipeToDelete label={t('common.remove')} onDelete={() => removeItem(item.id)}>
+                        <View style={[styles.item, { backgroundColor: theme.backgroundElement }]}>
+                          <ThemedText
+                            style={styles.itemName}
+                            accessibilityActions={[{ name: 'delete', label: t('dinners.removeIngredient', { name: item.ingredient_name }) }]}
+                            onAccessibilityAction={({ nativeEvent }) => {
+                              if (nativeEvent.actionName === 'delete') removeItem(item.id);
+                            }}>
+                            {item.ingredient_name}
+                          </ThemedText>
+                          <TextInput
+                            value={item.amount}
+                            onChangeText={(value) => updateAmount(item.id, value)}
+                            onFocus={() => setFocusedItem(item.id)}
+                            onSubmitEditing={() => setFocusedItem(null)}
+                            returnKeyType="done"
+                            placeholder={t('dinners.amountPlaceholder')}
+                            placeholderTextColor={theme.textSecondary}
+                            accessibilityLabel={`${t('dinners.amount')} ${item.ingredient_name}`}
+                            autoCapitalize="none"
+                            autoCorrect={false}
+                            style={[
+                              styles.amount,
+                              {
+                                backgroundColor: theme.background,
+                                color: theme.text,
+                                borderColor: focusedItem === item.id ? theme.tint : theme.border,
+                              },
+                              !isAmountValid(item.amount) && { borderColor: theme.danger },
+                            ]}
+                          />
+                        </View>
+                      </SwipeToDelete>
+                      {focusedItem === item.id ? (
+                        <View style={styles.unitPicker}>
+                          <UnitChips value={focusedUnit} onPick={pickUnit} onCard inset={Spacing.three} />
+                        </View>
+                      ) : null}
+                    </View>
+                  ))
+                )}
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={t('dinners.addIngredient')}
+                  onPress={() => openIngredientPicker(addIngredient)}
+                  style={({ pressed }) => [
+                    styles.addIngredient,
+                    { borderTopColor: theme.border },
+                    pressed && { backgroundColor: theme.backgroundSelected },
+                  ]}>
+                  <View style={[styles.addGlyph, { backgroundColor: theme.tint }]}>
+                    <Icon name="plus" size={12} weight="bold" color={theme.onTint} />
+                  </View>
+                  <ThemedText style={[styles.addLabel, { color: theme.tint }]}>{t('dinners.addIngredient')}</ThemedText>
+                </Pressable>
+              </Card>
+              {items.some((item) => !isAmountValid(item.amount)) ? (
+                <ThemedText type="small" style={[styles.footnote, { color: theme.danger }]}>
+                  {t('dinners.amountInvalid')}
+                </ThemedText>
+              ) : items.length > 0 ? (
+                <ThemedText type="small" themeColor="textSecondary" style={styles.footnote}>
+                  {t('dinners.ingredientsHint')}
+                </ThemedText>
+              ) : null}
+            </View>
+            <IngredientSuggestions
+              dinnerId={dinner.id}
+              name={name}
+              ingredients={items.map((item) => item.ingredient_name)}
+              onAdd={(suggestion) => {
+                const ingredient = getIngredient(createIngredient({ name: suggestion }));
+                if (ingredient) addIngredient({ ingredient, quantity: null, unit: null });
+              }}
+            />
+          </View>
 
-        <TextField
-          label={t('dinners.notes')}
-          value={notes}
-          onChangeText={(notes) => patchDinner(dinner.id, { notes })}
-          maxLength={5000}
-          placeholder={t('dinners.notesPlaceholder')}
-          multiline
-        />
+          <View style={styles.section}>
+            <View style={styles.sectionHeading}>
+              <ThemedText accessibilityRole="header" style={styles.sectionTitle}>{t('dinners.notesHeading')}</ThemedText>
+              <ThemedText type="small" themeColor="textSecondary">{t('dinners.optional')}</ThemedText>
+            </View>
+            <TextInput
+              accessibilityLabel={t('dinners.notes')}
+              value={notes}
+              onChangeText={(notes) => patchDinner(dinner.id, { notes })}
+              onFocus={() => setFocusedItem(null)}
+              maxLength={5000}
+              placeholder={t('dinners.notesPlaceholder')}
+              placeholderTextColor={theme.textSecondary}
+              multiline
+              textAlignVertical="top"
+              style={[styles.notes, { color: theme.text, backgroundColor: theme.backgroundElement }]}
+            />
+          </View>
+        </View>
       </Screen>
     </>
   );
 }
 
 const styles = StyleSheet.create({
+  // Wider gaps between sections than inside them, so each heading reads as
+  // belonging to the content under it rather than the content above.
+  page: {
+    gap: Spacing.five,
+  },
+  hero: {
+    gap: Spacing.three,
+  },
+  nameInput: {
+    padding: 0,
+    fontSize: 30,
+    lineHeight: 36,
+    fontWeight: 700,
+    letterSpacing: -0.4,
+  },
+  servingsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.three,
+    paddingVertical: Spacing.two,
+    paddingLeft: Spacing.three,
+    paddingRight: Spacing.two,
+  },
+  servingsLabel: {
+    flexShrink: 1,
+    fontWeight: 600,
+  },
   section: {
+    gap: Spacing.two,
+  },
+  sectionHeading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    paddingHorizontal: Spacing.one,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    lineHeight: 28,
+    fontWeight: 700,
+  },
+  countBadge: {
+    minWidth: 24,
+    paddingHorizontal: Spacing.two,
+    borderRadius: 999,
+    alignItems: 'center',
+  },
+  count: {
+    fontSize: 13,
+    lineHeight: 22,
+    fontVariant: ['tabular-nums'],
+  },
+  group: {
     gap: Spacing.two,
   },
   itemsCard: {
     gap: 0,
-    paddingVertical: Spacing.one,
+    padding: 0,
+    overflow: 'hidden',
   },
   item: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.two,
+    gap: Spacing.three,
+    paddingLeft: Spacing.three,
+    paddingRight: Spacing.two,
     paddingVertical: Spacing.two,
+    minHeight: 56,
   },
   itemName: {
     flex: 1,
   },
   amount: {
-    width: 104,
+    width: 96,
     minHeight: 40,
-    borderRadius: Spacing.two,
-    paddingHorizontal: Spacing.two,
+    borderRadius: 10,
+    paddingHorizontal: Spacing.two + Spacing.one,
     fontSize: 16,
+    fontVariant: ['tabular-nums'],
+    borderWidth: 1,
     textAlign: 'right',
   },
-  removeItem: {
-    paddingHorizontal: Spacing.one,
+  unitPicker: {
+    paddingBottom: Spacing.three,
+  },
+  addIngredient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.three,
+    minHeight: 52,
+    paddingHorizontal: Spacing.three,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  addGlyph: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addLabel: {
+    fontWeight: 600,
+  },
+  empty: {
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.four,
+  },
+  footnote: {
+    paddingHorizontal: Spacing.three,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  notes: {
+    minHeight: 120,
+    borderRadius: Spacing.three,
+    padding: Spacing.three,
+    fontSize: 16,
+    lineHeight: 24,
   },
 });

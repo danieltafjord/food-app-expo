@@ -257,6 +257,8 @@ export function setDinnerItems(dinnerId: string, items: DinnerItemInput[]): void
 
 /** Delete a dinner, its items, and any plan entries that referenced it (FK cascade). */
 export function deleteDinner(id: string): void {
+  // Already gone (an undoable delete committing after a remote delete).
+  if (!store$.dinners[id].peek()) return;
   for (const it of Object.values(store$.dinnerItems.get()).filter((i) => i.dinner_id === id)) {
     store$.dinnerItems[it.id].delete();
   }

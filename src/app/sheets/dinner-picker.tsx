@@ -3,6 +3,7 @@ import { useMemo, useRef, useState } from 'react';
 import { FlatList, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 
+import { Icon } from '@/components/icon';
 import { SheetScreen } from '@/components/sheet';
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
@@ -179,9 +180,12 @@ export default function DinnerPickerSheet() {
                 styles.actionBadge,
                 { backgroundColor: idle ? theme.backgroundSelected : theme.tint },
               ]}>
-              <ThemedText themeColor={idle ? 'textSecondary' : 'onTint'} style={styles.actionGlyph}>
-                {action === 'add' ? '✓' : '＋'}
-              </ThemedText>
+              <Icon
+                name={action === 'add' ? 'checkmark' : 'plus'}
+                size={16}
+                weight="bold"
+                color={idle ? theme.textSecondary : theme.onTint}
+              />
             </View>
             <View style={styles.flex}>
               <ThemedText
@@ -299,10 +303,6 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  actionGlyph: {
-    fontSize: 20,
-    lineHeight: 24,
   },
   actionPressed: {
     opacity: 0.85,

@@ -9,6 +9,10 @@ type UnitChipsProps = {
   /** The unit currently in the amount field, highlighted. */
   value: string | null;
   onPick: (unit: string) => void;
+  /** Sits on a `backgroundElement` card, so resting chips take the page color to stay visible. */
+  onCard?: boolean;
+  /** Horizontal content padding, so chips scroll to the container's edges but rest aligned with its content. */
+  inset?: number;
 };
 
 /**
@@ -16,14 +20,14 @@ type UnitChipsProps = {
  * works in the field itself; the chips just keep the common spellings
  * consistent so generated lists don't split "g" and "gram" into two lines.
  */
-export function UnitChips({ value, onPick }: UnitChipsProps) {
+export function UnitChips({ value, onPick, onCard = false, inset = 0 }: UnitChipsProps) {
   const theme = useTheme();
   return (
     <ScrollView
       horizontal
       showsHorizontalScrollIndicator={false}
       keyboardShouldPersistTaps="always"
-      contentContainerStyle={styles.row}>
+      contentContainerStyle={[styles.row, { paddingHorizontal: inset }]}>
       {UNIT_SUGGESTIONS.map((unit) => {
         const selected = unit === value;
         return (
@@ -37,7 +41,7 @@ export function UnitChips({ value, onPick }: UnitChipsProps) {
             style={({ pressed }) => [
               styles.chip,
               {
-                backgroundColor: selected ? theme.tint : theme.backgroundElement,
+                backgroundColor: selected ? theme.tint : onCard ? theme.background : theme.backgroundElement,
                 borderColor: selected ? theme.tint : theme.border,
               },
               pressed && styles.pressed,

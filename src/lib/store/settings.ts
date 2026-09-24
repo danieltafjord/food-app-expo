@@ -8,6 +8,17 @@ import { store$ } from './collections';
 /** The user's theme choice. `system` follows the OS light/dark setting. */
 export type ThemePreference = 'system' | 'light' | 'dark';
 
+/** A device-local display preference, shared by all shopping lists. */
+export type ShoppingListDensity = 'standard' | 'compact';
+
+export function useShoppingListDensity(): ShoppingListDensity {
+  return useValue(() => store$.settings.shoppingListDensity.get() === 'compact' ? 'compact' : 'standard');
+}
+
+export function setShoppingListDensity(density: ShoppingListDensity): void {
+  store$.settings.shoppingListDensity.set(density);
+}
+
 function isThemePreference(value: unknown): value is ThemePreference {
   return value === 'system' || value === 'light' || value === 'dark';
 }

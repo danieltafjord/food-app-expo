@@ -1,19 +1,20 @@
 import { useRef } from 'react';
-import { Pressable, StyleSheet } from 'react-native';
+import { StyleSheet } from 'react-native';
 
-import { ThemedText } from '@/components/themed-text';
+import { Icon, type IconName } from '@/components/icon';
+import { PressableScale } from '@/components/pressable-scale';
 import { BottomTabInset, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 type FabProps = {
   onPress: () => void;
-  /** Glyph shown in the button. Defaults to a plus. */
-  icon?: string;
+  /** Symbol shown in the button. Defaults to a plus. */
+  icon?: IconName;
   accessibilityLabel?: string;
 };
 
 /** A circular floating action button pinned to the bottom-right, clearing the tab bar. */
-export function Fab({ onPress, icon = '＋', accessibilityLabel }: FabProps) {
+export function Fab({ onPress, icon = 'plus', accessibilityLabel }: FabProps) {
   const theme = useTheme();
   // The FAB creates things (a new list) and then navigates; a double tap lands
   // before the push does and would create two. Ignore presses in quick succession.
@@ -25,19 +26,14 @@ export function Fab({ onPress, icon = '＋', accessibilityLabel }: FabProps) {
     onPress();
   }
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       onPress={press}
-      style={({ pressed }) => [
-        styles.fab,
-        { backgroundColor: theme.tint },
-        pressed && styles.pressed,
-      ]}>
-      <ThemedText themeColor="onTint" style={styles.icon}>
-        {icon}
-      </ThemedText>
-    </Pressable>
+      scaleTo={0.92}
+      style={[styles.fab, { backgroundColor: theme.tint }]}>
+      <Icon name={icon} size={22} weight="bold" color={theme.onTint} />
+    </PressableScale>
   );
 }
 
@@ -52,17 +48,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#000',
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
     shadowOffset: { width: 0, height: 4 },
     elevation: 6,
-  },
-  icon: {
-    fontSize: 30,
-    lineHeight: 34,
-  },
-  pressed: {
-    opacity: 0.85,
-    transform: [{ scale: 0.96 }],
   },
 });

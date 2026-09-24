@@ -13,7 +13,8 @@ import { ApiError } from '@/lib/api/client';
 import { setupAccount } from '@/lib/auth/account-setup';
 import { store$ } from '@/lib/store/collections';
 import { createDinner, deleteDinner, setDinnerItems } from '@/lib/store/dinners';
-import { createIngredient } from '@/lib/store/ingredients';
+import { createIngredient, deleteIngredient } from '@/lib/store/ingredients';
+import { addShoppingItem, createShoppingList } from '@/lib/store/shopping-lists';
 import { setSyncAuth } from '@/lib/sync/auth-bridge';
 import {
   __pollDelayForTests,
@@ -185,6 +186,51 @@ describe('first sync', () => {
 });
 
 describe('push / pull', () => {
+  it('syncs offline ingredient deletion along with every referenced row', async () => {
+    ensureChangeTracking();
+    const ingredient = createIngredient({ name: 'Eggs' });
+    const dinner = createDinner({ name: 'Omelette' });
+    setDinnerItems(dinner, [{ ingredient_id: ingredient }]);
+    const dinnerItem = Object.values(store$.dinnerItems.get())[0];
+    const list = createShoppingList('Groceries');
+    const shoppingItem = addShoppingItem(list, { ingredient_id: ingredient });
+
+    deleteIngredient(ingredient);
+    const server = fakeServer();
+    await connect(server);
+
+    const push = server.calls.find((call) => call.path === '/sync')!;
+    for (const [key, id] of [['ingredients', ingredient], ['dinner_items', dinnerItem.id], ['shopping_list_items', shoppingItem]]) {
+      expect(push.body.changes[key]).toEqual([{ id, updated_at: expect.any(String), deleted_at: expect.any(String) }]);
+    }
+    expect(hasPending()).toBe(false);
+  });
+
+  it('removes remote ingredient references including a shopping row added during sync', async () => {
+    ensureChangeTracking();
+    const server = fakeServer();
+    await connect(server);
+    const ingredient = createIngredient({ name: 'Eggs' });
+    const dinner = createDinner({ name: 'Omelette' });
+    setDinnerItems(dinner, [{ ingredient_id: ingredient }]);
+    const list = createShoppingList('Groceries');
+    addShoppingItem(list, { ingredient_id: ingredient });
+    await syncNow();
+
+    server.handlers.push(() => {
+      addShoppingItem(list, { ingredient_id: ingredient });
+      return { ...emptySync(), changes: { ingredients: [{ id: ingredient, deleted_at: '2026-09-22T00:00:00Z' }] } };
+    });
+    await syncNow();
+
+    expect(store$.ingredients[ingredient].get()).toBeUndefined();
+    expect(Object.values(store$.dinnerItems.get())).toEqual([]);
+    expect(Object.values(store$.shoppingListItems.get())).toEqual([]);
+    expect(store$.dinners[dinner].get()).toBeDefined();
+    expect(store$.shoppingLists[list].get()).toBeDefined();
+    expect(hasPending()).toBe(false);
+  });
+
   it('sends tombstones as bare rows and clears them on success', async () => {
     ensureChangeTracking();
     const server = fakeServer();

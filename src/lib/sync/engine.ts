@@ -88,7 +88,7 @@ const INITIAL_SYNC_DELAY_MS = 1200;
 
 /** The seven syncable collections, mapped to their server payload keys, in dependency order. */
 export const SYNCABLE = [
-  { collection: 'ingredients', serverKey: 'ingredients', household: true, parentOf: [] },
+  { collection: 'ingredients', serverKey: 'ingredients', household: true, parentOf: ['dinnerItems:ingredient_id', 'shoppingListItems:ingredient_id'] },
   { collection: 'dinners', serverKey: 'dinners', household: true, parentOf: ['dinnerItems:dinner_id', 'planEntries:dinner_id'] },
   { collection: 'dinnerItems', serverKey: 'dinner_items', household: false, parentOf: [] },
   { collection: 'dinnerPlans', serverKey: 'dinner_plans', household: true, parentOf: ['planEntries:dinner_plan_id'] },

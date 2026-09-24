@@ -22,9 +22,12 @@ import {
   setHouseholdDefaultServings,
   setLocale,
   setThemePreference,
+  setShoppingListDensity,
   useHouseholdDefaultServings,
   useLocale,
   useThemePreference,
+  useShoppingListDensity,
+  type ShoppingListDensity,
   type ThemePreference,
 } from '@/lib/store';
 import { flushPendingChanges } from '@/lib/sync/engine';
@@ -40,6 +43,7 @@ export default function AccountScreen() {
   const { household, role, isOwner } = useActiveHousehold();
 
   const themePreference = useThemePreference();
+  const shoppingListDensity = useShoppingListDensity();
   const locale = useLocale();
   const defaultServings = useHouseholdDefaultServings();
   const updateSettings = useUpdateSettings();
@@ -139,6 +143,10 @@ export default function AccountScreen() {
     value,
     label: LOCALE_LABELS[value],
   }));
+  const densityOptions: Option<ShoppingListDensity>[] = [
+    { value: 'standard', label: t('account.densityStandard'), hint: t('account.densityStandardHint') },
+    { value: 'compact', label: t('account.densityCompact'), hint: t('account.densityCompactHint') },
+  ];
 
   return (
     <Screen topInset={false}>
@@ -197,6 +205,10 @@ export default function AccountScreen() {
 
       <SettingsSection title={t('account.language')}>
         <OptionGroup options={localeOptions} value={locale} onChange={onLocaleChange} />
+      </SettingsSection>
+
+      <SettingsSection title={t('account.shoppingListDensity')} footer={t('account.shoppingListDensityHint')}>
+        <OptionGroup options={densityOptions} value={shoppingListDensity} onChange={setShoppingListDensity} />
       </SettingsSection>
 
       <SettingsSection

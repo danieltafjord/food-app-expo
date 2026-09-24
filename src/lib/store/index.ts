@@ -27,13 +27,16 @@ export {
 } from './household';
 export {
   type ThemePreference,
+  type ShoppingListDensity,
   applyServerSettings,
   ensureSettingsDefaults,
   getLocale,
   setLocale,
   setThemePreference,
+  setShoppingListDensity,
   useLocale,
   useThemePreference,
+  useShoppingListDensity,
 } from './settings';
 
 // Domain hooks/mutations are re-exported here as each is built:

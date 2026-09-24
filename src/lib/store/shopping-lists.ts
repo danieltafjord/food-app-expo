@@ -315,7 +315,9 @@ export function deleteShoppingList(id: string): void {
     for (const it of Object.values(store$.shoppingListItems.get())) {
       if (it.shopping_list_id === id) store$.shoppingListItems[it.id].delete();
     }
-    store$.shoppingLists[id].delete();
+    // Already gone (an undoable delete committing after a remote delete):
+    // deleting the missing row would queue a tombstone for nothing.
+    if (store$.shoppingLists[id].peek()) store$.shoppingLists[id].delete();
   });
   sectionsCache.delete(id);
 }
@@ -382,6 +384,19 @@ export function toggleShoppingItem(itemId: string): void {
 
 export function removeShoppingItem(itemId: string): void {
   store$.shoppingListItems[itemId].delete();
+}
+
+/**
+ * Delete several items at once (an undoable "clear checked" commits through
+ * this). Rows already gone — deleted elsewhere while the undo window was open —
+ * are skipped rather than tombstoned a second time.
+ */
+export function removeShoppingItems(itemIds: readonly string[]): void {
+  batch(() => {
+    for (const id of itemIds) {
+      if (store$.shoppingListItems[id].peek()) store$.shoppingListItems[id].delete();
+    }
+  });
 }
 
 /** Delete every checked-off item in a list (e.g. after a shop). */

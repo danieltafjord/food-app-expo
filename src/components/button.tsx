@@ -1,22 +1,16 @@
-import {
-  ActivityIndicator,
-  Pressable,
-  StyleSheet,
-  type PressableProps,
-  type PressableStateCallbackType,
-} from 'react-native';
+import { ActivityIndicator, StyleSheet } from 'react-native';
 
+import { PressableScale, type PressableScaleProps } from '@/components/pressable-scale';
 import { ThemedText } from '@/components/themed-text';
 import { BadgeColors, Spacing } from '@/constants/theme';
 import { useResolvedScheme, useTheme } from '@/hooks/use-theme';
 
-export type ButtonProps = Omit<PressableProps, 'style'> & {
+export type ButtonProps = Omit<PressableScaleProps, 'scaleTo'> & {
   title: string;
   loading?: boolean;
   /** `danger` is the soft red tint for destructive actions (remove, delete). */
   variant?: 'primary' | 'secondary' | 'danger';
   size?: 'default' | 'small';
-  style?: PressableProps['style'];
 };
 
 export function Button({
@@ -37,19 +31,18 @@ export function Button({
   const foreground = isPrimary ? theme.onTint : isDanger ? danger.fg : theme.text;
 
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       // The title is replaced by a spinner while loading; keep the name for VoiceOver.
       accessibilityLabel={title}
       accessibilityState={{ disabled: !!isDisabled, busy: loading }}
       disabled={isDisabled}
-      style={(state: PressableStateCallbackType) => [
+      style={[
         styles.base,
         size === 'small' && styles.small,
         { backgroundColor: background },
         isDisabled && styles.disabled,
-        state.pressed && styles.pressed,
-        typeof style === 'function' ? style(state) : style,
+        style,
       ]}
       {...rest}>
       {loading ? (
@@ -61,7 +54,7 @@ export function Button({
           {title}
         </ThemedText>
       )}
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -81,9 +74,6 @@ const styles = StyleSheet.create({
   },
   label: {
     fontWeight: 600,
-  },
-  pressed: {
-    opacity: 0.85,
   },
   disabled: {
     opacity: 0.5,

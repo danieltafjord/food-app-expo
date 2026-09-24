@@ -34,3 +34,18 @@ export function hapticLift(): void {
 export function hapticDrop(): void {
   fire(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium));
 }
+
+/** Soft tap — small, frequent controls (week arrows, steppers). */
+export function hapticLight(): void {
+  fire(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft));
+}
+
+/** Success — something finished (the last item on a list is ticked). */
+export function hapticSuccess(): void {
+  fire(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success));
+}
+
+/** Warning — something was removed (a delete that can still be undone). */
+export function hapticWarning(): void {
+  fire(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning));
+}

@@ -11,8 +11,9 @@ export default function AppTabs() {
   return (
     <NativeTabs
       backgroundColor={colors.background}
-      // Solid (non-translucent) bar so app content doesn't show through it, and a
-      // hairline top separator.
+      // iOS 18 and earlier: a solid bar with a hairline top separator. iOS 26
+      // ignores these and draws Liquid Glass (content scrolls under it).
+      // Outlined symbols at rest, filled when selected, where a fill exists.
       blurEffect="none"
       disableTransparentOnScrollEdge
       shadowColor={colors.border}
@@ -30,12 +31,12 @@ export default function AppTabs() {
 
       <NativeTabs.Trigger name="shopping">
         <NativeTabs.Trigger.Label>{t('tabs.shopping')}</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon sf="cart.fill" />
+        <NativeTabs.Trigger.Icon sf={{ default: 'cart', selected: 'cart.fill' }} />
       </NativeTabs.Trigger>
 
       <NativeTabs.Trigger name="account">
         <NativeTabs.Trigger.Label>{t('tabs.account')}</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon sf="gearshape.fill" />
+        <NativeTabs.Trigger.Icon sf={{ default: 'gearshape', selected: 'gearshape.fill' }} />
       </NativeTabs.Trigger>
     </NativeTabs>
   );

@@ -13,7 +13,7 @@ import type {
   LocalShoppingList,
   LocalShoppingListItem,
 } from './schema';
-import type { ThemePreference } from './settings';
+import type { ShoppingListDensity, ThemePreference } from './settings';
 
 /**
  * The single source of truth for all on-device data.
@@ -36,6 +36,8 @@ export const store$ = observable({
    */
   settings: {
     theme: 'system' as ThemePreference,
+    /** Saved on this device; not mirrored to the account or household. */
+    shoppingListDensity: 'standard' as ShoppingListDensity,
     aiPaused: {} as Record<string, { categorization: boolean; suggestions: boolean }>,
     locale: '' as Locale | '',
   },

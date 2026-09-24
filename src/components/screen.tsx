@@ -32,6 +32,9 @@ export function Screen({ children, topInset = true, refreshable = true, overlay 
           // Inset the scroll area when the keyboard opens so a focused field
           // below it scrolls into view instead of being hidden behind it.
           automaticallyAdjustKeyboardInsets
+          // Under a large-title header the content starts beneath the (see-through)
+          // bar; let iOS inset it by the header height and track the collapse.
+          contentInsetAdjustmentBehavior="automatic"
           refreshControl={
             refreshable ? (
               <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
