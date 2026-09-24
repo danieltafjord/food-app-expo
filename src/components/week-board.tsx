@@ -38,6 +38,7 @@ import Animated, {
 
 import { DinnerImage } from '@/components/dinner-image';
 import { Icon } from '@/components/icon';
+import { RemoteChangeWash } from '@/components/remote-change-wash';
 import { ThemedText } from '@/components/themed-text';
 import { useSyncRefresh } from '@/hooks/use-sync-refresh';
 import { useResolvedScheme, useTheme } from '@/hooks/use-theme';
@@ -475,6 +476,8 @@ const DraggableDinnerCard = memo(function DraggableDinnerCard({
   return (
     <GestureDetector gesture={gesture}>
       <Animated.View layout={REFLOW} style={[styles.card, { backgroundColor: cardBg }, cardStyle]}>
+        {/* Someone else just planned, moved or changed this dinner. */}
+        <RemoteChangeWash id={entry.id} radius={Spacing.three} />
         <DinnerImage dinnerId={entry.dinner_id} name={entry.dinner_name} size={40} />
         <View style={styles.cardText}>
           <ThemedText style={styles.cardName} numberOfLines={1}>

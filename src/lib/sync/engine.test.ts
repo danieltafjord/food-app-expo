@@ -36,6 +36,7 @@ import {
   syncNow,
   type SyncResponse,
 } from '@/lib/sync/engine';
+import { __resetRemoteChangesForTests, remoteChangesForTests } from '@/lib/sync/remote-changes';
 import { resetSyncStatus, syncStatus$ } from '@/lib/sync/status';
 
 declare const global: { __DEV__?: boolean };
@@ -772,6 +773,32 @@ describe('live sync', () => {
     await syncNow();
     expect(syncCalls(server).at(-1)?.headers).toBeUndefined();
     expect(__pollDelayForTests()).toBe(8_000);
+  });
+
+  it('flags items another device changed for a brief highlight, never its own echo or a first download', async () => {
+    __resetRemoteChangesForTests();
+    const item = (id: string) => ({ id, shopping_list_id: 'l-1', ingredient_id: null, name: 'Milk', quantity: null,
+      unit: null, is_checked: true, is_generated: false, created_at: '2026-09-24T10:00:00.000000Z',
+      updated_at: '2026-09-24T10:00:00.000000Z', deleted_at: null, erasure_version: 0 });
+    const server = fakeServer([
+      () => me,
+      () => ({ ...emptySync(), changes: { shopping_list_items: [item('downloaded')] } }),
+    ]);
+    await connect(server);
+    expect(remoteChangesForTests()).toEqual({});
+
+    const list = createShoppingList('Groceries');
+    addShoppingItem(list, { name: 'Bread' });
+    // The server echoes what we pushed alongside a peer's edit.
+    server.handlers.push((call) => ({
+      ...emptySync(),
+      changes: { shopping_list_items: [...call.body.changes.shopping_list_items, item('theirs')] },
+    }));
+    await syncNow();
+    expect(Object.keys(remoteChangesForTests())).toEqual(['theirs']);
+
+    await jest.advanceTimersByTimeAsync(3_600);
+    expect(remoteChangesForTests()).toEqual({});
   });
 
   it('pushes quickly while someone else has the same screen open', async () => {

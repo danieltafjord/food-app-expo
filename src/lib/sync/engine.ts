@@ -13,6 +13,7 @@ import { whenHydrated } from '@/lib/store/persistence';
 import { isTrackingSuspended } from '@/lib/store/tracking';
 
 import { getSyncRequest, type SyncRequest } from './auth-bridge';
+import { noteRemoteChanges } from './remote-changes';
 import { markSyncError, markSynced, markSyncing, setPendingCount, setRejectedCount } from './status';
 
 /**
@@ -563,7 +564,7 @@ async function runCycle(request: SyncRequest, generation: number): Promise<void>
       });
       if (!isCurrent()) return; // a previous session must never touch the current store
 
-      received += applyResponse(snapshot, response).received;
+      received += applyResponse(snapshot, response, !firstSync).received;
       while (response.next_page) {
         response = await timed<SyncResponse>(request, '/sync', {
           method: 'POST',
@@ -577,7 +578,7 @@ async function runCycle(request: SyncRequest, generation: number): Promise<void>
           },
         });
         if (!isCurrent()) return;
-        received += applyResponse(emptySnapshot(), response).received;
+        received += applyResponse(emptySnapshot(), response, false).received;
       }
     }
 
@@ -727,11 +728,12 @@ function emptySnapshot(): PushSnapshot {
 function applyResponse(
   snapshot: PushSnapshot,
   response: SyncResponse,
+  noteChanges: boolean,
 ): { rejected: number; received: number } {
   clearSent(snapshot);
   retainRejected(snapshot, response.rejected ?? {});
   applyRemaps(response.remaps ?? {});
-  const received = applyRemote(response.changes ?? {});
+  const received = applyRemote(response.changes ?? {}, noteChanges);
   // Only write when something moved: every store write is a persist to disk,
   // and an idle poll that brings back nothing must not cost one. A paged first
   // sync keeps its cursor unset until the last page is in, so a sync cut off
@@ -865,9 +867,17 @@ function refreshSnapshot(snapshot: PushSnapshot): void {
   Object.assign(snapshot, fresh);
 }
 
-/** Fold pulled rows into the store; returns how many rows the server sent. */
-function applyRemote(changes: Record<string, ServerRow[]>): number {
+/** Collections whose remote edits screens briefly highlight (see `remote-changes`). */
+const NOTED = new Set<string>(['shoppingListItems', 'planEntries']);
+
+/**
+ * Fold pulled rows into the store; returns how many rows the server sent.
+ * With `noteChanges`, rows another device added or changed are reported for
+ * highlighting (not on a first download, where everything is new).
+ */
+function applyRemote(changes: Record<string, ServerRow[]>, noteChanges = false): number {
   let received = 0;
+  const changed: string[] = [];
   const deletedLists: string[] = [];
   const deletedItems: string[] = [];
   applyingRemote = true;
@@ -918,6 +928,7 @@ function applyRemote(changes: Record<string, ServerRow[]>): number {
           // re-persisting the row and re-rendering everything showing it.
           if (existing && sameRow(existing, local)) continue;
           node(collection)[uuid].set(local);
+          if (noteChanges && NOTED.has(collection)) changed.push(uuid);
         }
         // Mirror the local cascade so no orphaned children linger: one pass per
         // child table for all of this pull's deleted parents, before the child
@@ -940,6 +951,7 @@ function applyRemote(changes: Record<string, ServerRow[]>): number {
   // Items kept for archived lists are not in the store: forget deleted ones.
   if (deletedLists.length > 0) archive().drop(deletedLists);
   if (deletedItems.length > 0) archive().forgetItems(deletedItems);
+  noteRemoteChanges(changed);
   return received;
 }
 

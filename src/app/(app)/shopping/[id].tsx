@@ -19,6 +19,7 @@ import { EmptyState } from '@/components/empty-state';
 import { Fab } from '@/components/fab';
 import { HeaderMenu, MenuAction } from '@/components/header-menu';
 import { PresenceBar } from '@/components/presence-bar';
+import { RemoteChangeWash } from '@/components/remote-change-wash';
 import { Icon } from '@/components/icon';
 import { ProgressBar } from '@/components/progress-bar';
 import { Screen } from '@/components/screen';
@@ -357,6 +358,8 @@ function ShoppingRow({ itemId, first, compact, onEdit, onRemove }: ShoppingRowPr
             { backgroundColor: pressed ? theme.backgroundSelected : theme.backgroundElement },
             !first && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border },
           ]}>
+          {/* Someone else just added, ticked or edited this row. */}
+          <RemoteChangeWash id={itemId} />
           <Checkbox checked={checked} compact={compact} />
           <View style={styles.itemText}>
             <ThemedText
