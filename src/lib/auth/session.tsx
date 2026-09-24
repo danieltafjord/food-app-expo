@@ -136,8 +136,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     return () => {
       active = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    // `controller` never changes (created once in state): this runs once. Listing
+    // it instead of silencing the rule keeps the React Compiler optimizing this
+    // provider, so its context value stays the same object across navigations
+    // (`usePathname` re-renders it on each one) and consumers don't re-render.
+  }, [controller]);
 
   useEffect(() => {
     if (!isAuthenticated || !needsSetup) return;

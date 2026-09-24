@@ -1,17 +1,16 @@
 import { useDinnerCategoryLabel } from '@/lib/store/dinner-categories';
 /*
  * Drag coordination uses Reanimated shared values created in WeekBoard and passed down
- * so sections and dinner cards share one drag state. They are stable mutable refs, so
- * mutating `.value` across components is intended — but the React Compiler's immutability
- * rule reads them as "props" and flags the writes. Disable it for this file; the compiler
- * correctly skips optimizing these components.
+ * so sections and dinner cards share one drag state. They are stable mutable refs, read
+ * and written with `.get()` / `.set()`: assigning `.value` on a shared value received as
+ * a prop is what the React Compiler rejects, and it would skip optimizing the board and
+ * every card (rebuilding each card's gestures on every render).
  *
  * Worklets only ever capture serializable values (primitives, shared values, and the single
  * ScrollView animated ref). Day positions come from `onLayout` into a shared number array
  * (NOT an array of animated refs — those can't be sent to the UI runtime), and only ids /
  * date strings cross back via runOnJS.
  */
-/* eslint-disable react-hooks/immutability */
 import { SymbolView } from 'expo-symbols';
 import { memo, useMemo } from 'react';
 import {
@@ -86,8 +85,8 @@ function dayIndexAt(
   if (viewport === null) {
     return fallback;
   }
-  const contentY = absoluteY - viewport.pageY + scrollOffset.value;
-  const ls = layouts.value;
+  const contentY = absoluteY - viewport.pageY + scrollOffset.get();
+  const ls = layouts.get();
   for (let i = 0; i < ls.length; i += 1) {
     const l = ls[i];
     if (l !== undefined && contentY >= l[0] && contentY <= l[0] + l[1]) {
@@ -117,9 +116,13 @@ type WeekBoardProps = {
  * auto-scrolls when you drag near an edge); a quick tap opens the editor.
  * Swipe left for the next week or right for the previous week.
  */
+// A constant, not an expression in the parameter list: the React Compiler can't
+// reorder a computed default and would skip the whole component.
+const DEFAULT_BOTTOM_INSET = BottomTabInset + Spacing.three;
+
 export function WeekBoard({
   days, entriesByDate, onMove, onAdd, onEdit, weekSwipeGesture,
-  bottomContentInset = BottomTabInset + Spacing.three,
+  bottomContentInset = DEFAULT_BOTTOM_INSET,
 }: WeekBoardProps) {
   const scrollRef = useAnimatedRef<Animated.ScrollView>();
   const scrollOffset = useScrollViewOffset(scrollRef);
@@ -147,7 +150,7 @@ export function WeekBoard({
   // Also keep the hovered-day highlight current as new days scroll into view.
   const frame = useFrameCallback(() => {
     'worklet';
-    if (!dragging.value) {
+    if (!dragging.get()) {
       return;
     }
     const viewport = measure(scrollRef);
@@ -157,15 +160,15 @@ export function WeekBoard({
     const top = viewport.pageY;
     const bottom = viewport.pageY + viewport.height;
     let delta = 0;
-    if (pointerY.value < top + EDGE) {
-      delta = -MAX_SCROLL_SPEED * Math.min(1, (top + EDGE - pointerY.value) / EDGE);
-    } else if (pointerY.value > bottom - EDGE) {
-      delta = MAX_SCROLL_SPEED * Math.min(1, (pointerY.value - (bottom - EDGE)) / EDGE);
+    if (pointerY.get() < top + EDGE) {
+      delta = -MAX_SCROLL_SPEED * Math.min(1, (top + EDGE - pointerY.get()) / EDGE);
+    } else if (pointerY.get() > bottom - EDGE) {
+      delta = MAX_SCROLL_SPEED * Math.min(1, (pointerY.get() - (bottom - EDGE)) / EDGE);
     }
     if (delta !== 0) {
-      scrollTo(scrollRef, 0, scrollOffset.value + delta, false);
+      scrollTo(scrollRef, 0, scrollOffset.get() + delta, false);
     }
-    hoverIndex.value = dayIndexAt(pointerY.value, scrollRef, scrollOffset, layouts, -1);
+    hoverIndex.set(dayIndexAt(pointerY.get(), scrollRef, scrollOffset, layouts, -1));
   }, false);
 
   // Only run the per-frame auto-scroll/hover loop while a card is actually being
@@ -173,7 +176,7 @@ export function WeekBoard({
   // UI runtime ~60×/sec for the board's whole lifetime just to early-return.
   const setFrameActive = (active: boolean) => frame.setActive(active);
   useAnimatedReaction(
-    () => dragging.value,
+    () => dragging.get(),
     (isDragging, wasDragging) => {
       if (isDragging !== wasDragging) {
         runOnJS(setFrameActive)(isDragging);
@@ -269,15 +272,15 @@ function DaySection({
 
   // Lift the source day above its neighbours so the dragged card floats over them.
   const sectionStyle = useAnimatedStyle(() => ({
-    zIndex: activeSourceIndex.value === index ? 100 : 1,
+    zIndex: activeSourceIndex.get() === index ? 100 : 1,
   }));
 
   // Highlight a day while a card from another day hovers over it.
   const dropStyle = useAnimatedStyle(() => ({
     borderColor:
-      activeSourceIndex.value !== -1 &&
-      hoverIndex.value === index &&
-      activeSourceIndex.value !== index
+      activeSourceIndex.get() !== -1 &&
+      hoverIndex.get() === index &&
+      activeSourceIndex.get() !== index
         ? theme.tint
         : 'transparent',
   }));
@@ -357,12 +360,11 @@ type DraggableDinnerCardProps = {
 };
 
 /**
- * Memoised by hand: the React Compiler skips this component (it writes to
- * shared values it receives as props), so without `memo` every render of the
- * board — a pull-to-refresh toggle, a plan change on another week — rebuilt
- * every card's gestures and pushed new handlers to the native side. Its props
- * are all referentially stable between real changes (shared values, callbacks,
- * and the entry object from the cached plan selector).
+ * Memoised by hand as well as by the compiler: every render of the board — a
+ * pull-to-refresh toggle, a plan change on another week — would otherwise
+ * rebuild every card's gestures and push new handlers to the native side. Its
+ * props are all referentially stable between real changes (shared values,
+ * callbacks, and the entry object from the cached plan selector).
  */
 const DraggableDinnerCard = memo(function DraggableDinnerCard({
   entry,
@@ -405,36 +407,36 @@ const DraggableDinnerCard = memo(function DraggableDinnerCard({
     'worklet';
     // A moved card is about to unmount into the target day — leave it where it
     // was dropped. Animating panY/lift back home is the visible "jump home".
-    if (!moved.value) {
-      panY.value = withTiming(0, { duration: 160 });
-      lift.value = withTiming(0, { duration: 160 });
+    if (!moved.get()) {
+      panY.set(withTiming(0, { duration: 160 }));
+      lift.set(withTiming(0, { duration: 160 }));
     }
-    dragging.value = false;
-    activeId.value = null;
-    activeSourceIndex.value = -1;
-    hoverIndex.value = -1;
+    dragging.set(false);
+    activeId.set(null);
+    activeSourceIndex.set(-1);
+    hoverIndex.set(-1);
   }
 
   const pan = Gesture.Pan()
     .activateAfterLongPress(200)
     .onStart((event) => {
-      activeId.value = entryId;
-      activeSourceIndex.value = sourceIndex;
-      startScrollOffset.value = scrollOffset.value;
-      pointerY.value = event.absoluteY;
-      dragging.value = true;
-      lift.value = withTiming(1, { duration: 120 });
+      activeId.set(entryId);
+      activeSourceIndex.set(sourceIndex);
+      startScrollOffset.set(scrollOffset.get());
+      pointerY.set(event.absoluteY);
+      dragging.set(true);
+      lift.set(withTiming(1, { duration: 120 }));
       runOnJS(hapticLift)();
     })
     .onUpdate((event) => {
-      panY.value = event.translationY;
-      pointerY.value = event.absoluteY;
-      hoverIndex.value = dayIndexAt(event.absoluteY, scrollRef, scrollOffset, layouts, sourceIndex);
+      panY.set(event.translationY);
+      pointerY.set(event.absoluteY);
+      hoverIndex.set(dayIndexAt(event.absoluteY, scrollRef, scrollOffset, layouts, sourceIndex));
     })
     .onEnd((event) => {
       const target = dayIndexAt(event.absoluteY, scrollRef, scrollOffset, layouts, sourceIndex);
       if (target !== sourceIndex) {
-        moved.value = true;
+        moved.set(true);
         runOnJS(onMove)(entryId, dayDates[target]);
         runOnJS(hapticDrop)();
       }
@@ -456,17 +458,17 @@ const DraggableDinnerCard = memo(function DraggableDinnerCard({
     // to unmount. Both keep the drag offset applied so the card never snaps back
     // to its source slot — it stays under the finger, then at the drop point until
     // the re-render places it on the target day.
-    const dragLike = activeId.value === entryId || moved.value;
+    const dragLike = activeId.get() === entryId || moved.get();
     // While dragging, add the scroll delta since drag start so the card stays
     // under the finger even as the list auto-scrolls.
-    const scrollComp = dragLike ? scrollOffset.value - startScrollOffset.value : 0;
+    const scrollComp = dragLike ? scrollOffset.get() - startScrollOffset.get() : 0;
     return {
       transform: [
-        { translateY: (dragLike ? panY.value : 0) + scrollComp },
-        { scale: 1 + lift.value * 0.03 },
+        { translateY: (dragLike ? panY.get() : 0) + scrollComp },
+        { scale: 1 + lift.get() * 0.03 },
       ],
       zIndex: dragLike ? 1000 : 1,
-      shadowOpacity: 0.05 + lift.value * 0.07,
+      shadowOpacity: 0.05 + lift.get() * 0.07,
     };
   });
 

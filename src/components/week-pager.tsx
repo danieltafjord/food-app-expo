@@ -1,5 +1,4 @@
-/* Shared values intentionally coordinate the pager and its three pages. */
-/* eslint-disable react-hooks/immutability */
+/* Shared values coordinate the pager and its three pages (via `.get()` / `.set()`). */
 import {
   useCallback,
   useImperativeHandle,
@@ -60,19 +59,19 @@ export function WeekPager({ ref, weekKey, onChangeWeek, ...boardProps }: WeekPag
 
   const settle = useCallback((direction: -1 | 0 | 1) => {
     'worklet';
-    if (settling.value || width.value <= 0) return;
-    settling.value = true;
-    offset.value = withTiming(-direction * width.value, {
+    if (settling.get() || width.get() <= 0) return;
+    settling.set(true);
+    offset.set(withTiming(-direction * width.get(), {
       duration: direction === 0 ? 180 : 260,
       easing: Easing.out(Easing.cubic),
     }, (finished) => {
       if (!finished) return;
       if (direction === 0) {
-        settling.value = false;
+        settling.set(false);
       } else {
         scheduleOnRN(commitWeek, weekKey, direction);
       }
-    });
+    }));
   }, [commitWeek, offset, settling, weekKey, width]);
 
   useImperativeHandle(ref, () => ({
@@ -86,9 +85,9 @@ export function WeekPager({ ref, weekKey, onChangeWeek, ...boardProps }: WeekPag
       cancelAnimation(offset);
       // Pages use absolute week indices, so the arriving page stays in exactly
       // the same position while React replaces the farthest neighboring week.
-      origin.value = index;
-      offset.value = 0;
-      settling.value = false;
+      origin.set(index);
+      offset.set(0);
+      settling.set(false);
     }, weekIndex(weekKey));
     return () => {
       scheduleOnUI(() => {
@@ -103,35 +102,35 @@ export function WeekPager({ ref, weekKey, onChangeWeek, ...boardProps }: WeekPag
     .activeOffsetX([-20, 20])
     .failOffsetY([-12, 12])
     .onTouchesDown((_event, manager) => {
-      if (settling.value || width.value <= 0) manager.fail();
+      if (settling.get() || width.get() <= 0) manager.fail();
     })
     .onBegin((event) => {
-      startX.value = event.absoluteX;
-      startY.value = event.absoluteY;
+      startX.set(event.absoluteX);
+      startY.set(event.absoluteY);
     })
     .onUpdate((event) => {
-      if (settling.value) return;
-      offset.value = Math.max(-width.value, Math.min(width.value, event.absoluteX - startX.value));
+      if (settling.get()) return;
+      offset.set(Math.max(-width.get(), Math.min(width.get(), event.absoluteX - startX.get())));
     })
     // These callbacks only run after render; settle's RN callback reads currentWeek.
     // eslint-disable-next-line react-hooks/refs
     .onEnd((event, success) => {
       if (!success) return;
-      const dx = event.absoluteX - startX.value;
-      const dy = event.absoluteY - startY.value;
+      const dx = event.absoluteX - startX.get();
+      const dy = event.absoluteY - startY.get();
       const distance = Math.abs(dx);
       const flick = distance >= 24 && Math.abs(event.velocityX) >= 600 && dx * event.velocityX > 0;
       const advance = distance > Math.abs(dy) * 1.5
-        && (distance >= Math.min(90, width.value * 0.2) || flick);
+        && (distance >= Math.min(90, width.get() * 0.2) || flick);
       settle(advance ? (dx < 0 ? 1 : -1) : 0);
     })
     // eslint-disable-next-line react-hooks/refs
     .onFinalize((_event, success) => {
-      if (!success && offset.value !== 0) settle(0);
+      if (!success && offset.get() !== 0) settle(0);
     }), [offset, settle, settling, startX, startY, width]);
 
   function onLayout(event: LayoutChangeEvent) {
-    width.value = event.nativeEvent.layout.width;
+    width.set(event.nativeEvent.layout.width);
   }
 
   const weeks = [-1, 0, 1].map((direction) => toDateKey(addWeeks(fromDateKey(weekKey), direction)));
@@ -174,13 +173,17 @@ function WeekPage({
   const hidden = useHiddenIds();
   const index = weekIndex(weekKey);
   const pageStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: (index - origin.value) * width.value + offset.value }],
-    pointerEvents: active && !settling.value ? 'auto' : 'none',
+    transform: [{ translateX: (index - origin.get()) * width.get() + offset.get() }],
+    pointerEvents: active && !settling.get() ? 'auto' : 'none',
   }));
   const entriesByDate: Record<string, PlanEntryWithDinner[]> = {};
   for (const entry of entries) {
     if (hidden[entry.dinner_id]) continue;
-    (entriesByDate[dateKeyOf(entry.scheduled_date)] ??= []).push(entry);
+    // Not `??=`: the React Compiler can't lower it and would skip this component.
+    const date = dateKeyOf(entry.scheduled_date);
+    const bucket = entriesByDate[date];
+    if (bucket) bucket.push(entry);
+    else entriesByDate[date] = [entry];
   }
 
   return (

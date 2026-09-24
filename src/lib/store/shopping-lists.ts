@@ -8,13 +8,14 @@ import {
   type CategoryId,
 } from '@/lib/categorize';
 import { translate } from '@/lib/i18n';
+import { nameCollator } from '@/lib/intl';
 
 import { planIdsForWeekOf } from './plans';
 import { store$ } from './collections';
 import { derived, derivedById } from './derived';
 import { getLocale } from './settings';
 import { getLocalHouseholdId } from './household';
-import { compareIso, newId, nowIso } from './ids';
+import { compareIds, compareIso, newId, nowIso } from './ids';
 import { createIngredient, setIngredientCategory } from './ingredients';
 import type {
   LocalIngredient,
@@ -61,30 +62,57 @@ function lookupIngredient(
   return item.ingredient_id ? ingredients[item.ingredient_id] : undefined;
 }
 
-export type ShoppingListSummary = LocalShoppingList & {
-  item_count: number;
-  checked_count: number;
-};
+const NO_LIST_ITEMS: LocalShoppingListItem[] = [];
 
-/** All shopping lists, newest first, with item/checked counts. */
-const shoppingLists$ = derived((): ShoppingListSummary[] => {
-  const counts = new Map<string, { item_count: number; checked_count: number }>();
+/**
+ * Every list's items keyed by list id — one pass over the items table per
+ * change (which is every tick), shared by every per-list reader, instead of
+ * each of them scanning every item the household ever put on a list.
+ */
+const itemsByList$ = derived((): Record<string, LocalShoppingListItem[]> => {
+  const byList: Record<string, LocalShoppingListItem[]> = {};
   for (const it of Object.values(store$.shoppingListItems.get())) {
-    let c = counts.get(it.shopping_list_id);
-    if (!c) {
-      c = { item_count: 0, checked_count: 0 };
-      counts.set(it.shopping_list_id, c);
-    }
-    c.item_count += 1;
-    if (it.is_checked) c.checked_count += 1;
+    (byList[it.shopping_list_id] ??= []).push(it);
   }
-  return Object.values(store$.shoppingLists.get())
-    .map((list) => ({ ...list, ...(counts.get(list.id) ?? { item_count: 0, checked_count: 0 }) }))
-    .sort((a, b) => compareIso(b.created_at, a.created_at));
+  return byList;
 });
 
-export function useShoppingLists(): ShoppingListSummary[] {
-  return useValue(shoppingLists$);
+/** A list's raw items (tracked: re-runs a selector when any list item changes). */
+export function shoppingItemsOf(listId: string): LocalShoppingListItem[] {
+  return itemsByList$.get()[listId] ?? NO_LIST_ITEMS;
+}
+
+let listIdsCache: { key: string; ids: string[] } | undefined;
+
+/**
+ * Every list's id, newest first — the same array until a list is added,
+ * removed or reordered. Rows subscribe to their own name and counts, so
+ * ticking an item re-renders that list's row, not every list the household
+ * ever made (the lists screen stays mounted under an open list).
+ */
+const shoppingListIds$ = derived((): string[] => {
+  const ids = Object.values(store$.shoppingLists.get())
+    .sort((a, b) => compareIso(b.created_at, a.created_at))
+    .map((list) => list.id);
+  const key = ids.join(',');
+  if (listIdsCache?.key === key) return listIdsCache.ids;
+  listIdsCache = { key, ids };
+  return ids;
+});
+
+export function useShoppingListIds(): string[] {
+  return useValue(shoppingListIds$);
+}
+
+/** A list's item and checked counts, as plain numbers so equal counts don't re-render. */
+export function useShoppingListCounts(listId: string): { itemCount: number; checkedCount: number } {
+  const itemCount = useValue(() => shoppingItemsOf(listId).length);
+  const checkedCount = useValue(() => {
+    let checked = 0;
+    for (const item of shoppingItemsOf(listId)) if (item.is_checked) checked += 1;
+    return checked;
+  });
+  return { itemCount, checkedCount };
 }
 
 /**
@@ -98,7 +126,7 @@ export function useShoppingListForPlan(planId: string | undefined): LocalShoppin
     let newest: LocalShoppingList | undefined;
     for (const list of Object.values(store$.shoppingLists.get())) {
       if (!list.dinner_plan_id || !planIds.has(list.dinner_plan_id)) continue;
-      if (!newest || (compareIso(list.created_at, newest.created_at) || list.id.localeCompare(newest.id)) > 0) newest = list;
+      if (!newest || (compareIso(list.created_at, newest.created_at) || compareIds(list.id, newest.id)) > 0) newest = list;
     }
     return newest;
   });
@@ -114,8 +142,7 @@ export function useShoppingList(id: string): LocalShoppingList | undefined {
  */
 const listItemsFor = derivedById((listId): ShoppingListItemWithIngredient[] => {
   const ingredients = store$.ingredients.get();
-  return Object.values(store$.shoppingListItems.get())
-    .filter((it) => it.shopping_list_id === listId)
+  return shoppingItemsOf(listId)
     .map((it) => toItemWithIngredient(it, lookupIngredient(ingredients, it)))
     .sort(
       (a, b) =>
@@ -181,8 +208,7 @@ const sectionsFor = derivedById((listId): ShoppingListSections => {
   const checkedItems: LocalShoppingListItem[] = [];
   let total = 0;
   let checked = 0;
-  for (const it of Object.values(store$.shoppingListItems.get())) {
-    if (it.shopping_list_id !== listId) continue;
+  for (const it of shoppingItemsOf(listId)) {
     total += 1;
     if (it.is_checked) {
       checked += 1;
@@ -278,8 +304,9 @@ export function buildShoppingSuggestions(): ShoppingSuggestion[] {
     }
   }
 
+  const { compare } = nameCollator(getLocale());
   return Array.from(byName.values()).sort(
-    (a, b) => b.usage_count - a.usage_count || a.name.localeCompare(b.name),
+    (a, b) => b.usage_count - a.usage_count || compare(a.name, b.name),
   );
 }
 

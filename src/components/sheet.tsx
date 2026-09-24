@@ -1,10 +1,20 @@
+import { isLiquidGlassAvailable } from 'expo-glass-effect';
 import type { ReactNode } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
+
+/**
+ * On iOS 26 the system draws the sheet surface (glass, turning opaque at full
+ * height) and sheets paint no background of their own. A second opaque layer
+ * over it can't be blended on the rounded corners: the lighter native surface
+ * shows through the anti-aliased edge as a thin line. Older iOS and Android
+ * give no surface, so there the sheet paints the app background itself.
+ */
+export const nativeSheetSurface = isLiquidGlassAvailable();
 
 type SheetScreenProps = {
   /**
@@ -32,21 +42,27 @@ type SheetScreenProps = {
  * the list over the title (its "ScrollView + optional header" fast path).
  */
 export function SheetScreen({ title, children, layout = 'fit' }: SheetScreenProps) {
+  const theme = useTheme();
   const insets = useSafeAreaInsets();
   // The system already keeps the sheet clear of the home indicator; only pad
   // when there is no indicator at all (older devices, Android).
   const bottom = insets.bottom > 0 ? Spacing.two : Spacing.four;
   return (
-    <ThemedView
+    <View
       collapsable={false}
-      style={[styles.body, layout === 'fill' && styles.fill, { paddingBottom: bottom }]}>
+      style={[
+        styles.body,
+        layout === 'fill' && styles.fill,
+        { paddingBottom: bottom },
+        !nativeSheetSurface && { backgroundColor: theme.background },
+      ]}>
       {title ? (
         <ThemedText type="subtitle" numberOfLines={1} style={styles.title}>
           {title}
         </ThemedText>
       ) : null}
       <View style={[styles.content, layout === 'fill' && styles.fill]}>{children}</View>
-    </ThemedView>
+    </View>
   );
 }
 

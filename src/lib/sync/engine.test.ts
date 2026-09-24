@@ -389,6 +389,58 @@ describe('push / pull', () => {
     expect(hasPending()).toBe(false);
   });
 
+  it('recognises its own echo despite microsecond timestamps and leaves the row untouched', async () => {
+    ensureChangeTracking();
+    const server = fakeServer();
+    await connect(server);
+    const dinner = createDinner({ name: 'Soup' });
+    const before = store$.dinners[dinner].peek();
+
+    const micro = (value: unknown) => String(value).replace(/\.(\d{3})Z$/, '.$1000Z');
+    server.handlers.push((call) => {
+      const pushed = call.body.changes.dinners[0];
+      return {
+        ...emptySync(),
+        changes: { dinners: [{ ...pushed, created_at: micro(pushed.created_at), updated_at: micro(pushed.updated_at), deleted_at: null, erasure_version: 0 }] },
+      };
+    });
+    await syncNow();
+
+    expect(store$.dinners[dinner].peek()).toBe(before);
+    expect(hasPending()).toBe(false);
+
+    // A newer server copy still lands.
+    server.handlers.push(() => ({
+      ...emptySync(),
+      changes: { dinners: [{ ...before, name: 'Soup of the day', updated_at: '2999-01-01T00:00:00.000000Z', deleted_at: null, erasure_version: 0 }] },
+    }));
+    await syncNow();
+    expect(store$.dinners[dinner].name.get()).toBe('Soup of the day');
+  });
+
+  it('cascades several remote parent deletions from one pull', async () => {
+    ensureChangeTracking();
+    const server = fakeServer();
+    await connect(server);
+    const ingredient = createIngredient({ name: 'Beef' });
+    const first = createDinner({ name: 'Bolognese' });
+    const second = createDinner({ name: 'Chili' });
+    const kept = createDinner({ name: 'Tacos' });
+    for (const dinner of [first, second, kept]) {
+      setDinnerItems(dinner, [{ ingredient_id: ingredient, quantity: 1, unit: 'g' }]);
+    }
+    await syncNow();
+
+    server.handlers.push(() => ({
+      ...emptySync(),
+      changes: { dinners: [first, second].map((id) => ({ id, deleted_at: '2026-01-01T00:00:00.000Z', updated_at: 'x' })) },
+    }));
+    await syncNow();
+
+    expect(Object.values(store$.dinnerItems.get()).map((item) => item.dinner_id)).toEqual([kept]);
+    expect(hasPending()).toBe(false);
+  });
+
   it('rewrites references for merged ingredients and drops the duplicate', async () => {
     ensureChangeTracking();
     const server = fakeServer();

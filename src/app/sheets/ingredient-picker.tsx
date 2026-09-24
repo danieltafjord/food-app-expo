@@ -195,7 +195,7 @@ export default function IngredientPickerSheet() {
                 }}
                 style={({ pressed }) => [
                   styles.row,
-                  { backgroundColor: theme.background, borderBottomColor: theme.border },
+                  { borderBottomColor: theme.border },
                   pressed && styles.pressed,
                 ]}>
                 <ThemedText style={styles.flex} numberOfLines={1}>

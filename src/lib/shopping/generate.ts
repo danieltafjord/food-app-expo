@@ -16,12 +16,14 @@ import { batch } from '@legendapp/state';
 import { useValue } from '@legendapp/state/react';
 
 import { translate } from '@/lib/i18n';
-import { uniqueDinnerItems } from '@/lib/store/dinners';
+import { derivedById } from '@/lib/store/derived';
+import { dinnerItemsOf } from '@/lib/store/dinners';
 import { planIdsForWeekOf } from '@/lib/store/plans';
 import { store$ } from '@/lib/store/collections';
 import { getLocalHouseholdId } from '@/lib/store/household';
-import { newId, nowIso } from '@/lib/store/ids';
+import { compareIds, newId, nowIso } from '@/lib/store/ids';
 import type { LocalShoppingListItem } from '@/lib/store/schema';
+import { shoppingItemsOf } from '@/lib/store/shopping-lists';
 import { getLocale } from '@/lib/store/settings';
 
 export type AggregatedItem = {
@@ -48,16 +50,14 @@ export function aggregatePlanItems(planId: string): AggregatedItem[] {
   const entries = Object.values(store$.planEntries.get()).filter(
     (e) => planIds.has(e.dinner_plan_id),
   );
-  const dinners = store$.dinners.get();
-  const allItems = uniqueDinnerItems(Object.values(store$.dinnerItems.get()));
   const bucket = new Map<string, AggregatedItem>();
 
   for (const entry of entries) {
-    const dinner = dinners[entry.dinner_id];
-    if (!dinner) continue;
-    const factor =
-      dinner.default_servings > 0 ? entry.servings / dinner.default_servings : 1.0;
-    for (const item of allItems.filter((i) => i.dinner_id === dinner.id)) {
+    // Only the servings: renaming or annotating a dinner changes nothing here.
+    const defaultServings = store$.dinners[entry.dinner_id].default_servings.get();
+    if (defaultServings === undefined) continue;
+    const factor = defaultServings > 0 ? entry.servings / defaultServings : 1.0;
+    for (const item of dinnerItemsOf(entry.dinner_id)) {
       const unit = normalizeUnit(item.unit);
       const key = `${item.ingredient_id}|${unit ?? ''}`;
       const scaled = item.quantity != null ? item.quantity * factor : null;
@@ -153,8 +153,8 @@ type PlanDiff = UpdateFromPlanResult & {
 /** Bought quantities and manual additions count toward the plan and are never rewritten. */
 function diffPlan(listId: string, planId: string): PlanDiff {
   const existing = new Map<string, LocalShoppingListItem[]>();
-  for (const item of Object.values(store$.shoppingListItems.get())) {
-    if (item.shopping_list_id !== listId || !item.ingredient_id) continue;
+  for (const item of shoppingItemsOf(listId)) {
+    if (!item.ingredient_id) continue;
     const key = `${item.ingredient_id}|${normalizeUnit(item.unit) ?? ''}`;
     existing.set(key, [...(existing.get(key) ?? []), item]);
   }
@@ -164,7 +164,7 @@ function diffPlan(listId: string, planId: string): PlanDiff {
     const matches = existing.get(key) ?? [];
     existing.delete(key);
     const reserved = matches.filter((item) => item.is_checked || !item.is_generated);
-    const generated = matches.filter((item) => !item.is_checked && item.is_generated).sort((a, b) => a.id.localeCompare(b.id));
+    const generated = matches.filter((item) => !item.is_checked && item.is_generated).sort((a, b) => compareIds(a.id, b.id));
     const covered = reserved.reduce((sum, item) => sum + (item.quantity ?? 0), 0);
     const quantity = row.quantity == null ? (reserved.length ? 0 : null) : Math.max(0, Math.round((row.quantity - covered) * 100) / 100);
     if (quantity === 0) {
@@ -200,12 +200,28 @@ export function usePlanListDrift(
   listId: string,
   planId: string | null | undefined,
 ): UpdateFromPlanResult {
-  return useValue(() => {
-    if (!planId) return NO_CHANGES;
-    const { added, updated, removed } = diffPlan(listId, planId);
-    return added === 0 && updated === 0 && removed === 0 ? NO_CHANGES : { added, updated, removed };
-  });
+  return useValue(() => (planId ? driftFor(`${listId}|${planId}`).get() : NO_CHANGES));
 }
+
+const driftCache = new Map<string, UpdateFromPlanResult>();
+
+/**
+ * The drift as a computed per list and plan: the list screen re-renders on
+ * every tick, and the diff re-joins the week's recipes. The same counts keep
+ * the same object, so a tick that changes nothing here re-renders nothing.
+ */
+const driftFor = derivedById((listAndPlan): UpdateFromPlanResult => {
+  const [listId, planId] = listAndPlan.split('|');
+  const { added, updated, removed } = diffPlan(listId, planId);
+  if (added === 0 && updated === 0 && removed === 0) return NO_CHANGES;
+  const previous = driftCache.get(listAndPlan);
+  if (previous && previous.added === added && previous.updated === updated && previous.removed === removed) {
+    return previous;
+  }
+  const drift = { added, updated, removed };
+  driftCache.set(listAndPlan, drift);
+  return drift;
+});
 
 /**
  * Bring an existing list in line with a plan's current dinners, instead of

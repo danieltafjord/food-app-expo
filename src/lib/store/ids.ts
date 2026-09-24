@@ -27,3 +27,11 @@ export function compareIso(a: string | null | undefined, b: string | null | unde
   const y = b == null ? '' : String(b);
   return x < y ? -1 : x > y ? 1 : 0;
 }
+
+/**
+ * Ascending comparison of two ids in code-unit order. Ids are lowercase UUIDs,
+ * so this matches `localeCompare`, which on Hermes builds a collator per call.
+ */
+export function compareIds(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}

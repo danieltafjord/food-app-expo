@@ -53,6 +53,10 @@ type Row = WeekRow | MonthRow;
  * and tapping any week jumps the board to it. Presented as a root modal (above
  * the tab bar) from the Plans tab's week label.
  */
+function weekDayKeys(monday: Date): string[] {
+  return Array.from({ length: 7 }, (_, i) => toDateKey(addDays(monday, i)));
+}
+
 export default function WeeksScreen() {
   const t = useT();
   const theme = useTheme();
@@ -66,14 +70,14 @@ export default function WeeksScreen() {
 
   // Range = today's window, widened to include any planned week and the week
   // being viewed, then clamped so a stray far-off plan can't explode the list.
+  // A loop, not a closure reassigning min/max: the React Compiler can't lower
+  // that and would skip this screen.
   let min = addWeeks(todayWeek, -WINDOW_BEFORE);
   let max = addWeeks(todayWeek, WINDOW_AFTER);
-  const widen = (d: Date) => {
+  for (const d of [...Object.keys(fill).map(fromDateKey), selectedWeek]) {
     if (d < min) min = d;
     if (d > max) max = d;
-  };
-  for (const key of Object.keys(fill)) widen(fromDateKey(key));
-  widen(selectedWeek);
+  }
   const hardMin = addWeeks(todayWeek, -MAX_BEFORE);
   const hardMax = addWeeks(todayWeek, MAX_AFTER);
   if (min < hardMin) min = hardMin;
@@ -101,7 +105,7 @@ export default function WeeksScreen() {
       kind: 'week',
       key,
       label: weekLabel(d, locale),
-      dayKeys: Array.from({ length: 7 }, (_, i) => toDateKey(addDays(d, i))),
+      dayKeys: weekDayKeys(d),
       isCurrent: key === todayKey,
       isSelected: key === selectedKey,
     });

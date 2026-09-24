@@ -6,6 +6,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { AiClassificationWorker } from '@/components/ai-classification-worker';
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
+import { nativeSheetSurface } from '@/components/sheet';
 import { DinnerImageUploader } from '@/components/dinner-image-uploader';
 import { SchemeContext, useResolvedSchemeSource } from '@/hooks/use-theme';
 import { Colors } from '@/constants/theme';
@@ -81,6 +82,9 @@ const formSheet: ScreenOptions = {
   sheetAllowedDetents: 'fitToContents',
   sheetGrabberVisible: true,
   sheetCornerRadius: 24,
+  // The navigator otherwise paints the screen background under the sheet —
+  // see `nativeSheetSurface`.
+  ...(nativeSheetSurface ? { contentStyle: { backgroundColor: 'transparent' } } : null),
 };
 
 /** A sheet with a scrolling list: opens at 60%, pulls up to full height. */

@@ -27,9 +27,11 @@ export function DinnerImageUploader() {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
     async function tick() {
+      // Stopped in the background; the AppState listener below restarts it.
+      if (AppState.currentState !== 'active') return;
       let delay: number | null = 30_000;
       try {
-        if (AppState.currentState === 'active') delay = await uploadPendingImages(requestRef.current);
+        delay = await uploadPendingImages(requestRef.current);
       } finally {
         if (!cancelled && delay != null) timer = setTimeout(() => { void tick(); }, delay);
       }

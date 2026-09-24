@@ -28,6 +28,8 @@ type AiAllowance = {
 export type AiPreferences = Pick<AiSettings, 'categorization_enabled' | 'suggestions_enabled'>;
 export const aiSettingsKey = (userId?: number, householdId?: number) => ['ai-settings', userId, householdId] as const;
 
+const AI_SETTINGS_POLL_MS = 5 * 60_000;
+
 export function useAiSettings() {
   const { user, isAuthenticated, request } = useSession();
   const query = useQuery({
@@ -36,11 +38,15 @@ export function useAiSettings() {
     enabled: isAuthenticated && !!user?.current_household,
     retry: false,
     staleTime: 30_000,
-    // Refresh opt-ins changed elsewhere and wake exhausted allowances at reset.
+    // Pick up opt-ins changed on another device when the app comes back to the
+    // front, and every few minutes while it's open; wake exhausted allowances at
+    // reset. A root component always watches this, so a tight poll would be a
+    // request a minute for every signed-in user.
+    refetchOnWindowFocus: true,
     refetchInterval: (query) => {
       const reset = Date.parse(query.state.data?.usage.resets_at ?? '');
       return Number.isFinite(reset) && reset > Date.now()
-        ? Math.min(60_000, Math.max(1000, reset - Date.now() + 1000)) : 60_000;
+        ? Math.min(AI_SETTINGS_POLL_MS, Math.max(1000, reset - Date.now() + 1000)) : AI_SETTINGS_POLL_MS;
     },
   });
   // A failed opt-out remains effective on this device until saved successfully.

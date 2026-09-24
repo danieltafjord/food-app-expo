@@ -3,7 +3,9 @@ import { createShoppingListFromPlan, updateShoppingListFromPlan } from '@/lib/sh
 import { addDays, fromDateKey, toDateKey } from '@/lib/week';
 import { mealNameKey, type SuggestedDinner } from '@/lib/week-suggestions';
 import { store$ } from './collections';
-import { createDinner, getDinner, upsertDinnerItem } from './dinners';
+import { createDinner, dinnerItemsOf, upsertDinnerItem } from './dinners';
+import { derivedById } from './derived';
+import { compareIds, compareIso } from './ids';
 import { createIngredient } from './ingredients';
 import { createPlanEntry, ensurePlanForWeek, planIdsForWeekOf } from './plans';
 import { getWeekPlanningContext } from './week-planning';
@@ -19,19 +21,35 @@ export type SuggestedWeekDraft = {
 export function getSuggestionContext(weekStart: string, today = toDateKey(new Date())) {
   const planning = getWeekPlanningContext(weekStart, today);
   const recipes: SuggestedDinner[] = [];
+  // One tracked read of each table, not one per dinner and ingredient.
+  const dinners = store$.dinners.get();
+  const ingredientRows = store$.ingredients.get();
   for (const candidate of [...planning.candidates].sort((a, b) => b.weight - a.weight)) {
-    const dinner = getDinner(candidate.id)!;
-    const ingredients = dinner.items.map((item) => ({
-      name: store$.ingredients[item.ingredient_id].name.get() ?? '', quantity: item.quantity ?? 0, unit: item.unit,
+    const dinner = dinners[candidate.id]!;
+    const ingredients = dinnerItemsOf(candidate.id).map((item) => ({
+      name: ingredientRows[item.ingredient_id]?.name ?? '', quantity: item.quantity ?? 0, unit: item.unit,
     }));
     if (!ingredients.length || ingredients.some((item) => !item.name || item.quantity <= 0)) continue;
     recipes.push({ existingId: dinner.id, name: dinner.name, category: dinner.category, notes: dinner.notes,
       baseServings: dinner.default_servings, ingredients });
   }
-  const allNames = Object.values(store$.dinners.get())
+  const allNames = Object.values(dinners)
     .filter((dinner) => dinner.household_id === store$.meta.localHouseholdId.get()).map((dinner) => dinner.name);
   return { ...planning, recipes, allNames,
     key: JSON.stringify([planning.key, store$.meta.serverHouseholdId.get(), recipes]) };
+}
+
+/**
+ * The context as a computed per week and day: the sheet re-renders on every
+ * keystroke and stepper tap, and this joins every candidate dinner's recipe.
+ */
+const suggestionContextFor = derivedById((weekAndDay) => {
+  const [weekStart, today] = weekAndDay.split('|');
+  return getSuggestionContext(weekStart, today);
+});
+
+export function suggestionContext$(weekStart: string, today = toDateKey(new Date())) {
+  return suggestionContextFor(`${weekStart}|${today}`);
 }
 
 /** Return the prepared list, or reject the complete draft without writing anything. */
@@ -68,7 +86,7 @@ export function acceptSuggestedWeek(draft: SuggestedWeekDraft, name: string, tod
     const planIds = planIdsForWeekOf(planId);
     const list = Object.values(store$.shoppingLists.get())
       .filter((row) => row.dinner_plan_id && planIds.has(row.dinner_plan_id))
-      .sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id))[0];
+      .sort((a, b) => compareIso(b.created_at, a.created_at) || compareIds(b.id, a.id))[0];
     if (list) {
       updateShoppingListFromPlan(list.id, planId);
       listId = list.id;

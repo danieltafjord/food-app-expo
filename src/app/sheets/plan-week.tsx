@@ -19,7 +19,7 @@ import { store$ } from '@/lib/store/collections';
 import { useHouseholdDefaultServings } from '@/lib/store/household';
 import { useLocale } from '@/lib/store/settings';
 import { suggestWeek } from '@/lib/store/week-planning';
-import { acceptSuggestedWeek, getSuggestionContext, type SuggestedWeekDraft } from '@/lib/store/week-suggestions';
+import { acceptSuggestedWeek, getSuggestionContext, suggestionContext$, type SuggestedWeekDraft } from '@/lib/store/week-suggestions';
 import { buildWeek, fromDateKey, startOfWeek, toDateKey, weekLabel } from '@/lib/week';
 import { mealNameKey, PLANNING_SHORTCUTS, requestWeekSuggestions, type PlanningPreferences, type SuggestedDinner } from '@/lib/week-suggestions';
 
@@ -40,7 +40,7 @@ function WeekPlanner({ weekStart }: { weekStart: string }) {
   const locale = useLocale();
   const householdServings = useHouseholdDefaultServings();
   const preferences = useValue(store$.meta.planningPreferences);
-  const context = useValue(() => getSuggestionContext(weekStart));
+  const context = useValue(suggestionContext$(weekStart));
   const defaultServings = preferences?.servings ?? householdServings;
   const [servingsByDate, setServingsByDate] = useState<Record<string, number>>({});
   const servingsFor = (date: string) => servingsByDate[date] ?? defaultServings;
@@ -94,38 +94,44 @@ function WeekPlanner({ weekStart }: { weekStart: string }) {
     activeRequest.current = request;
     setBusy(date ?? 'all');
     setError(null);
-    try {
-      const suggestions = await requestWeekSuggestions({
-        count: requestDates.length, servings, locale, preferences: preferences?.text.trim() ?? '',
-        shortcuts: preferences?.shortcuts ?? [], exclude: excludedNames,
-        available: available.filter((recipe) => !blocked.has(mealNameKey(recipe.name))).map((recipe) => ({
-          id: recipe.existingId!, name: recipe.name, category: recipe.category,
-          ingredients: recipe.ingredients.map((item) => item.name),
-        })),
-      }, live.recipes.filter((recipe) => availableIds.has(recipe.existingId)), request.signal);
-      if (request.signal.aborted) return;
-      if (getSuggestionContext(weekStart).key !== live.key) {
-        setSaveRejected(true);
-        setError(t('weekPlanning.changed'));
-        return;
-      }
-      const entries = date && draft
-        ? draft.entries.map((entry) => entry.date === date ? { ...entry, dinner: suggestions[0] } : entry)
-        : requestDates.map((value, index) => ({ date: value, dinner: suggestions[index], servings: servingsFor(value) }));
-      setDraft({ weekStart, contextKey: live.key, entries });
-      setSaveRejected(false);
-      setEditing(false);
-    } catch (cause) {
-      if (request.signal.aborted) return;
-      const code = cause instanceof ApiError ? (cause.body as { code?: string } | undefined)?.code : null;
-      setError(t(code === 'daily_limit' ? 'weekPlanning.limited' : cause instanceof ApiError && cause.status === 429
-        ? 'weekPlanning.busy' : code === 'unavailable' ? 'weekPlanning.unavailable' : 'weekPlanning.failed'));
-    } finally {
-      if (activeRequest.current === request) {
-        activeRequest.current = null;
-        if (!request.signal.aborted) setBusy(null);
-      }
-    }
+    const payload = {
+      count: requestDates.length, servings, locale, preferences: preferences?.text.trim() ?? '',
+      shortcuts: preferences?.shortcuts ?? [], exclude: excludedNames,
+      available: available.filter((recipe) => !blocked.has(mealNameKey(recipe.name))).map((recipe) => ({
+        id: recipe.existingId!, name: recipe.name, category: recipe.category,
+        ingredients: recipe.ingredients.map((item) => item.name),
+      })),
+    };
+    // Promise callbacks rather than try/catch/finally: the React Compiler can't
+    // lower those here and would skip this whole sheet. `.catch` after `.then`
+    // still covers a failure while applying the result.
+    await requestWeekSuggestions(payload, live.recipes.filter((recipe) => availableIds.has(recipe.existingId)), request.signal)
+      .then((suggestions) => {
+        if (request.signal.aborted) return;
+        if (getSuggestionContext(weekStart).key !== live.key) {
+          setSaveRejected(true);
+          setError(t('weekPlanning.changed'));
+          return;
+        }
+        const entries = date && draft
+          ? draft.entries.map((entry) => entry.date === date ? { ...entry, dinner: suggestions[0] } : entry)
+          : requestDates.map((value, index) => ({ date: value, dinner: suggestions[index], servings: servingsFor(value) }));
+        setDraft({ weekStart, contextKey: live.key, entries });
+        setSaveRejected(false);
+        setEditing(false);
+      })
+      .catch((cause: unknown) => {
+        if (request.signal.aborted) return;
+        const code = cause instanceof ApiError ? (cause.body as { code?: string } | undefined)?.code : null;
+        setError(t(code === 'daily_limit' ? 'weekPlanning.limited' : cause instanceof ApiError && cause.status === 429
+          ? 'weekPlanning.busy' : code === 'unavailable' ? 'weekPlanning.unavailable' : 'weekPlanning.failed'));
+      })
+      .finally(() => {
+        if (activeRequest.current === request) {
+          activeRequest.current = null;
+          if (!request.signal.aborted) setBusy(null);
+        }
+      });
   }
 
   function useSavedDinners() {

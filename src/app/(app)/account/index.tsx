@@ -2,6 +2,7 @@ import * as WebBrowser from 'expo-web-browser';
 import { useState } from 'react';
 import { Alert } from 'react-native';
 
+import { useDeferredTab } from '@/hooks/use-deferred-tab';
 import { AiSettingsSection } from '@/components/ai-settings';
 import { AccountSetupCard } from '@/components/account-setup-card';
 import { Badge } from '@/components/badge';
@@ -37,7 +38,12 @@ function roleTone(role: HouseholdRole) {
   return role === 'owner' ? 'brand' : 'neutral';
 }
 
+/** Built when the tab is first shown, or once launch has settled — see `useDeferredTab`. */
 export default function AccountScreen() {
+  return useDeferredTab() ? <AccountScreenContent /> : null;
+}
+
+function AccountScreenContent() {
   const t = useT();
   const { user, signOut, refreshUser, isAuthenticated } = useSession();
   const { household, role, isOwner } = useActiveHousehold();
@@ -57,15 +63,16 @@ export default function AccountScreen() {
       { text: t('common.cancel'), style: 'cancel' },
       { text: t('account.clearDeviceData'), style: 'destructive', onPress: async () => {
         setClearingData(true);
+        // No `finally`: the React Compiler can't lower it and would skip this
+        // (always mounted) screen. The catch swallows every error anyway.
         try {
           await signOut();
           clearLocalData();
           await flushPersistence();
         } catch {
           Alert.alert(t('account.clearFailedTitle'), t('account.clearFailedMessage'));
-        } finally {
-          setClearingData(false);
         }
+        setClearingData(false);
       } },
     ]);
   }
@@ -107,15 +114,13 @@ export default function AccountScreen() {
 
   async function onSignOut() {
     setSigningOut(true);
-    try {
-      // Best effort: get unsynced edits to the account before detaching. They
-      // stay queued on the device either way, but only this account can upload
-      // them — signing in as someone else afterwards would discard them.
-      await flushPendingChanges().catch(() => false);
-      await signOut();
-    } finally {
-      setSigningOut(false);
-    }
+    // Best effort: get unsynced edits to the account before detaching. They
+    // stay queued on the device either way, but only this account can upload
+    // them — signing in as someone else afterwards would discard them.
+    await flushPendingChanges()
+      .catch(() => false)
+      .then(() => signOut())
+      .finally(() => setSigningOut(false));
   }
 
   // Deletion lives on the web profile page (it needs a password confirmation the

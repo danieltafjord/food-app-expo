@@ -1,10 +1,8 @@
 /*
- * Reanimated shared values are stable mutable refs, so writing `.value` (in the
- * gesture worklets and the action handlers) is intended — but the React
- * Compiler's immutability rule reads them as locals and flags the writes, so it
- * is disabled here (same as week-board.tsx).
+ * Reanimated shared values are stable mutable refs, read and written with
+ * `.get()` / `.set()` (in the gesture worklets and the action handlers):
+ * assigning `.value` is what the React Compiler's immutability rule rejects.
  */
-/* eslint-disable react-hooks/immutability */
 import { useMemo, useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -39,8 +37,9 @@ type SwipeToDeleteProps = {
  * Built on the same `Gesture.Pan` + Reanimated primitives the week board uses
  * (rather than `ReanimatedSwipeable`). The pan only activates on a clear
  * horizontal drag and fails on vertical movement, so a parent ScrollView keeps
- * scrolling normally. The child must be opaque and the parent clipped so the row
- * slides cleanly over the actions.
+ * scrolling normally. The actions grow into the space the row slides out of
+ * rather than sitting behind it, so the row may be transparent (rows on a
+ * native glass sheet have no background to cover them with).
  */
 export function SwipeToDelete({ children, onDelete, label, secondary }: SwipeToDeleteProps) {
   const theme = useTheme();
@@ -52,43 +51,44 @@ export function SwipeToDelete({ children, onDelete, label, secondary }: SwipeToD
   // (which would tick a shopping item the user only meant to put back).
   const [open, setOpen] = useState(false);
 
-  // Built once per row: the compiler skips this component, and a rebuilt
-  // gesture on every render means a new handler pushed to the native side for
-  // every row whenever the list re-renders. The only captures are shared values.
+  // Built once per row: a rebuilt gesture on every render means a new handler
+  // pushed to the native side for every row whenever the list re-renders. The
+  // only captures are shared values, read and written with `.get()` / `.set()`
+  // so the React Compiler can optimize this component (it rejects `.value =`).
   const pan = useMemo(
     () =>
       Gesture.Pan()
         .activeOffsetX([-12, 12])
         .failOffsetY([-12, 12])
         .onStart(() => {
-          startX.value = translateX.value;
+          startX.set(translateX.get());
         })
         .onUpdate((event) => {
-          translateX.value = Math.min(
+          translateX.set(Math.min(
             0,
-            Math.max(startX.value + event.translationX, -revealWidth),
-          );
+            Math.max(startX.get() + event.translationX, -revealWidth),
+          ));
         })
         .onEnd(() => {
-          const reveal = translateX.value < -revealWidth / 2;
-          translateX.value = withTiming(reveal ? -revealWidth : 0, { duration: 160 });
+          const reveal = translateX.get() < -revealWidth / 2;
+          translateX.set(withTiming(reveal ? -revealWidth : 0, { duration: 160 }));
           scheduleOnRN(setOpen, reveal);
         }),
     [startX, translateX, revealWidth],
   );
 
   const rowStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: translateX.value }],
+    transform: [{ translateX: translateX.get() }],
   }));
 
-  // Hidden until the row actually moves: rows dim with opacity while pressed,
-  // and the red action would otherwise show through a resting row.
+  // Only as wide as the gap the row has left: nothing sits behind a resting
+  // or dimmed row, and a transparent row never shows red through it.
   const actionsStyle = useAnimatedStyle(() => ({
-    opacity: translateX.value < 0 ? 1 : 0,
+    width: Math.max(0, -translateX.get()),
   }));
 
   function close() {
-    translateX.value = withTiming(0, { duration: 120 });
+    translateX.set(withTiming(0, { duration: 120 }));
     setOpen(false);
   }
 
@@ -104,7 +104,7 @@ export function SwipeToDelete({ children, onDelete, label, secondary }: SwipeToD
 
   return (
     <View style={styles.container}>
-      <Animated.View style={[styles.actions, { width: revealWidth }, actionsStyle]}>
+      <Animated.View style={[styles.actions, actionsStyle]}>
         {secondary ? (
           <Pressable
             accessibilityRole="button"
@@ -154,6 +154,8 @@ const styles = StyleSheet.create({
     top: 0,
     bottom: 0,
     flexDirection: 'row',
+    justifyContent: 'flex-end',
+    overflow: 'hidden',
   },
   action: {
     width: ACTION_WIDTH,

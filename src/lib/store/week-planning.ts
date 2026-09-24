@@ -4,6 +4,7 @@ import { useValue } from '@legendapp/state/react';
 import { dinnerCategory, type DinnerCategory } from '@/lib/dinner-categories';
 import { addDays, dateKeyOf, fromDateKey, toDateKey } from '@/lib/week';
 import { store$ } from './collections';
+import { compareIds } from './ids';
 import { createPlanEntry, ensurePlanForWeek } from './plans';
 
 type Candidate = { id: string; name: string; servings: number; weight: number; category: DinnerCategory | null };
@@ -31,7 +32,7 @@ export function getWeekPlanningContext(
   const householdId = store$.meta.localHouseholdId.get();
   const dinners = Object.values(store$.dinners.get())
     .filter((dinner) => dinner.household_id === householdId && dinner.name.trim())
-    .sort((a, b) => a.id.localeCompare(b.id));
+    .sort((a, b) => compareIds(a.id, b.id));
   const plans = Object.values(store$.dinnerPlans.get())
     .filter((plan) => plan.household_id === householdId);
   const planIds = new Set(plans.map((plan) => plan.id));
@@ -96,8 +97,26 @@ export function getWeekPlanningContext(
   };
 }
 
-export function useWeekPlanningContext(weekStart: string): WeekPlanningContext {
-  return useValue(() => getWeekPlanningContext(weekStart));
+/**
+ * Whether the week still has a day from today on without a dinner — the same
+ * `dates.length > 0` as the full context, without joining every dinner, so the
+ * planner screen doesn't redo that on each dinner edit or render.
+ */
+export function useWeekHasOpenDays(weekStart: string): boolean {
+  return useValue(() => {
+    const today = toDateKey(new Date());
+    const open = Array.from({ length: 7 }, (_, i) => toDateKey(addDays(fromDateKey(weekStart), i)))
+      .filter((date) => date >= today);
+    if (!open.length) return false;
+    const householdId = store$.meta.localHouseholdId.get();
+    const planIds = new Set(Object.values(store$.dinnerPlans.get())
+      .filter((plan) => plan.household_id === householdId).map((plan) => plan.id));
+    const occupied = new Set<string>();
+    for (const entry of Object.values(store$.planEntries.get())) {
+      if (planIds.has(entry.dinner_plan_id)) occupied.add(dateKeyOf(entry.scheduled_date));
+    }
+    return open.some((date) => !occupied.has(date));
+  });
 }
 
 export function suggestWeek(

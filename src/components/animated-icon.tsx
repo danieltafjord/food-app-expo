@@ -43,6 +43,9 @@ export function AnimatedSplashOverlay() {
         }
       })}
       style={styles.backgroundSolidColor}
+      // Decorative only: it is transparent well before it unmounts, and the
+      // app underneath must take taps as soon as it shows.
+      pointerEvents="none"
     />
   );
 }

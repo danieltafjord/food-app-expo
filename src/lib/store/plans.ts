@@ -3,9 +3,10 @@ import { useValue } from '@legendapp/state/react';
 import { dateKeyOf } from '@/lib/week';
 import { store$ } from './collections';
 import { derived, derivedById } from './derived';
+import { dinnerItemsOf } from './dinners';
 import { getLocalHouseholdId } from './household';
-import { compareIso, newId, nowIso } from './ids';
-import type { LocalDinnerPlan, MealType, PlanEntryWithDinner } from './schema';
+import { compareIds, compareIso, newId, nowIso } from './ids';
+import type { LocalDinnerPlan, LocalPlanEntry, MealType, PlanEntryWithDinner } from './schema';
 
 /** All dinner plans, newest first. */
 const plans$ = derived(() =>
@@ -25,7 +26,7 @@ export function usePlanForWeek(weekStartKey: string): LocalDinnerPlan | undefine
 export function findPlanForWeek(weekStartKey: string): LocalDinnerPlan | undefined {
   return Object.values(store$.dinnerPlans.get())
     .filter((plan) => plan.start_date === weekStartKey)
-    .sort((a, b) => a.id.localeCompare(b.id))[0];
+    .sort((a, b) => compareIds(a.id, b.id))[0];
 }
 
 /** Existing duplicate weekly plans remain intact, but contribute to one shared week. */
@@ -50,27 +51,26 @@ const NO_ENTRIES: PlanEntryWithDinner[] = [];
  */
 const planEntriesCache = new Map<string, { key: string; value: PlanEntryWithDinner[] }>();
 
-/** Ingredient rows per dinner, for the "no ingredients" hint on plan cards. */
-function countItemsByDinner(): Map<string, number> {
-  const counts = new Map<string, number>();
-  for (const it of Object.values(store$.dinnerItems.get())) {
-    counts.set(it.dinner_id, (counts.get(it.dinner_id) ?? 0) + 1);
-  }
-  return counts;
+/**
+ * An entry joined with what its card shows of the dinner. Reads only the
+ * dinner's name and category (and the shared item index), so typing a dinner's
+ * notes or servings doesn't re-run every week's join.
+ */
+function withDinner(entry: LocalPlanEntry): PlanEntryWithDinner {
+  const dinner$ = store$.dinners[entry.dinner_id];
+  return {
+    ...entry,
+    dinner_name: dinner$.name.get() ?? null,
+    dinner_category: dinner$.category.get() ?? null,
+    ingredient_count: dinnerItemsOf(entry.dinner_id).length,
+  };
 }
 
 const planEntriesFor = derivedById((planId): PlanEntryWithDinner[] => {
-  const dinners = store$.dinners.get();
-  const counts = countItemsByDinner();
   const planIds = planIdsForWeekOf(planId);
   const entries = Object.values(store$.planEntries.get())
     .filter((e) => planIds.has(e.dinner_plan_id))
-    .map((e) => ({
-      ...e,
-      dinner_name: dinners[e.dinner_id]?.name ?? null,
-      dinner_category: dinners[e.dinner_id]?.category ?? null,
-      ingredient_count: counts.get(e.dinner_id) ?? 0,
-    }))
+    .map(withDinner)
     .sort((a, b) => compareIso(a.created_at, b.created_at));
 
   const key = entries
@@ -94,14 +94,8 @@ export function usePlanEntries(planId: string | undefined): PlanEntryWithDinner[
 export function usePlanEntry(entryId: string | undefined): PlanEntryWithDinner | undefined {
   return useValue(() => {
     if (!entryId) return undefined;
-    const entry = store$.planEntries.get()[entryId];
-    if (!entry) return undefined;
-    return {
-      ...entry,
-      dinner_name: store$.dinners.get()[entry.dinner_id]?.name ?? null,
-      dinner_category: store$.dinners.get()[entry.dinner_id]?.category ?? null,
-      ingredient_count: countItemsByDinner().get(entry.dinner_id) ?? 0,
-    };
+    const entry = store$.planEntries[entryId].get();
+    return entry ? withDinner(entry) : undefined;
   });
 }
 

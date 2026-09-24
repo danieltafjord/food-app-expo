@@ -1,3 +1,4 @@
+import { useDeferredTab } from '@/hooks/use-deferred-tab';
 import { useDinnerCategoryLabel } from '@/lib/store/dinner-categories';
 import { useMemo, useRef, useState } from 'react';
 import { FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
@@ -32,7 +33,12 @@ const FADE_OUT = FadeOut.duration(SWAP);
  * virtualised `FlatList` rather than the shared `Screen` ScrollView: this is
  * the one list that grows without bound.
  */
+/** Built when the tab is first shown, or once launch has settled — see `useDeferredTab`. */
 export default function DinnersScreen() {
+  return useDeferredTab() ? <DinnersScreenContent /> : null;
+}
+
+function DinnersScreenContent() {
   const t = useT();
   const categoryLabel = useDinnerCategoryLabel();
   const theme = useTheme();

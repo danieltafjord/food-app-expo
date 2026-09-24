@@ -7,18 +7,9 @@ import { dateKeyOf } from '@/lib/week';
 import { store$ } from './collections';
 import { derived } from './derived';
 import { getHouseholdDefaultServings, getLocalHouseholdId } from './household';
-import { compareIso, newId, nowIso } from './ids';
+import { compareIds, compareIso, newId, nowIso } from './ids';
 import { getLocale } from './settings';
 import type { DinnerWithItems, LocalDinner, LocalDinnerItem, LocalPlanEntry } from './schema';
-
-function itemsForDinner(
-  allItems: Record<string, LocalDinnerItem>,
-  dinnerId: string,
-): LocalDinnerItem[] {
-  return uniqueDinnerItems(Object.values(allItems))
-    .filter((it) => it.dinner_id === dinnerId)
-    .sort((a, b) => compareIso(a.created_at, b.created_at));
-}
 
 function dinnerItemKey(item: { ingredient_id: string; unit?: string | null }): string {
   return `${item.ingredient_id}:${item.unit?.trim().toLowerCase() ?? ''}`;
@@ -29,28 +20,42 @@ export function uniqueDinnerItems(items: readonly LocalDinnerItem[]): LocalDinne
   for (const item of items) {
     const key = `${item.dinner_id}:${dinnerItemKey(item)}`;
     const previous = latest.get(key);
-    if (!previous || (compareIso(item.updated_at, previous.updated_at) || item.id.localeCompare(previous.id)) > 0) {
+    if (!previous || (compareIso(item.updated_at, previous.updated_at) || compareIds(item.id, previous.id)) > 0) {
       latest.set(key, item);
     }
   }
   return [...latest.values()];
 }
 
+const NO_ITEMS: LocalDinnerItem[] = [];
+
+/**
+ * Every dinner's (de-duplicated) items in creation order, keyed by dinner id —
+ * one pass over the items table per change, shared by every reader, instead of
+ * each lookup de-duplicating the whole table to find one dinner's rows.
+ */
+const itemsByDinner$ = derived((): Record<string, LocalDinnerItem[]> => {
+  const byDinner: Record<string, LocalDinnerItem[]> = {};
+  for (const it of uniqueDinnerItems(Object.values(store$.dinnerItems.get()))) {
+    (byDinner[it.dinner_id] ??= []).push(it);
+  }
+  for (const items of Object.values(byDinner)) {
+    items.sort((a, b) => compareIso(a.created_at, b.created_at));
+  }
+  return byDinner;
+});
+
+/** A dinner's items (tracked: re-runs a selector when any dinner item changes). */
+export function dinnerItemsOf(dinnerId: string): LocalDinnerItem[] {
+  return itemsByDinner$.get()[dinnerId] ?? NO_ITEMS;
+}
+
 /** All dinners (recipes) with their items, alphabetised. Cached until a dinner/item changes. */
 const dinners$ = derived((): DinnerWithItems[] => {
-  // One pass over the items, grouped by dinner, instead of a scan per dinner.
-  const byDinner = new Map<string, LocalDinnerItem[]>();
-  for (const it of uniqueDinnerItems(Object.values(store$.dinnerItems.get()))) {
-    const bucket = byDinner.get(it.dinner_id);
-    if (bucket) bucket.push(it);
-    else byDinner.set(it.dinner_id, [it]);
-  }
+  const byDinner = itemsByDinner$.get();
   const { compare } = nameCollator(getLocale());
   return Object.values(store$.dinners.get())
-    .map((d) => ({
-      ...d,
-      items: (byDinner.get(d.id) ?? []).sort((a, b) => compareIso(a.created_at, b.created_at)),
-    }))
+    .map((d) => ({ ...d, items: byDinner[d.id] ?? NO_ITEMS }))
     .sort((a, b) => compare(a.name, b.name));
 });
 
@@ -89,7 +94,8 @@ export function rankByRecency(
       if (a.last_planned !== b.last_planned) {
         if (!a.last_planned) return 1;
         if (!b.last_planned) return -1;
-        return b.last_planned.localeCompare(a.last_planned);
+        // Date keys (YYYY-MM-DD) order correctly as plain strings.
+        return b.last_planned < a.last_planned ? -1 : 1;
       }
       return compareNames(a.name, b.name);
     });
@@ -115,7 +121,7 @@ export function useDinnerOptions(): DinnerOption[] {
 export function useDinner(id: string): DinnerWithItems | undefined {
   return useValue(() => {
     const dinner = store$.dinners[id].get();
-    return dinner ? { ...dinner, items: itemsForDinner(store$.dinnerItems.get(), id) } : undefined;
+    return dinner ? { ...dinner, items: dinnerItemsOf(id) } : undefined;
   });
 }
 
@@ -123,7 +129,7 @@ export function useDinner(id: string): DinnerWithItems | undefined {
 export function getDinner(id: string): DinnerWithItems | undefined {
   const dinner = store$.dinners[id].get();
   if (!dinner) return undefined;
-  return { ...dinner, items: itemsForDinner(store$.dinnerItems.get(), id) };
+  return { ...dinner, items: dinnerItemsOf(id) };
 }
 
 export type CreateDinnerInput = {
@@ -268,14 +274,17 @@ export function setDinnerItems(dinnerId: string, items: DinnerItemInput[]): void
 export function deleteDinner(id: string): void {
   // Already gone (an undoable delete committing after a remote delete).
   if (!store$.dinners[id].peek()) return;
-  for (const it of Object.values(store$.dinnerItems.get()).filter((i) => i.dinner_id === id)) {
-    store$.dinnerItems[it.id].delete();
-  }
-  for (const e of Object.values(store$.planEntries.get()).filter((x) => x.dinner_id === id)) {
-    store$.planEntries[e.id].delete();
-  }
-  store$.meta.pendingImages[id].delete();
-  store$.dinners[id].delete();
+  // One notification for the whole cascade, not one per deleted row.
+  batch(() => {
+    for (const it of Object.values(store$.dinnerItems.peek()).filter((i) => i.dinner_id === id)) {
+      store$.dinnerItems[it.id].delete();
+    }
+    for (const e of Object.values(store$.planEntries.peek()).filter((x) => x.dinner_id === id)) {
+      store$.planEntries[e.id].delete();
+    }
+    store$.meta.pendingImages[id].delete();
+    store$.dinners[id].delete();
+  });
 }
 
 /** What a dinner shows as its picture. Setting one kind clears the other. */

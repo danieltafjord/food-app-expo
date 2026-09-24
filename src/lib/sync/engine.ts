@@ -764,6 +764,7 @@ function applyRemote(changes: Record<string, ServerRow[]>): number {
   try {
     batch(() => {
       for (const { collection, serverKey, household, parentOf } of SYNCABLE) {
+        const deleted = new Set<string>();
         for (const row of changes[serverKey] ?? []) {
           if (typeof row?.id !== 'string') continue;
           received += 1;
@@ -772,15 +773,9 @@ function applyRemote(changes: Record<string, ServerRow[]>): number {
           // Account erasure overrides unsent and mid-flight edits. Otherwise the
           // cursor could advance while this device retains the erased content.
           const erased = (row.erasure_version ?? 0) > (existing?.erasure_version ?? 0);
-          if (erased) {
-            store$.meta.failed[collection][uuid].delete();
-            store$.meta.dirty[collection][uuid].delete();
-            store$.meta.tombstones[collection][uuid].delete();
-          }
+          if (erased) clearOutbox(collection, uuid);
           // A row we've locally edited or deleted wins until it's pushed.
-          if (store$.meta.failed[collection][uuid].get()) continue;
-          if (store$.meta.dirty[collection][uuid].get()) continue;
-          if (store$.meta.tombstones[collection][uuid].get()) continue;
+          if (inOutbox(collection, uuid)) continue;
 
           if (row.deleted_at != null) {
             if (collection === 'dinnerCategories') {
@@ -788,19 +783,8 @@ function applyRemote(changes: Record<string, ServerRow[]>): number {
                 if (dinner.category === uuid) store$.dinners[dinner.id].category.set(null);
               }
             }
-            if (node(collection)[uuid].get()) node(collection)[uuid].delete();
-            // Mirror the local cascade so no orphaned children linger.
-            for (const link of parentOf) {
-              const [child, fk] = link.split(':');
-              for (const childRow of Object.values(node(child).get() ?? {}) as Row[]) {
-                if (childRow[fk] === uuid) {
-                  node(child)[childRow.id].delete();
-                  store$.meta.failed[child][childRow.id].delete();
-                  store$.meta.dirty[child][childRow.id].delete();
-                  store$.meta.tombstones[child][childRow.id].delete();
-                }
-              }
-            }
+            if (existing) node(collection)[uuid].delete();
+            deleted.add(uuid);
             continue;
           }
 
@@ -822,6 +806,19 @@ function applyRemote(changes: Record<string, ServerRow[]>): number {
           if (existing && sameRow(existing, local)) continue;
           node(collection)[uuid].set(local);
         }
+        // Mirror the local cascade so no orphaned children linger: one pass per
+        // child table for all of this pull's deleted parents, before the child
+        // rows themselves are applied.
+        if (deleted.size === 0) continue;
+        for (const link of parentOf) {
+          const [child, fk] = link.split(':');
+          for (const childRow of Object.values(node(child).peek() ?? {}) as Row[]) {
+            if (typeof childRow[fk] === 'string' && deleted.has(childRow[fk])) {
+              node(child)[childRow.id].delete();
+              clearOutbox(child, childRow.id);
+            }
+          }
+        }
       }
     });
   } finally {
@@ -830,14 +827,56 @@ function applyRemote(changes: Record<string, ServerRow[]>): number {
   return received;
 }
 
-/** Field-by-field equality for flat rows (every column is a primitive). */
-function sameRow(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
-  const keys = Object.keys(b);
-  if (keys.length !== Object.keys(a).length) return false;
-  for (const key of keys) {
-    if (a[key] !== b[key]) return false;
+type OutboxKind = 'failed' | 'dirty' | 'tombstones';
+const OUTBOX: readonly OutboxKind[] = ['failed', 'dirty', 'tombstones'];
+
+/**
+ * Plain lookups: `store$.meta.dirty[collection][uuid].get()` would create an
+ * observable node for every row a pull mentions, and Legend-State never frees
+ * nodes for deleted keys.
+ */
+function queuedIn(kind: OutboxKind, collection: string, uuid: string): boolean {
+  return (store$.meta[kind][collection].peek() as Record<string, unknown> | undefined)?.[uuid] != null;
+}
+
+function inOutbox(collection: string, uuid: string): boolean {
+  return OUTBOX.some((kind) => queuedIn(kind, collection, uuid));
+}
+
+function clearOutbox(collection: string, uuid: string): void {
+  for (const kind of OUTBOX) {
+    if (queuedIn(kind, collection, uuid)) store$.meta[kind][collection][uuid].delete();
+  }
+}
+
+/**
+ * Whether a pulled row says nothing new. The server echoes every row a push
+ * sent, but it formats timestamps with microseconds (`…:05.123000Z`) where the
+ * device wrote milliseconds (`…:05.123Z`), and it always includes
+ * `erasure_version`, which rows created on the device lack — so a plain
+ * comparison never matched, and every edit was written, persisted and
+ * re-rendered a second time when its own echo arrived.
+ */
+export function sameRow(local: Record<string, unknown>, remote: Record<string, unknown>): boolean {
+  for (const key of new Set([...Object.keys(local), ...Object.keys(remote)])) {
+    const a = local[key];
+    const b = remote[key];
+    if (a === b || (a == null && b == null)) continue;
+    if (key === 'erasure_version' && (a ?? 0) === (b ?? 0)) continue;
+    if (key.endsWith('_at') && typeof a === 'string' && typeof b === 'string' && sameInstant(a, b)) continue;
+    return false;
   }
   return true;
+}
+
+const ISO_TIMESTAMP = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d+))?(Z|[+-]\d{2}:?\d{2})$/;
+
+/** ISO-8601 instants equal to the millisecond, whatever their fraction digits. */
+function sameInstant(a: string, b: string): boolean {
+  const x = ISO_TIMESTAMP.exec(a);
+  const y = ISO_TIMESTAMP.exec(b);
+  if (!x || !y || x[3] !== y[3] || x[1] !== y[1]) return false;
+  return (x[2] ?? '').padEnd(3, '0').slice(0, 3) === (y[2] ?? '').padEnd(3, '0').slice(0, 3);
 }
 
 /* ---- pending bookkeeping ------------------------------------------------- */

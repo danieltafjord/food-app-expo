@@ -15,7 +15,7 @@ import { useT } from '@/lib/i18n';
 import { pushOnce } from '@/lib/navigation';
 import { setPlannerWeekKey, usePlannerWeekKey } from '@/lib/planner-state';
 import { createShoppingListFromPlan, dinnersWithoutIngredients } from '@/lib/shopping/generate';
-import { useWeekPlanningContext } from '@/lib/store/week-planning';
+import { useWeekHasOpenDays } from '@/lib/store/week-planning';
 import { useHiddenIds } from '@/lib/undo';
 import {
   updatePlanEntry,
@@ -52,8 +52,7 @@ export default function PlansScreen() {
   // A dinner deleted with Undo still pending leaves the board at once.
   const hidden = useHiddenIds();
   const entries = usePlanEntries(currentPlan?.id).filter((entry) => !hidden[entry.dinner_id]);
-  const planning = useWeekPlanningContext(weekStartKey);
-  const showPlanAction = planning.dates.length > 0;
+  const showPlanAction = useWeekHasOpenDays(weekStartKey);
   const showListAction = entries.length > 0;
   const showActionDock = showPlanAction || showListAction;
   const [actionDockHeight, setActionDockHeight] = useState(ACTION_HEIGHT);

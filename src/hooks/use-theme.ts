@@ -11,7 +11,7 @@
  * https://docs.expo.dev/guides/color-schemes/
  */
 
-import { createContext, use } from 'react';
+import { createContext, use, useEffect } from 'react';
 import { Appearance } from 'react-native';
 
 import { Colors, type ColorScheme } from '@/constants/theme';
@@ -32,6 +32,14 @@ function resolve(preference: ThemePreference, device: string | null | undefined)
 export function useResolvedSchemeSource(): ColorScheme {
   const device = useColorScheme();
   const preference = useThemePreference();
+  // Native surfaces — form sheets, glass, alerts, the keyboard — follow the
+  // window's appearance, not our palette: pin it to the chosen scheme so a dark
+  // app on a light phone doesn't get white sheets. With the override set,
+  // `device` reports the pinned value, which `resolve` ignores for an explicit
+  // preference anyway.
+  useEffect(() => {
+    Appearance.setColorScheme(preference === 'system' ? 'unspecified' : preference);
+  }, [preference]);
   return resolve(preference, device);
 }
 

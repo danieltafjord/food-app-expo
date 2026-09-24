@@ -27,19 +27,34 @@ export function AiClassificationWorker() {
     for (const id of Object.keys(store$.meta.aiClassificationJobs.get())) {
       if (!store$.ingredients[id].get()) store$.meta.aiClassificationJobs[id].delete();
     }
-    let timer: ReturnType<typeof setTimeout>;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let running = false;
     let nextAllowed = 0;
+    function schedule(delay: number) {
+      if (abort.signal.aborted) return;
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        timer = undefined;
+        void tick();
+      }, delay);
+    }
     async function tick() {
+      // Stopped in the background (no timer waking the JS thread every few
+      // seconds); the AppState listener below picks it up again.
+      if (AppState.currentState !== 'active') return;
+      running = true;
       let delay = 6000;
       try {
-        if (AppState.currentState !== 'active' || Date.now() < nextAllowed) return;
+        if (Date.now() < nextAllowed) return;
         if (store$.meta.accountId.get() !== userId || store$.meta.serverHouseholdId.get() !== householdId) return;
         const ingredient = Object.values(store$.ingredients.get()).find((item) =>
           classificationReady(item, locale));
         if (!ingredient) return;
+        // The allowance shown in settings refreshes when that screen opens (the
+        // query is stale by then); refetching it after every item doubled the
+        // requests of a backlog.
         await runClassificationJob(ingredient, requestRef.current, locale, abort.signal, () =>
           !abort.signal.aborted && !store$.settings.aiPaused.get()?.[String(userId)]?.categorization);
-        void client.invalidateQueries({ queryKey: aiSettingsKey(userId, householdId) });
       } catch (error) {
         if (error instanceof ApiError && [401, 403, 429, 503].includes(error.status)) {
           delay = aiRetryDelay(error);
@@ -47,11 +62,15 @@ export function AiClassificationWorker() {
         }
         if (!abort.signal.aborted) void client.invalidateQueries({ queryKey: aiSettingsKey(userId, householdId) });
       } finally {
-        if (!abort.signal.aborted) timer = setTimeout(() => { void tick(); }, delay);
+        running = false;
+        schedule(delay);
       }
     }
-    timer = setTimeout(() => { void tick(); }, 1500);
-    return () => { abort.abort(); clearTimeout(timer); };
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active' && !timer && !running) schedule(1500);
+    });
+    schedule(1500);
+    return () => { abort.abort(); clearTimeout(timer); subscription.remove(); };
   }, [enabled, userId, householdId, locale, client]);
   return null;
 }

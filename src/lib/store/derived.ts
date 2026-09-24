@@ -1,4 +1,4 @@
-import { observable, type Observable } from '@legendapp/state';
+import { observable, ObservableHint, type Observable } from '@legendapp/state';
 
 /**
  * Derived read models as Legend-State computed observables.
@@ -14,13 +14,19 @@ import { observable, type Observable } from '@legendapp/state';
  * Computeds are module-level singletons; per-id ones (a list's items) are
  * created on first use and kept for the app's lifetime, which is bounded by the
  * number of lists/plans a household has.
+ *
+ * Results are marked plain: they are plain data, never observables or
+ * functions. Without the hint Legend-State force-notifies whenever a computed
+ * re-runs and returns an object — even the very same cached object — and
+ * `useValue` re-renders on that, so caching a result by reference (see
+ * `sectionsFor`) would not spare a single render.
  */
 export function derivedById<T>(compute: (id: string) => T): (id: string) => Observable<T> {
   const cache = new Map<string, Observable<T>>();
   return (id) => {
     let computed$ = cache.get(id);
     if (!computed$) {
-      computed$ = observable(() => compute(id)) as Observable<T>;
+      computed$ = observable(() => plain(compute(id))) as Observable<T>;
       cache.set(id, computed$);
     }
     return computed$;
@@ -29,5 +35,9 @@ export function derivedById<T>(compute: (id: string) => T): (id: string) => Obse
 
 /** A parameterless derived read model. */
 export function derived<T>(compute: () => T): Observable<T> {
-  return observable(compute) as Observable<T>;
+  return observable(() => plain(compute())) as Observable<T>;
+}
+
+function plain<T>(value: T): T {
+  return value !== null && typeof value === 'object' ? ObservableHint.plain(value) : value;
 }

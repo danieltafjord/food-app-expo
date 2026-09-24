@@ -1,6 +1,6 @@
 import { Directory, File, Paths } from 'expo-file-system';
 import { Image } from 'expo-image';
-import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
+import { ImageManipulator, SaveFormat, type ImageRef } from 'expo-image-manipulator';
 
 import { ApiError } from '@/lib/api/client';
 import { dinnerImageUrl, uploadBackoffMs, type PendingImage } from '@/lib/dinner-images';
@@ -15,6 +15,11 @@ export type StoredImage = { path: string; thumbhash: string; url: string };
 const PENDING_DIR = 'pending-dinner-images';
 /** Plenty for the 1024 px variant, small enough to upload quickly on mobile data. */
 const MAX_EDGE = 1600;
+/**
+ * A stalled upload must end: React Native's network stack has no timeout of
+ * its own, and one hung request would hold the upload lock until a relaunch.
+ */
+const UPLOAD_TIMEOUT_MS = 60_000;
 
 /** Local file handle for a pending upload. */
 export function pendingImageFile(name: string): File {
@@ -27,11 +32,21 @@ export function pendingImageFile(name: string): File {
  */
 export async function queuePickedPhoto(dinnerId: string, asset: { uri: string; width: number; height: number }): Promise<void> {
   const context = ImageManipulator.manipulate(asset.uri);
-  if (Math.max(asset.width, asset.height) > MAX_EDGE) {
-    context.resize(asset.width >= asset.height ? { width: MAX_EDGE } : { height: MAX_EDGE });
+  let rendered: ImageRef | undefined;
+  let saved: { uri: string };
+  try {
+    if (Math.max(asset.width, asset.height) > MAX_EDGE) {
+      context.resize(asset.width >= asset.height ? { width: MAX_EDGE } : { height: MAX_EDGE });
+    }
+    rendered = await context.renderAsync();
+    saved = await rendered.saveAsync({ compress: 0.82, format: SaveFormat.JPEG });
+  } finally {
+    // The decoded photo sits in native memory (tens of MB for a camera
+    // picture) until released; don't leave that to the garbage collector.
+    rendered?.release();
+    context.release();
+    deleteCachedPick(asset.uri);
   }
-  const rendered = await context.renderAsync();
-  const saved = await rendered.saveAsync({ compress: 0.82, format: SaveFormat.JPEG });
   const directory = new Directory(Paths.document, PENDING_DIR);
   if (!directory.exists) directory.create({ intermediates: true });
   const name = `${newId()}.jpg`;
@@ -44,6 +59,17 @@ export async function queuePickedPhoto(dinnerId: string, asset: { uri: string; w
   const previous = store$.meta.pendingImages[dinnerId].peek();
   store$.meta.pendingImages[dinnerId].set({ file: name, created_at: nowIso(), attempts: 0, retry_at: null });
   if (previous) deletePendingFile(previous.file);
+}
+
+/** The picker hands back its own copy in the app cache; ours replaces it. */
+function deleteCachedPick(uri: string): void {
+  try {
+    if (!uri.startsWith(Paths.cache.uri)) return;
+    const file = new File(uri);
+    if (file.exists) file.delete();
+  } catch {
+    // The OS clears the cache eventually.
+  }
 }
 
 export function deletePendingFile(name: string): void {
@@ -95,9 +121,13 @@ export async function uploadPendingImages(request: SyncRequest, now = Date.now()
       // React Native's multipart shape: the native layer streams the file.
       form.append('image', { uri: file.uri, name: 'dinner.jpg', type: 'image/jpeg' } as unknown as Blob);
       let stored: StoredImage;
+      const abort = new AbortController();
+      const timeout = setTimeout(() => abort.abort(), UPLOAD_TIMEOUT_MS);
       try {
-        stored = await request<StoredImage>('/dinner-images', { method: 'POST', body: form });
+        stored = await request<StoredImage>('/dinner-images', { method: 'POST', body: form, signal: abort.signal });
+        clearTimeout(timeout);
       } catch (error) {
+        clearTimeout(timeout);
         if (error instanceof ApiError && (error.status === 413 || error.status === 422)) {
           dropPending(dinnerId, pending);
           continue;
@@ -110,8 +140,9 @@ export async function uploadPendingImages(request: SyncRequest, now = Date.now()
         // The next photo would fail the same way (offline, signed out, server down).
         break;
       }
-      // Warm the cache so the swap from the local file doesn't flash the placeholder.
-      await Image.prefetch(dinnerImageUrl(stored.path, 480)).catch(() => false);
+      // Warm the cache so the swap from the local file doesn't flash the
+      // placeholder: the list and board thumbnails use the small variant.
+      await Image.prefetch([dinnerImageUrl(stored.path, 160), dinnerImageUrl(stored.path, 480)]).catch(() => false);
       // Picked again, removed, or deleted while uploading: this upload is stale
       // and the server prunes the unused files.
       if (store$.meta.pendingImages[dinnerId].peek()?.file !== pending.file) continue;

@@ -1,6 +1,7 @@
 import { Pressable, StyleSheet, View } from 'react-native';
 import Animated, { FadeOut, LinearTransition } from 'react-native-reanimated';
 
+import { useDeferredTab } from '@/hooks/use-deferred-tab';
 import { EmptyState } from '@/components/empty-state';
 import { Fab } from '@/components/fab';
 import { Icon } from '@/components/icon';
@@ -15,8 +16,9 @@ import { pushOnce } from '@/lib/navigation';
 import {
   createShoppingList,
   deleteShoppingList,
-  useShoppingLists,
-  type ShoppingListSummary,
+  useShoppingList,
+  useShoppingListCounts,
+  useShoppingListIds,
 } from '@/lib/store';
 import { deleteWithUndo, useHiddenIds } from '@/lib/undo';
 import { toDateKey } from '@/lib/week';
@@ -24,11 +26,16 @@ import { toDateKey } from '@/lib/week';
 const REFLOW = LinearTransition.duration(220);
 const EXIT = FadeOut.duration(160);
 
+/** Built when the tab is first shown, or once launch has settled — see `useDeferredTab`. */
 export default function ShoppingListsScreen() {
+  return useDeferredTab() ? <ShoppingListsScreenContent /> : null;
+}
+
+function ShoppingListsScreenContent() {
   const t = useT();
   const theme = useTheme();
   const hidden = useHiddenIds();
-  const lists = useShoppingLists().filter((list) => !hidden[list.id]);
+  const listIds = useShoppingListIds().filter((id) => !hidden[id]);
 
   // No naming step: a new list gets today's date as its name and opens at
   // once. It can be renamed from the list's menu.
@@ -38,61 +45,65 @@ export default function ShoppingListsScreen() {
     pushOnce({ pathname: '/shopping/[id]', params: { id } });
   }
 
-  function onDelete(list: ShoppingListSummary) {
-    deleteWithUndo(t('undo.listDeleted', { name: list.name }), [list.id], () =>
-      deleteShoppingList(list.id),
-    );
-  }
-
   return (
     <Screen
       topInset={false}
       overlay={<Fab accessibilityLabel={t('shopping.newList')} onPress={openCreate} />}>
-      {lists.length > 0 ? (
+      {listIds.length > 0 ? (
         <View style={[styles.listCard, { backgroundColor: theme.backgroundElement }]}>
-          {lists.map((list, index) => {
-            const complete = list.item_count > 0 && list.checked_count === list.item_count;
-            return (
-              <Animated.View key={list.id} layout={REFLOW} exiting={EXIT}>
-                <SwipeToDelete
-                  label={t('common.delete')}
-                  onDelete={() => onDelete(list)}>
-                  <Pressable
-                    onPress={() => pushOnce({ pathname: '/shopping/[id]', params: { id: list.id } })}
-                    accessibilityRole="button"
-                    style={({ pressed }) => [
-                      styles.row,
-                      { backgroundColor: theme.backgroundElement },
-                      index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border },
-                      pressed && { backgroundColor: theme.backgroundSelected },
-                    ]}>
-                    <View style={styles.flex}>
-                      <ThemedText numberOfLines={1}>{list.name}</ThemedText>
-                      <ThemedText
-                        type="small"
-                        style={complete ? { color: theme.tint } : undefined}
-                        themeColor={complete ? undefined : 'textSecondary'}>
-                        {list.item_count === 0
-                          ? t('shopping.emptyLabel')
-                          : complete
-                            ? t('shopping.allChecked')
-                            : t('shopping.checkedCount', {
-                                checked: list.checked_count,
-                                total: list.item_count,
-                              })}
-                      </ThemedText>
-                    </View>
-                    <Icon name="chevron.right" size={13} color={theme.textSecondary} />
-                  </Pressable>
-                </SwipeToDelete>
-              </Animated.View>
-            );
-          })}
+          {listIds.map((id, index) => (
+            <Animated.View key={id} layout={REFLOW} exiting={EXIT}>
+              <ShoppingListRow id={id} first={index === 0} />
+            </Animated.View>
+          ))}
         </View>
       ) : (
         <EmptyState icon="cart" title={t('shopping.emptyTitle')} message={t('shopping.empty')} />
       )}
     </Screen>
+  );
+}
+
+/** One list; subscribes to its own name and counts only. */
+function ShoppingListRow({ id, first }: { id: string; first: boolean }) {
+  const t = useT();
+  const theme = useTheme();
+  const list = useShoppingList(id);
+  const { itemCount, checkedCount } = useShoppingListCounts(id);
+  if (!list) return null;
+  const complete = itemCount > 0 && checkedCount === itemCount;
+
+  function onDelete() {
+    deleteWithUndo(t('undo.listDeleted', { name: list!.name }), [id], () => deleteShoppingList(id));
+  }
+
+  return (
+    <SwipeToDelete label={t('common.delete')} onDelete={onDelete}>
+      <Pressable
+        onPress={() => pushOnce({ pathname: '/shopping/[id]', params: { id } })}
+        accessibilityRole="button"
+        style={({ pressed }) => [
+          styles.row,
+          { backgroundColor: theme.backgroundElement },
+          !first && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border },
+          pressed && { backgroundColor: theme.backgroundSelected },
+        ]}>
+        <View style={styles.flex}>
+          <ThemedText numberOfLines={1}>{list.name}</ThemedText>
+          <ThemedText
+            type="small"
+            style={complete ? { color: theme.tint } : undefined}
+            themeColor={complete ? undefined : 'textSecondary'}>
+            {itemCount === 0
+              ? t('shopping.emptyLabel')
+              : complete
+                ? t('shopping.allChecked')
+                : t('shopping.checkedCount', { checked: checkedCount, total: itemCount })}
+          </ThemedText>
+        </View>
+        <Icon name="chevron.right" size={13} color={theme.textSecondary} />
+      </Pressable>
+    </SwipeToDelete>
   );
 }
 
