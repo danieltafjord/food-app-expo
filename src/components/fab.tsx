@@ -31,8 +31,8 @@ export function Fab({ onPress, icon = 'plus', accessibilityLabel }: FabProps) {
       accessibilityLabel={accessibilityLabel}
       onPress={press}
       scaleTo={0.92}
-      style={[styles.fab, { backgroundColor: theme.tint }]}>
-      <Icon name={icon} size={22} weight="bold" color={theme.onTint} />
+      style={[styles.fab, { backgroundColor: theme.accent }]}>
+      <Icon name={icon} size={22} weight="bold" color={theme.onAccent} />
     </PressableScale>
   );
 }

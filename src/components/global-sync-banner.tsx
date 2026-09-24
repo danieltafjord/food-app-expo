@@ -15,7 +15,7 @@ import { useSyncStatus } from '@/lib/sync/status';
 const SYNCED_FLASH_MS = 1800;
 
 const COLORS = {
-  syncing: '#208AEF',
+  syncing: '#9aa0a6',
   synced: '#2e9b5b',
   pending: '#e5a23d',
   error: '#e5484d',

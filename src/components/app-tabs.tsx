@@ -18,6 +18,8 @@ export default function AppTabs() {
       disableTransparentOnScrollEdge
       shadowColor={colors.border}
       indicatorColor={colors.backgroundElement}
+      // Without a tint the selected icon falls back to system blue.
+      tintColor={colors.tint}
       labelStyle={{ selected: { color: colors.text } }}>
       <NativeTabs.Trigger name="index">
         <NativeTabs.Trigger.Label>{t('tabs.plans')}</NativeTabs.Trigger.Label>

@@ -11,7 +11,7 @@ import { syncNow } from '@/lib/sync/engine';
 
 const COLORS = {
   local: '#9aa0a6',
-  syncing: '#208AEF',
+  syncing: '#9aa0a6',
   synced: '#2e9b5b',
   pending: '#e5a23d',
   error: '#e5484d',

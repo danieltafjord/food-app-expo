@@ -7,7 +7,7 @@ import { useResolvedScheme, useTheme } from '@/hooks/use-theme';
 import { useT } from '@/lib/i18n';
 import type { PresenceMember } from '@/lib/realtime/live';
 
-const TONES: BadgeTone[] = ['brand', 'positive', 'warning', 'danger', 'neutral'];
+const TONES: BadgeTone[] = ['brand', 'positive', 'warning', 'neutral'];
 const MAX_AVATARS = 3;
 const SIZE = 26;
 

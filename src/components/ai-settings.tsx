@@ -50,7 +50,7 @@ export function AiSettingsSection() {
                   value={settings[`${feature}_enabled`]}
                   onValueChange={(enabled) => change(feature, enabled)}
                   disabled={update.isPending}
-                  trackColor={{ true: theme.tint }}
+                  trackColor={{ true: theme.accent }}
                   accessibilityLabel={t(feature === 'categorization' ? 'ai.categorization' : 'ai.suggestions')}
                 />
               </View>

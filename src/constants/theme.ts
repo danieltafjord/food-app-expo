@@ -2,10 +2,11 @@
  * Central color + spacing tokens for the app.
  *
  * Surfaces use the Tailwind CSS **neutral** palette; dark mode leans into the
- * very dark end (neutral-950/900/800) for a deep, high-contrast look. The brand
- * blue (`tint`) is the primary action colour; the tomato red from the app icon
- * (`accent`) is a sparing secondary — today's date and the planning action.
- * Both are brightened slightly in dark mode so they stay legible on near-black.
+ * very dark end (neutral-950/900/800) for a deep, high-contrast look. The UI is
+ * black and white: `tint` (selected, checked, primary) is the text colour itself,
+ * inverted per scheme. The tomato red from the app icon (`accent`) is the only
+ * hue, kept for a few brand moments — today's date, the add button, the splash —
+ * so it still means something; it is brightened in dark mode to read on near-black.
  * Every screen reads these through `useTheme()` (resolved against the user's
  * theme preference + OS scheme) so nothing should hardcode a color outside
  * this file.
@@ -24,9 +25,10 @@ export const Colors = {
     backgroundSelected: '#e5e5e5', // neutral-200
     border: '#e5e5e5', // neutral-200
     borderStrong: '#d4d4d4', // neutral-300 — dashed outlines that must read on white
-    tint: '#208AEF', // brand blue
+    tint: '#0a0a0a', // neutral-950
     onTint: '#ffffff',
     accent: '#E73722', // tomato, from the app icon
+    onAccent: '#ffffff',
     accentSoft: '#fde6e1',
     danger: '#dc2626', // red-600
     scrim: 'rgba(0, 0, 0, 0.45)',
@@ -39,9 +41,10 @@ export const Colors = {
     backgroundSelected: '#262626', // neutral-800
     border: '#262626', // neutral-800
     borderStrong: '#404040', // neutral-700
-    tint: '#3b9eff', // brand blue, brightened for dark surfaces
-    onTint: '#ffffff',
+    tint: '#fafafa', // neutral-50
+    onTint: '#0a0a0a',
     accent: '#ff5a43', // tomato, brightened for dark surfaces
+    onAccent: '#ffffff',
     accentSoft: '#3a1a14',
     danger: '#f87171', // red-400
     scrim: 'rgba(0, 0, 0, 0.6)',
@@ -58,14 +61,14 @@ export type BadgeTone = 'neutral' | 'brand' | 'positive' | 'warning' | 'danger';
 export const BadgeColors: Record<ColorScheme, Record<BadgeTone, { bg: string; fg: string }>> = {
   light: {
     neutral: { bg: '#e5e5e5', fg: '#404040' },
-    brand: { bg: '#d5e8ff', fg: '#0d5bba' },
+    brand: { bg: '#fde6e1', fg: '#b92d1b' }, // tomato
     positive: { bg: '#d6f3df', fg: '#1c7a43' },
     warning: { bg: '#fdeecd', fg: '#9a6700' },
     danger: { bg: '#fde0e1', fg: '#c0353a' },
   },
   dark: {
     neutral: { bg: '#262626', fg: '#d4d4d4' },
-    brand: { bg: '#14304d', fg: '#7cc0ff' },
+    brand: { bg: '#3a1a14', fg: '#ff8a75' }, // tomato
     positive: { bg: '#13331f', fg: '#6ee7a0' },
     warning: { bg: '#3a2e10', fg: '#f0c869' },
     danger: { bg: '#3a1718', fg: '#f3a0a3' },

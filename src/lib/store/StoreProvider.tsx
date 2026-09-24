@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { AppErrorBoundary } from '@/components/error-boundary';
+import { Colors } from '@/constants/theme';
 import { ensureChangeTracking } from '@/lib/sync/engine';
 
 import { bootStore } from './boot';
@@ -81,6 +82,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 const styles = StyleSheet.create({
   splash: {
     ...StyleSheet.absoluteFill,
-    backgroundColor: '#208AEF',
+    backgroundColor: Colors.light.accent,
   },
 });
