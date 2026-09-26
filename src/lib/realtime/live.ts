@@ -178,6 +178,11 @@ export const weekScope = (weekStart: string) => `week.${weekStart}`;
 
 export type PresenceHandle = { release: (delayMs?: number) => void };
 
+/** Whether this device has `scope` open on a focused screen right now. */
+export function isInPresenceScope(scope: string): boolean {
+  return (rooms.get(scope)?.refs ?? 0) > 0;
+}
+
 /**
  * Show this user in a scope until released. Ref-counted, so a screen and a
  * sheet over it can both hold the same scope; `release(delay)` lingers so a

@@ -3,6 +3,7 @@ import { observable } from '@legendapp/state';
 import type { Locale } from '@/lib/i18n/locale';
 import type { ClassificationJob } from '@/lib/ai-classification';
 import type { PendingImage } from '@/lib/dinner-images';
+import { DEFAULT_REMINDERS, type ReminderSettings } from '@/lib/notifications/reminder-settings';
 import type { PlanningPreferences } from '@/lib/week-suggestions';
 
 import type {
@@ -43,6 +44,8 @@ export const store$ = observable({
     shoppingListDensity: 'standard' as ShoppingListDensity,
     aiPaused: {} as Record<string, { categorization: boolean; suggestions: boolean }>,
     locale: '' as Locale | '',
+    /** Local reminders on this device (see `@/lib/notifications/reminders`). Stores from older versions lack it. */
+    reminders: DEFAULT_REMINDERS as ReminderSettings,
   },
   meta: {
     /** Kept on this device and cleared when switching household/account. */

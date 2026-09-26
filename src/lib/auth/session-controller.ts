@@ -127,14 +127,15 @@ export class SessionController {
     }
   }
 
-  async signOut(): Promise<void> {
+  /** `body` rides along on the logout request (the install's push token, so the server forgets it). */
+  async signOut(body?: Record<string, unknown>): Promise<void> {
     const accessToken = this.session?.accessToken;
     await this.set(null);
     if (!accessToken) return;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 15_000);
     try {
-      await this.dependencies.request('/auth/logout', { method: 'POST', accessToken, signal: controller.signal });
+      await this.dependencies.request('/auth/logout', { method: 'POST', accessToken, body, signal: controller.signal });
     } catch {
       // Revocation is best effort when offline; local credentials are already removed.
     } finally {

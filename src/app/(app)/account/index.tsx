@@ -7,6 +7,7 @@ import { AiSettingsSection } from '@/components/ai-settings';
 import { AccountSetupCard } from '@/components/account-setup-card';
 import { IngredientExclusions } from '@/components/ingredient-exclusions';
 import { Badge } from '@/components/badge';
+import { NotificationSettingsSection } from '@/components/notification-settings';
 import { OptionGroup, type Option } from '@/components/option-group';
 import { Screen } from '@/components/screen';
 import { SettingsGroup, SettingsRow, SettingsSection } from '@/components/settings-list';
@@ -229,6 +230,7 @@ function AccountScreenContent() {
         />
       </SettingsSection>
 
+      <NotificationSettingsSection />
       <AiSettingsSection />
       <SettingsSection title={t('ingredientExclusions.section')}>
         <IngredientExclusions />

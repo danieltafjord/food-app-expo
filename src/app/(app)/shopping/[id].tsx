@@ -30,6 +30,7 @@ import { useResolvedScheme, useTheme } from '@/hooks/use-theme';
 import { CATEGORY_EMOJI } from '@/lib/categorize';
 import { formatQuantity } from '@/lib/format';
 import { hapticSelection, hapticSuccess } from '@/lib/haptics';
+import { useListMute } from '@/lib/api/notifications';
 import { useT } from '@/lib/i18n';
 import { pushOnce } from '@/lib/navigation';
 import { listScope } from '@/lib/realtime/live';
@@ -78,6 +79,7 @@ export default function ShoppingListScreen() {
   const list = useShoppingList(params.id);
   // Who else in the household has this list open right now.
   const others = usePresence(params.id ? listScope(params.id) : null);
+  const mute = useListMute(params.id);
   const compact = useShoppingListDensity() === 'compact';
   const hidden = useHiddenIds();
   const { sections, checkedIds, total, checked } = withoutHidden(
@@ -160,6 +162,11 @@ export default function ShoppingListScreen() {
         <MenuAction icon="checkmark.circle" disabled={checked === 0} onPress={onClearChecked}>
           {t('shopping.clearChecked')}
         </MenuAction>
+        {mute.available ? (
+          <MenuAction icon={mute.muted ? 'bell' : 'bell.slash'} onPress={mute.toggle}>
+            {t(mute.muted ? 'notifications.unmuteList' : 'notifications.muteList')}
+          </MenuAction>
+        ) : null}
         <MenuAction icon="archivebox" onPress={onArchiveList}>
           {t('shopping.archiveList')}
         </MenuAction>

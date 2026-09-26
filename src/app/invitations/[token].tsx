@@ -13,6 +13,7 @@ import { setPendingInvite } from '@/lib/auth/pending-invite';
 import { useSession } from '@/lib/auth/session';
 import { useT } from '@/lib/i18n';
 import { SyncPendingError } from '@/lib/sync/engine';
+import { askForNotificationsOnce } from '@/lib/notifications/native';
 
 export default function AcceptInvitationScreen() {
   const t = useT();
@@ -36,6 +37,8 @@ export default function AcceptInvitationScreen() {
       const household = await accept.mutateAsync(token);
       setHouseholdName(household.name);
       setOutcome('accepted');
+      // The household is shared now: the moment notifications start to matter.
+      void askForNotificationsOnce();
     } catch (err) {
       setError(
         err instanceof SyncPendingError

@@ -16,6 +16,7 @@ import { useInvitations, useInviteMember, useRevokeInvitation } from '@/lib/api/
 import type { HouseholdRole, InvitationStatus } from '@/lib/api/types';
 import { formatDate } from '@/lib/format';
 import { useT, type TKey } from '@/lib/i18n';
+import { askForNotificationsOnce } from '@/lib/notifications/native';
 
 const STATUS_TONE: Record<InvitationStatus, 'warning' | 'positive' | 'neutral' | 'danger'> = {
   pending: 'warning',
@@ -68,6 +69,8 @@ export default function InviteScreen() {
     try {
       await inviteMember.mutateAsync({ email: trimmed, role });
       setEmail('');
+      // Sharing the household is when notifications start to matter.
+      void askForNotificationsOnce();
     } catch (err) {
       if (err instanceof ApiError && err.isValidation) {
         setFieldError(err.errors?.email?.[0] ?? null);

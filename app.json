@@ -120,6 +120,14 @@
           "microphonePermission": false
         }
       ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/notification-icon.png",
+          "color": "#E73722",
+          "defaultChannel": "household"
+        }
+      ],
       "expo-status-bar",
       "expo-web-browser"
     ],

@@ -16,6 +16,7 @@ import {
 import { applyServerHouseholdSettings, applyServerSettings, getHouseholdDefaultServings, store$ } from '@/lib/store';
 import { whenHydrated } from '@/lib/store/persistence';
 import { getDeviceLocale, translate } from '@/lib/i18n';
+import { getRegisteredPushToken } from '@/lib/notifications/native';
 import { startRealtime, stopRealtime } from '@/lib/realtime/live';
 import { setSyncAuth } from '@/lib/sync/auth-bridge';
 import { connectCollections, disconnectCollections, syncNow } from '@/lib/sync/engine';
@@ -108,7 +109,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }
 
   async function signOut(): Promise<void> {
-    await controller.signOut();
+    const pushToken = getRegisteredPushToken();
+    await controller.signOut(pushToken ? { push_token: pushToken } : undefined);
   }
 
   // Restore a persisted session on launch. We unblock routing as soon as the
