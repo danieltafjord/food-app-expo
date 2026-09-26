@@ -16,6 +16,7 @@ import { useHouseholdIngredientExclusions } from '@/lib/api/ingredient-exclusion
 import { suggestDinners, useIncomingDays } from '@/lib/dinner-suggester';
 import { hapticSelection } from '@/lib/haptics';
 import { useT } from '@/lib/i18n';
+import { capitalize, weekdayWithDay } from '@/lib/format';
 import { dateFormatter } from '@/lib/intl';
 import { store$ } from '@/lib/store/collections';
 import { useHouseholdDefaultServings } from '@/lib/store/household';
@@ -66,10 +67,8 @@ function WeekPlanner({ weekStart }: { weekStart: string }) {
   const servingsFor = (date: string) => servingsByDate[date] ?? defaultServings;
   const today = toDateKey(new Date());
   const weekday = dateFormatter(locale, { weekday: 'long' });
-  const dayName = (date: string) => {
-    const name = `${weekday.format(fromDateKey(date))} ${fromDateKey(date).getDate()}.`;
-    return name.charAt(0).toUpperCase() + name.slice(1);
-  };
+  const dayName = (date: string) =>
+    capitalize(weekdayWithDay(weekday.format(fromDateKey(date)), fromDateKey(date).getDate(), locale));
   const days = buildWeek(fromDateKey(weekStart), locale).filter((day) => day.date >= today);
   const servingValues = [...new Set(dates.map(servingsFor))].sort((a, b) => a - b);
   const servingsSummary = servingValues.length > 1
@@ -126,7 +125,7 @@ function WeekPlanner({ weekStart }: { weekStart: string }) {
             const open = openDates.includes(day.date);
             const checked = open && dates.includes(day.date);
             const label = dayName(day.date);
-            const color = day.isToday ? theme.accent : checked ? theme.text : theme.textSecondary;
+            const color = day.isToday ? theme.accentText : checked ? theme.text : theme.textSecondary;
             return (
               <View key={day.date}>
                 <Separator inset={styles.daySeparator} />

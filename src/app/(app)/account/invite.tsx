@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
+import { AccessibilityInfo, ActivityIndicator, Alert, Pressable, StyleSheet, View } from 'react-native';
 
 import { Badge } from '@/components/badge';
 import { Button } from '@/components/button';
@@ -11,6 +11,7 @@ import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { ApiError } from '@/lib/api/client';
+import { errorMessage } from '@/lib/api/error-message';
 import { useActiveHousehold } from '@/lib/api/households';
 import { useInvitations, useInviteMember, useRevokeInvitation } from '@/lib/api/invitations';
 import type { HouseholdRole, InvitationStatus } from '@/lib/api/types';
@@ -44,6 +45,8 @@ export default function InviteScreen() {
   const [role, setRole] = useState<HouseholdRole>('member');
   const [fieldError, setFieldError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  // "Invitation sent to …", until the next send or edit.
+  const [sentTo, setSentTo] = useState<string | null>(null);
 
   const roleLabel = (r: HouseholdRole) => (r === 'owner' ? t('common.owner') : t('common.member'));
 
@@ -66,21 +69,30 @@ export default function InviteScreen() {
     }
     setFieldError(null);
     setFormError(null);
+    setSentTo(null);
     try {
       await inviteMember.mutateAsync({ email: trimmed, role });
       setEmail('');
+      setSentTo(trimmed);
+      AccessibilityInfo.announceForAccessibility(t('invite.sent', { email: trimmed }));
       // Sharing the household is when notifications start to matter.
       void askForNotificationsOnce();
     } catch (err) {
       if (err instanceof ApiError && err.isValidation) {
         setFieldError(err.errors?.email?.[0] ?? null);
         if (!err.errors?.email) {
-          setFormError(err.message);
+          setFormError(errorMessage(err, t, 'invite.sendError'));
         }
       } else {
-        setFormError(err instanceof ApiError ? err.message : t('invite.sendError'));
+        setFormError(errorMessage(err, t, 'invite.sendError'));
       }
     }
+  }
+
+  function onRevoke(id: number) {
+    revokeInvitation.mutate(id, {
+      onError: (err) => Alert.alert(t('invite.revokeError'), errorMessage(err, t)),
+    });
   }
 
   return (
@@ -90,7 +102,10 @@ export default function InviteScreen() {
           label={t('invite.emailAddress')}
           placeholder={t('invite.emailPlaceholder')}
           value={email}
-          onChangeText={setEmail}
+          onChangeText={(value) => {
+            setEmail(value);
+            setSentTo(null);
+          }}
           autoCapitalize="none"
           autoCorrect={false}
           keyboardType="email-address"
@@ -102,7 +117,7 @@ export default function InviteScreen() {
 
         <View style={styles.roleRow}>
           <ThemedText type="smallBold">{t('invite.role')}</ThemedText>
-          <View style={styles.segment}>
+          <View style={styles.segment} accessibilityRole="radiogroup" accessibilityLabel={t('invite.role')}>
             <RoleOption
               label={roleLabel('member')}
               active={role === 'member'}
@@ -119,6 +134,11 @@ export default function InviteScreen() {
         {formError ? (
           <ThemedText type="small" style={{ color: theme.danger }}>
             {formError}
+          </ThemedText>
+        ) : null}
+        {sentTo ? (
+          <ThemedText type="small" themeColor="textSecondary">
+            {t('invite.sent', { email: sentTo })}
           </ThemedText>
         ) : null}
 
@@ -173,7 +193,7 @@ export default function InviteScreen() {
                     loading={
                       revokeInvitation.isPending && revokeInvitation.variables === invitation.id
                     }
-                    onPress={() => revokeInvitation.mutate(invitation.id)}
+                    onPress={() => onRevoke(invitation.id)}
                   />
                 ) : null}
               </View>
@@ -200,7 +220,12 @@ function RoleOption({
 }) {
   const theme = useTheme();
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => pressed && styles.pressed}>
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="radio"
+      accessibilityState={{ checked: active, selected: active }}
+      accessibilityLabel={label}
+      style={({ pressed }) => pressed && styles.pressed}>
       <ThemedView
         type={active ? 'backgroundSelected' : 'background'}
         style={[styles.roleOption, active && { borderWidth: 1, borderColor: theme.tint }]}>
@@ -223,7 +248,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: Spacing.two,
   },
+  // At least 44pt tall, the minimum comfortable tap target.
   roleOption: {
+    minHeight: 44,
+    justifyContent: 'center',
     paddingVertical: Spacing.two,
     paddingHorizontal: Spacing.four,
     borderRadius: Spacing.two,

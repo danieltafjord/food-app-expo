@@ -161,6 +161,7 @@ function DinnersScreenContent() {
               <Animated.View key={action} entering={REVEAL}>
                 <Pressable
                   accessibilityRole="button"
+                  accessibilityHint={t(action === 'create' ? 'dinners.createHint' : 'dinners.openHint')}
                   onPress={onSubmit}
                   style={({ pressed }) => [styles.action, { backgroundColor: theme.backgroundElement },
                     pressed && { backgroundColor: theme.backgroundSelected }]}>

@@ -1,11 +1,13 @@
-import { Pressable, StyleSheet, View } from 'react-native';
+import { useEffect } from 'react';
+import { AccessibilityInfo, Platform, Pressable, StyleSheet, View } from 'react-native';
 import Animated, { FadeInDown, FadeOutDown } from 'react-native-reanimated';
 
 import { Icon } from '@/components/icon';
 import { ThemedText } from '@/components/themed-text';
 import { BottomTabInset, Colors, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useResolvedScheme } from '@/hooks/use-theme';
-import { useT } from '@/lib/i18n';
+import { translate, useT } from '@/lib/i18n';
+import { getLocale } from '@/lib/store/settings';
 import { undoPendingDelete, usePendingDelete } from '@/lib/undo';
 
 /** Clears a screen's floating add button (56pt, inset like the tab bar clearance) so both stay tappable. */
@@ -25,6 +27,15 @@ export function UndoToast() {
   const pending = usePendingDelete();
   const dark = Colors.dark;
   const surface = scheme === 'dark' ? dark.backgroundSelected : dark.backgroundElement;
+  const key = pending?.key;
+  const message = pending?.message;
+
+  // `accessibilityLiveRegion` is Android-only; VoiceOver hears it announced,
+  // with the way back, once per new toast.
+  useEffect(() => {
+    if (Platform.OS !== 'ios' || key === undefined || !message) return;
+    AccessibilityInfo.announceForAccessibility(`${message}. ${translate(getLocale(), 'undo.action')}`);
+  }, [key, message]);
 
   return (
     <View pointerEvents="box-none" style={styles.host}>

@@ -1,5 +1,7 @@
 import * as Crypto from 'expo-crypto';
 
+import { serverNow } from './clock';
+
 /**
  * Client-generated id for a new local entity.
  *
@@ -11,9 +13,12 @@ export function newId(): string {
   return Crypto.randomUUID();
 }
 
-/** ISO timestamp for `created_at` / `updated_at`. */
+/**
+ * ISO timestamp for `created_at` / `updated_at`, corrected towards the server
+ * clock so a phone running slow doesn't lose its edits (see `./clock`).
+ */
 export function nowIso(): string {
-  return new Date().toISOString();
+  return new Date(serverNow()).toISOString();
 }
 
 /**

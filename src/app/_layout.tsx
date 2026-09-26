@@ -8,9 +8,10 @@ import { AiClassificationWorker } from '@/components/ai-classification-worker';
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import { nativeSheetSurface } from '@/components/sheet';
 import { DinnerImageUploader } from '@/components/dinner-image-uploader';
-import { SchemeContext, useResolvedSchemeSource } from '@/hooks/use-theme';
+import { SchemeContext, useResolvedSchemeSource, useTheme } from '@/hooks/use-theme';
 import { Colors } from '@/constants/theme';
 import { queryClient } from '@/lib/api/query-client';
+import { useT } from '@/lib/i18n';
 import { SessionProvider } from '@/lib/auth/session';
 import { StoreProvider } from '@/lib/store';
 import { LocaleContext, useLocaleSource } from '@/lib/store/settings';
@@ -98,6 +99,8 @@ const listSheet: ScreenOptions = {
 };
 
 function RootNavigator() {
+  const theme = useTheme();
+  const t = useT();
   // A deferred invite (deep link opened while signed out) is resumed by the
   // sign-in screen itself right after `signIn()` — see `src/app/sign-in.tsx`.
   // The pending token is in-memory only, so there is no launch-restore case to
@@ -116,6 +119,19 @@ function RootNavigator() {
       <Stack.Screen name="sign-in" options={{ presentation: 'modal' }} />
       <Stack.Screen name="weeks" options={{ presentation: 'modal' }} />
       <Stack.Screen name="invitations/[token]" />
+      {/* A dinner's recipe opened from the plan, over the tabs so Back returns there. */}
+      <Stack.Screen
+        name="dinner/[id]"
+        options={{
+          headerShown: true,
+          title: '',
+          headerBackTitle: t('tabs.plans'),
+          headerStyle: { backgroundColor: theme.background },
+          headerTintColor: theme.text,
+          headerShadowVisible: false,
+          contentStyle: { backgroundColor: theme.background },
+        }}
+      />
       <Stack.Screen name="oauth/callback" options={{ animation: 'none' }} />
 
       {/* Bottom sheets are native form sheets: the system owns the surface,

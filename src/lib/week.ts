@@ -54,7 +54,7 @@ export function startOfWeek(date: Date): Date {
 }
 
 const WEEKDAY_SHORT: Intl.DateTimeFormatOptions = { weekday: 'short' };
-const MONTH_SHORT: Intl.DateTimeFormatOptions = { month: 'short' };
+const DAY_MONTH: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short' };
 
 export function buildWeek(weekStart: Date, locale: string = getLocale()): WeekDay[] {
   const todayKey = toDateKey(new Date());
@@ -71,14 +71,36 @@ export function buildWeek(weekStart: Date, locale: string = getLocale()): WeekDa
   });
 }
 
-/** Human label for the week, e.g. "Jun 1 – 7" or "Jun 30 – Jul 6", in the app's language. */
+/**
+ * Human label for the week in the app's language, with the day and month in
+ * that language's order: "Jun 1 – 7" / "Jun 29 – Jul 5" (en), "1.–7. jun." /
+ * "29. jun. – 5. jul." (nb). Built from the locale's own day + month format
+ * (Hermes has no `formatRange`), sharing the month once when both ends are in it.
+ */
 export function weekLabel(weekStart: Date, locale: string = getLocale()): string {
   const weekEnd = addDays(weekStart, 6);
-  const month = dateFormatter(locale, MONTH_SHORT);
-  const startMonth = month.format(weekStart);
-  const endMonth = month.format(weekEnd);
-  if (startMonth === endMonth) {
-    return `${startMonth} ${weekStart.getDate()} – ${weekEnd.getDate()}`;
+  const format = dateFormatter(locale, DAY_MONTH);
+  const start = format.format(weekStart);
+  const end = format.format(weekEnd);
+  if (weekStart.getMonth() !== weekEnd.getMonth()) {
+    return `${start} – ${end}`;
   }
-  return `${startMonth} ${weekStart.getDate()} – ${endMonth} ${weekEnd.getDate()}`;
+  // Day first ("21. sep.", "21 Sept"): keep the start's day, with its dot, and
+  // let the end carry the month. Month first ("Sep 21"): the end is just a day.
+  const leadingDay = /^\d+\.?/.exec(start);
+  if (leadingDay) {
+    return `${leadingDay[0]}–${end}`;
+  }
+  return `${start} – ${weekEnd.getDate()}`;
+}
+
+/**
+ * ISO-8601 week number (weeks start on Monday; week 1 holds the year's first
+ * Thursday) — the number Norwegians plan by ("uke 39"). Used to name a week's
+ * plan and the list made from it.
+ */
+export function isoWeekNumber(date: Date): number {
+  const thursday = addDays(startOfWeek(date), 3);
+  const firstThursday = addDays(startOfWeek(new Date(thursday.getFullYear(), 0, 4)), 3);
+  return Math.round((thursday.getTime() - firstThursday.getTime()) / (7 * 24 * 3600 * 1000)) + 1;
 }

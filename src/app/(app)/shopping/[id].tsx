@@ -39,6 +39,7 @@ import { updateShoppingListFromPlan, usePlanListDrift } from '@/lib/shopping/gen
 import {
   archiveShoppingList,
   deleteShoppingList,
+  restoreShoppingList,
   removeShoppingItems,
   setShoppingListDensity,
   toggleShoppingItem,
@@ -49,7 +50,7 @@ import {
   useShoppingListSections,
   type ShoppingListSections,
 } from '@/lib/store';
-import { deleteWithUndo, useHiddenIds } from '@/lib/undo';
+import { addWithUndo, deleteWithUndo, useHiddenIds } from '@/lib/undo';
 
 /** How long a ticked row stays put, showing its check, before it moves to its new section. */
 const SETTLE_MS = 450;
@@ -126,9 +127,11 @@ export default function ShoppingListScreen() {
     deleteWithUndo(message, ids, () => removeShoppingItems(ids));
   }
 
+  // Say where the list went (and offer it back): it vanishes from Shopping.
   function onArchiveList() {
     router.back();
     archiveShoppingList(listId);
+    addWithUndo(t('undo.listArchived', { name: listName }), () => restoreShoppingList(listId));
   }
 
   function onDeleteList() {
@@ -354,11 +357,23 @@ function ShoppingRow({ itemId, first, compact, onEdit, onRemove }: ShoppingRowPr
         label={t('common.delete')}
         onDelete={() => onRemove(itemId, label)}
         secondary={{ label: t('a11y.edit'), onPress: () => onEdit(itemId) }}>
+        {/* The swipe actions are out of VoiceOver's reach; the same actions
+            are offered in its Actions rotor instead. */}
         <Pressable
           onPress={onPress}
           accessibilityRole="checkbox"
           accessibilityState={{ checked }}
           accessibilityLabel={qty ? `${label}, ${qty}` : label}
+          accessibilityActions={[
+            { name: 'toggle', label: t('a11y.toggleItem', { name: label }) },
+            { name: 'edit', label: t('a11y.editItem', { name: label }) },
+            { name: 'delete', label: t('common.delete') },
+          ]}
+          onAccessibilityAction={({ nativeEvent }) => {
+            if (nativeEvent.actionName === 'toggle') onPress();
+            else if (nativeEvent.actionName === 'edit') onEdit(itemId);
+            else if (nativeEvent.actionName === 'delete') onRemove(itemId, label);
+          }}
           style={({ pressed }) => [
             styles.itemRow,
             compact && styles.compactItemRow,
@@ -405,7 +420,8 @@ function Checkbox({ checked, compact }: { checked: boolean; compact: boolean }) 
 
   const boxStyle = useAnimatedStyle(() => ({
     backgroundColor: interpolateColor(fill.get(), [0, 1], ['transparent', theme.tint]),
-    borderColor: interpolateColor(fill.get(), [0, 1], [theme.border, theme.tint]),
+    // An empty ring is a control outline, so it needs 3:1 against the row's grey.
+    borderColor: interpolateColor(fill.get(), [0, 1], [theme.controlBorder, theme.tint]),
   }));
   const markStyle = useAnimatedStyle(() => ({
     opacity: mark.get(),

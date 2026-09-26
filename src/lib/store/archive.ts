@@ -18,6 +18,8 @@ export type ArchiveBackend = {
   drop(listIds: readonly string[]): void;
   /** Forget these items wherever they are kept (deleted on another device). */
   forgetItems(itemIds: readonly string[]): void;
+  /** Forget everything kept, for every list (the local data was wiped). */
+  clear(): void;
   /** Lists with items kept here. */
   listIds(): string[];
   counts(): Record<string, { total: number; checked: number }>;
@@ -44,6 +46,10 @@ export class MemoryArchive implements ArchiveBackend {
     for (const kept of this.lists.values()) {
       for (const id of itemIds) kept.delete(id);
     }
+  }
+
+  clear(): void {
+    this.lists.clear();
   }
 
   listIds(): string[] {

@@ -1,0 +1,6 @@
+{
+  "ios": {
+    "NSCameraUsageDescription": "Allow Handlelista to take pictures of your dinners.",
+    "NSPhotoLibraryUsageDescription": "Allow Handlelista to use your photos as pictures for your dinners."
+  }
+}

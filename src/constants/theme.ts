@@ -7,6 +7,8 @@
  * inverted per scheme. The tomato red from the app icon (`accent`) is the only
  * hue, kept for a few brand moments — today's date, the add button, the splash —
  * so it still means something; it is brightened in dark mode to read on near-black.
+ * Small accent text uses `accentText`: the icon's tomato is only 4.2:1 on white,
+ * so light mode takes a deeper shade of it that clears 4.5:1 on every surface.
  * Every screen reads these through `useTheme()` (resolved against the user's
  * theme preference + OS scheme) so nothing should hardcode a color outside
  * this file.
@@ -25,9 +27,11 @@ export const Colors = {
     backgroundSelected: '#e5e5e5', // neutral-200
     border: '#e5e5e5', // neutral-200
     borderStrong: '#d4d4d4', // neutral-300 — dashed outlines that must read on white
+    controlBorder: '#737373', // neutral-500 — outlines of empty controls: 4.3:1 on neutral-100
     tint: '#0a0a0a', // neutral-950
     onTint: '#ffffff',
     accent: '#E73722', // tomato, from the app icon
+    accentText: '#c42f1c', // tomato, deepened: 5.6:1 on white, 5.1:1 on neutral-100
     onAccent: '#ffffff',
     accentSoft: '#fde6e1',
     danger: '#dc2626', // red-600
@@ -41,9 +45,11 @@ export const Colors = {
     backgroundSelected: '#262626', // neutral-800
     border: '#262626', // neutral-800
     borderStrong: '#404040', // neutral-700
+    controlBorder: '#737373', // neutral-500 — 3.9:1 on neutral-900
     tint: '#fafafa', // neutral-50
     onTint: '#0a0a0a',
     accent: '#ff5a43', // tomato, brightened for dark surfaces
+    accentText: '#ff5a43', // already 4.9:1 or better on every dark surface
     onAccent: '#ffffff',
     accentSoft: '#3a1a14',
     danger: '#f87171', // red-400

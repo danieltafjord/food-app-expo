@@ -68,6 +68,8 @@ export function useUpdateAiSettings() {
   return useMutation({
     scope: { id: `ai-settings-${account}` },
     mutationFn: (input: AiPreferences) => requestAi<AiSettings>(request, '/ai/settings', { method: 'PATCH', body: input }),
+    // Optimistic both ways: the switch stays where it was flipped instead of
+    // snapping back until the server answers.
     onMutate: async (input) => {
       const revision = ++latest.current;
       store$.settings.aiPaused[account].set({
@@ -75,12 +77,20 @@ export function useUpdateAiSettings() {
         suggestions: !input.suggestions_enabled,
       });
       await client.cancelQueries({ queryKey: key });
-      return { revision };
+      const previous = client.getQueryData<AiSettings>(key);
+      if (previous) client.setQueryData<AiSettings>(key, { ...previous, ...input });
+      return { revision, previous };
     },
     onSuccess: (settings, _input, context) => {
       if (context?.revision !== latest.current) return;
       client.setQueryData(key, settings);
       store$.settings.aiPaused[account].delete();
+    },
+    // A failed opt-in rolls back to off; a failed opt-out stays off on this
+    // device anyway (`aiPaused`) until a retry saves it.
+    onError: (_error, _input, context) => {
+      if (context?.revision !== latest.current || !context.previous) return;
+      client.setQueryData(key, context.previous);
     },
   });
 }

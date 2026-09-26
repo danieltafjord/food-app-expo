@@ -7,7 +7,7 @@ import { Card } from '@/components/card';
 import { Screen } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
 import { useTheme } from '@/hooks/use-theme';
-import { ApiError } from '@/lib/api/client';
+import { errorMessage } from '@/lib/api/error-message';
 import { useAcceptInvitation, useDeclineInvitation } from '@/lib/api/invitations';
 import { setPendingInvite } from '@/lib/auth/pending-invite';
 import { useSession } from '@/lib/auth/session';
@@ -43,9 +43,7 @@ export default function AcceptInvitationScreen() {
       setError(
         err instanceof SyncPendingError
           ? t('household.switchBlockedPending')
-          : err instanceof ApiError
-            ? err.message
-            : t('invitation.acceptError'),
+          : errorMessage(err, t, 'invitation.acceptError'),
       );
     }
   }
@@ -59,7 +57,7 @@ export default function AcceptInvitationScreen() {
       await decline.mutateAsync(token);
       setOutcome('declined');
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : t('invitation.declineError'));
+      setError(errorMessage(err, t, 'invitation.declineError'));
     }
   }
 
@@ -98,6 +96,9 @@ export default function AcceptInvitationScreen() {
               router.replace('/sign-in');
             }}
           />
+          {/* Opened cold from the email link, this is the only screen: without
+              a way out, backing off from signing in would be a dead end. */}
+          <Button title={t('common.notNow')} variant="secondary" onPress={() => router.replace('/')} />
         </Card>
       </Screen>
     );

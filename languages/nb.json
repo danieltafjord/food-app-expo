@@ -1,0 +1,6 @@
+{
+  "ios": {
+    "NSCameraUsageDescription": "Gi Handlelista tilgang til kameraet for å ta bilder av middagene dine.",
+    "NSPhotoLibraryUsageDescription": "Gi Handlelista tilgang til bildene dine for å bruke dem som bilder til middagene."
+  }
+}

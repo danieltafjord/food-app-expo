@@ -59,9 +59,9 @@ export default function PlansScreen() {
   const currentPlan = usePlanForWeek(weekStartKey);
   // Who else in the household is looking at this week right now.
   const others = usePresence(weekScope(weekStartKey));
-  // A dinner deleted with Undo still pending leaves the board at once.
+  // A dinner deleted (or an entry removed) with Undo still pending leaves the board at once.
   const hidden = useHiddenIds();
-  const entries = usePlanEntries(currentPlan?.id).filter((entry) => !hidden[entry.dinner_id]);
+  const entries = usePlanEntries(currentPlan?.id).filter((entry) => !hidden[entry.dinner_id] && !hidden[entry.id]);
   const showPlanAction = useWeekHasOpenDays(weekStartKey);
   const showListAction = entries.length > 0;
   const showActionDock = showPlanAction || showListAction;
@@ -138,6 +138,9 @@ export default function PlansScreen() {
             <View style={styles.weekLabel}>
               <Pressable
                 onPress={() => pushOnce('/weeks')}
+                accessibilityRole="button"
+                accessibilityLabel={isCurrentWeek ? `${label}, ${t('plans.thisWeek')}` : label}
+                accessibilityHint={t('plans.weeksHintShort')}
                 hitSlop={8}
                 style={({ pressed }) => [styles.weekLabelButton, pressed && styles.pressed]}>
                 <ThemedText type="smallBold">{label}</ThemedText>
@@ -149,7 +152,8 @@ export default function PlansScreen() {
                 />
               </Pressable>
               {isCurrentWeek ? (
-                <ThemedText type="small" themeColor="textSecondary">
+                // Already part of the week button's label for VoiceOver.
+                <ThemedText type="small" themeColor="textSecondary" accessibilityElementsHidden importantForAccessibility="no">
                   {t('plans.thisWeek')}
                 </ThemedText>
               ) : (
@@ -158,6 +162,7 @@ export default function PlansScreen() {
                     hapticLight();
                     setPlannerWeekKey(toDateKey(startOfWeek(new Date())));
                   }}
+                  accessibilityRole="button"
                   hitSlop={6}>
                   <ThemedText type="small" style={{ color: theme.tint }}>
                     {t('plans.jumpToThisWeek')}

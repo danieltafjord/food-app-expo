@@ -1,7 +1,7 @@
 import * as AuthSession from 'expo-auth-session';
 
 import { API_BASE_URL, OAUTH_CLIENT_ID, OAUTH_REDIRECT_PATH, OAUTH_SCHEME } from '@/lib/config';
-import { ApiError } from '@/lib/api/client';
+import { ApiError, requestLocale } from '@/lib/api/client';
 import type { StoredSession } from '@/lib/auth/token-storage';
 
 /**
@@ -53,7 +53,7 @@ export function tokenResponseToSession(token: AuthSession.TokenResponse): Stored
 export async function refreshSession(refreshToken: string, signal?: AbortSignal): Promise<StoredSession> {
   const response = await fetch(discovery.tokenEndpoint!, {
     method: 'POST', signal,
-    headers: { Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' },
+    headers: { Accept: 'application/json', 'Accept-Language': requestLocale(), 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ grant_type: 'refresh_token', client_id: OAUTH_CLIENT_ID, refresh_token: refreshToken }).toString(),
   });
   const body = await response.json();

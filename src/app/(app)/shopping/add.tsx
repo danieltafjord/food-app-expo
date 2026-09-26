@@ -1,5 +1,5 @@
 import { useLocalSearchParams } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, View } from 'react-native';
 
 import { Icon } from '@/components/icon';
@@ -19,12 +19,13 @@ import {
   buildShoppingSuggestions,
   createIngredient,
   getIngredient,
-  removeShoppingItem,
+  removeShoppingItems,
   useIngredients,
   useShoppingList,
   useShoppingListItems,
   type ShoppingSuggestion,
 } from '@/lib/store';
+import { deleteWithUndo, useHiddenIds } from '@/lib/undo';
 
 /**
  * Listonic-style "add items" screen: search the household's previous items and
@@ -32,6 +33,10 @@ import {
  * and add it. A typed line may carry the amount ("2 l melk") — the name part
  * drives the search and the amount lands on the item. Stays open so several
  * items can be added in one pass.
+ *
+ * Tapping a row that is already ticked takes back what was added here. An item
+ * that was on the list before (from the week plan, maybe already checked off)
+ * is removed like a swipe on the list: at once, with Undo.
  */
 export default function AddShoppingItemsScreen() {
   const t = useT();
@@ -40,7 +45,14 @@ export default function AddShoppingItemsScreen() {
   const list = useShoppingList(listId);
   // Adding items still counts as being in the list.
   usePresence(listId ? listScope(listId) : null);
-  const items = useShoppingListItems(listId);
+  // Rows removed with Undo still pending count as off the list.
+  const hidden = useHiddenIds();
+  const items = useShoppingListItems(listId).filter((item) => !hidden[item.id]);
+  // Item ids added on this screen, per suggestion key: those toggle off silently.
+  const addedHere = useRef(new Map<string, string[]>());
+  // What the query was when "Add …" last ran: the return key and a tap on the
+  // row both fire for the same text, and it must be created only once.
+  const lastCreated = useRef<string | null>(null);
   // The catalogue is built once when the screen opens: it walks every item
   // ever put on a list, and rebuilding (and re-sorting) it after each tap would
   // both cost that scan and shuffle rows under the finger. New entries typed
@@ -77,6 +89,10 @@ export default function AddShoppingItemsScreen() {
       ? onListIngredientIds.has(s.ingredient_id)
       : onListNames.has(s.name.toLowerCase());
 
+  function rememberAdded(key: string, itemId: string) {
+    addedHere.current.set(key, [...(addedHere.current.get(key) ?? []), itemId]);
+  }
+
   /** Add a suggestion, with the typed amount if there is one, else its usual unit. */
   function add(s: ShoppingSuggestion) {
     if (!listId || !amountOk) return;
@@ -85,9 +101,9 @@ export default function AddShoppingItemsScreen() {
       : { unit: s.default_unit };
     if (s.ingredient_id) {
       if (!getIngredient(s.ingredient_id)) return;
-      addShoppingItem(listId, { ingredient_id: s.ingredient_id, ...base });
+      rememberAdded(s.key, addShoppingItem(listId, { ingredient_id: s.ingredient_id, ...base }));
     } else {
-      addShoppingItem(listId, { name: s.name, ...base });
+      rememberAdded(s.key, addShoppingItem(listId, { name: s.name, ...base }));
     }
   }
 
@@ -100,7 +116,16 @@ export default function AddShoppingItemsScreen() {
         );
 
     if (existing.length > 0) {
-      existing.forEach((it) => removeShoppingItem(it.id));
+      const mine = new Set(addedHere.current.get(s.key) ?? []);
+      const ownIds = existing.filter((it) => mine.has(it.id)).map((it) => it.id);
+      if (ownIds.length > 0) {
+        // Just added here by mistake: take back only that.
+        removeShoppingItems(ownIds);
+        addedHere.current.set(s.key, [...mine].filter((id) => !ownIds.includes(id)));
+      } else {
+        const ids = existing.map((it) => it.id);
+        deleteWithUndo(t('undo.itemRemoved', { name: s.name }), ids, () => removeShoppingItems(ids));
+      }
     } else {
       add(s);
     }
@@ -111,14 +136,15 @@ export default function AddShoppingItemsScreen() {
   // A typed item with no match becomes a real ingredient (so it's remembered as
   // a future suggestion) and is added to the list with the typed amount.
   function addNew() {
-    if (!listId || !name || !amountOk) return;
+    if (!listId || !name || !amountOk || lastCreated.current === query) return;
+    lastCreated.current = query;
     const id = createIngredient({ name, default_unit: parsed.unit });
     const ingredient = getIngredient(id);
-    addShoppingItem(listId, {
+    rememberAdded(id, addShoppingItem(listId, {
       ingredient_id: id,
       quantity: parsed.quantity,
       unit: parsed.unit ?? ingredient?.default_unit ?? null,
-    });
+    }));
     setSuggestions((current) =>
       current.some((s) => s.key === id)
         ? current
@@ -167,7 +193,10 @@ export default function AddShoppingItemsScreen() {
           maxLength={255}
           error={amountOk ? null : t('shoppingItemEditor.amountInvalid')}
           value={query}
-          onChangeText={setQuery}
+          onChangeText={(value) => {
+            setQuery(value);
+            lastCreated.current = null;
+          }}
           autoCapitalize="none"
           autoCorrect={false}
           autoFocus

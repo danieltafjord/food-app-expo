@@ -1,5 +1,6 @@
 import { batch } from '@legendapp/state';
 
+import { archive } from './archive';
 import { store$ } from './collections';
 import { ensureLocalHousehold } from './household';
 
@@ -47,8 +48,8 @@ export function bindAccount(accountId: number): void {
 }
 
 /**
- * Wipe every local entity and the sync outbox, reset the cursor, and seed a
- * fresh local household. The wiped data is NOT lost — it was already synced to
+ * Wipe every local entity (archived lists' items included) and the sync
+ * outbox, reset the cursor, and seed a fresh local household. The wiped data is NOT lost — it was already synced to
  * the server and comes back on the next pull for whichever household/account the
  * device is bound to afterwards.
  */
@@ -75,8 +76,19 @@ function wipeLocalData(): void {
     store$.meta.cursor.set(null);
     store$.meta.serverHouseholdId.set(null);
     store$.meta.linked.set(false);
+    store$.meta.seeded.set(false);
     store$.meta.localHouseholdId.set('');
   });
+  // Archived lists' items live outside the store (see `./archive`). Left
+  // behind, the next first sync would restore them under lists that no longer
+  // exist here — uploading orphans the server refuses, and showing another
+  // account's item names.
+  try {
+    archive().clear();
+  } catch (error) {
+    // Orphans are also dropped at launch and before the first sync.
+    if (__DEV__) console.warn('[account] could not clear the archive', error);
+  }
   // Recreate the implicit on-device household so the app always has somewhere to write.
   ensureLocalHousehold();
 }

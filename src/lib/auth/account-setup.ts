@@ -1,7 +1,12 @@
 import type { RequestOptions } from '@/lib/api/client';
 import type { Household, User } from '@/lib/api/types';
 
-export type AccountSetupPhase = 'setting-up' | 'error' | 'invitation' | 'ready';
+/**
+ * `offline`: the account couldn't be reached (no connection, a timeout). Not a
+ * failure — setup retries by itself, with backoff and on return to the front.
+ * `error` is kept for a server that answered and refused.
+ */
+export type AccountSetupPhase = 'setting-up' | 'offline' | 'error' | 'invitation' | 'ready';
 
 /** Auth navigation must settle before deciding whether to create a household. */
 export function deferHouseholdSetup(pathname: string): boolean {

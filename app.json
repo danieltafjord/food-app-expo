@@ -19,7 +19,8 @@
         "applinks:handlelistaapp.no"
       ],
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "CFBundleAllowMixedLocalizations": true
       },
       "privacyManifests": {
         "NSPrivacyTracking": false,
@@ -93,6 +94,10 @@
         }
       ]
     },
+    "locales": {
+      "en": "./languages/en.json",
+      "nb": "./languages/nb.json"
+    },
     "web": {
       "output": "static",
       "favicon": "./assets/images/favicon.png"
@@ -107,9 +112,24 @@
           "imageWidth": 120
         }
       ],
-      "expo-secure-store",
+      [
+        "expo-secure-store",
+        {
+          "faceIDPermission": false
+        }
+      ],
       "expo-sqlite",
-      "expo-localization",
+      [
+        "expo-localization",
+        {
+          "supportedLocales": {
+            "ios": [
+              "en",
+              "nb"
+            ]
+          }
+        }
+      ],
       "expo-font",
       "expo-image",
       [

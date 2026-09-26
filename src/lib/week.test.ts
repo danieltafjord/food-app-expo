@@ -3,6 +3,7 @@ import {
   addWeeks,
   dateKeyOf,
   fromDateKey,
+  isoWeekNumber,
   startOfWeek,
   toDateKey,
   weekLabel,
@@ -87,5 +88,20 @@ describe('weekLabel', () => {
 
   it('shows both months across a boundary', () => {
     expect(weekLabel(new Date(2026, 5, 29), 'en-US')).toBe('Jun 29 – Jul 5');
+  });
+
+  it('puts the day first, with its dot, in Norwegian', () => {
+    expect(weekLabel(new Date(2026, 8, 21), 'nb')).toBe('21.–27. sep.');
+    expect(weekLabel(new Date(2026, 8, 28), 'nb')).toBe('28. sep. – 4. okt.');
+  });
+});
+
+describe('isoWeekNumber', () => {
+  it('numbers weeks the ISO way (Monday start, week 1 holds the first Thursday)', () => {
+    expect(isoWeekNumber(new Date(2026, 8, 21))).toBe(39); // Mon
+    expect(isoWeekNumber(new Date(2026, 8, 27))).toBe(39); // Sun, same week
+    expect(isoWeekNumber(new Date(2026, 0, 1))).toBe(1); // Thu
+    expect(isoWeekNumber(new Date(2027, 0, 1))).toBe(53); // Fri, still 2026's last week
+    expect(isoWeekNumber(new Date(2024, 11, 30))).toBe(1); // Mon, already 2025's week 1
   });
 });

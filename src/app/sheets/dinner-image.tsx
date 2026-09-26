@@ -2,7 +2,7 @@ import { useValue } from '@legendapp/state/react';
 import { useQueryClient } from '@tanstack/react-query';
 import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Button } from '@/components/button';
@@ -58,6 +58,8 @@ function PicturePicker({ dinner }: { dinner: DinnerWithItems }) {
   const [custom, setCustom] = useState('');
   const [busy, setBusy] = useState(false);
   const [generation, setGeneration] = useState<Generation>({ status: 'idle' });
+  // Once per sheet: two quick taps on the emoji grid would pop two screens.
+  const closing = useRef(false);
   const pending = useValue(() => !!store$.meta.pendingImages[dinner.id].get());
   const boundAccount = useValue(store$.meta.accountId);
   const boundHousehold = useValue(store$.meta.serverHouseholdId);
@@ -67,6 +69,8 @@ function PicturePicker({ dinner }: { dinner: DinnerWithItems }) {
   const canGenerate = signedInHere && !!settings?.available && !!aiAllowance && dinner.name.trim().length >= 2;
 
   function choose(picture: DinnerPicture) {
+    if (closing.current) return;
+    closing.current = true;
     hapticSelection();
     setDinnerPicture(dinner.id, picture);
     router.back();
@@ -93,7 +97,10 @@ function PicturePicker({ dinner }: { dinner: DinnerWithItems }) {
     setBusy(true);
     try {
       await queuePickedPhoto(dinner.id, asset);
-      router.back();
+      if (!closing.current) {
+        closing.current = true;
+        router.back();
+      }
     } catch {
       Alert.alert(t('dinnerImage.pickFailed'));
     } finally {

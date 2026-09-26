@@ -18,7 +18,7 @@ import {
 } from '@/lib/store/week-suggestions';
 import { noteRemoteChanges } from '@/lib/sync/remote-changes';
 import { addWithUndo } from '@/lib/undo';
-import { dateKeyOf, fromDateKey, startOfWeek, toDateKey, weekLabel } from '@/lib/week';
+import { dateKeyOf, fromDateKey, isoWeekNumber, startOfWeek, toDateKey } from '@/lib/week';
 import {
   mealNameKey,
   PREFERENCES_MAX,
@@ -248,7 +248,7 @@ function write(job: SuggestionJob, weekStart: string, targets: { date: string; s
     ? [{ ...target, dinner: dinners[index] }] : []);
   const locale = getLocale();
   const ids = planSuggestedDinners(weekStart,
-    translate(locale, 'plans.weekOf', { label: weekLabel(fromDateKey(weekStart), locale) }), entries);
+    translate(locale, 'plans.weekOf', { week: isoWeekNumber(fromDateKey(weekStart)) }), entries);
   noteRemoteChanges(ids);
   if (job.kind !== 'week' || !ids.length) return;
   const requested = Object.keys(job.servings).length;

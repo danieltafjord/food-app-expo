@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { Button } from '@/components/button';
@@ -15,10 +15,13 @@ export default function RenameListSheet() {
   const { listId } = useLocalSearchParams<{ listId: string }>();
   const list = useShoppingList(listId);
   const [name, setName] = useState(list?.name ?? '');
+  // Once per sheet: the return key and a tap on Save would otherwise pop two screens.
+  const saved = useRef(false);
 
   function onSave() {
     const trimmed = name.trim();
-    if (!trimmed || !listId) return;
+    if (!trimmed || !listId || saved.current) return;
+    saved.current = true;
     renameShoppingList(listId, trimmed);
     router.back();
   }
@@ -29,7 +32,7 @@ export default function RenameListSheet() {
         label={t('shopping.name')}
         placeholder={t('shopping.namePlaceholder')}
         maxLength={255}
-          value={name}
+        value={name}
         onChangeText={setName}
         autoCapitalize="sentences"
         autoFocus

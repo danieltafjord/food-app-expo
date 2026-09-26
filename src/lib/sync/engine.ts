@@ -1,11 +1,12 @@
 import { batch, type ListenerParams } from '@legendapp/state';
 import { AppState, type AppStateStatus, type NativeEventSubscription } from 'react-native';
 
-import { ApiError, type RequestOptions } from '@/lib/api/client';
+import { ApiError, isTransientError, type RequestOptions } from '@/lib/api/client';
 import { resetLocalDataForHousehold } from '@/lib/store/account';
 import { archive } from '@/lib/store/archive';
 import { restoreAllArchivedItems, settleArchive } from '@/lib/store/archiving';
 import { bootStore } from '@/lib/store/boot';
+import { estimateClockOffset, setClockOffset } from '@/lib/store/clock';
 import { store$ } from '@/lib/store/collections';
 import { getLocalHouseholdId } from '@/lib/store/household';
 import { nowIso } from '@/lib/store/ids';
@@ -14,7 +15,7 @@ import { isTrackingSuspended } from '@/lib/store/tracking';
 
 import { getSyncRequest, type SyncRequest } from './auth-bridge';
 import { noteRemoteChanges } from './remote-changes';
-import { markSyncError, markSynced, markSyncing, setPendingCount, setRejectedCount } from './status';
+import { markIdle, markOffline, markSyncError, markSynced, markSyncing, setPendingCount, setRejectedCount } from './status';
 
 /**
  * Cloud sync engine.
@@ -101,16 +102,21 @@ const CHUNK_ROWS = 300;
  */
 const INITIAL_SYNC_DELAY_MS = 1200;
 
-/** The syncable collections, mapped to their server payload keys, in dependency order. */
+/**
+ * The syncable collections, mapped to their server payload keys, in dependency
+ * order. `parentOf` children are deleted with their parent; `nullOf` children
+ * only lose the reference (the server's `nullOnDelete`), e.g. a shopping list
+ * outlives the plan it was generated from.
+ */
 export const SYNCABLE = [
-  { collection: 'dinnerCategories', serverKey: 'dinner_categories', household: true, parentOf: [] },
-  { collection: 'ingredients', serverKey: 'ingredients', household: true, parentOf: ['dinnerItems:ingredient_id', 'shoppingListItems:ingredient_id'] },
-  { collection: 'dinners', serverKey: 'dinners', household: true, parentOf: ['dinnerItems:dinner_id', 'planEntries:dinner_id'] },
-  { collection: 'dinnerItems', serverKey: 'dinner_items', household: false, parentOf: [] },
-  { collection: 'dinnerPlans', serverKey: 'dinner_plans', household: true, parentOf: ['planEntries:dinner_plan_id'] },
-  { collection: 'planEntries', serverKey: 'plan_entries', household: false, parentOf: [] },
-  { collection: 'shoppingLists', serverKey: 'shopping_lists', household: true, parentOf: ['shoppingListItems:shopping_list_id'] },
-  { collection: 'shoppingListItems', serverKey: 'shopping_list_items', household: false, parentOf: [] },
+  { collection: 'dinnerCategories', serverKey: 'dinner_categories', household: true, parentOf: [], nullOf: [] },
+  { collection: 'ingredients', serverKey: 'ingredients', household: true, parentOf: ['dinnerItems:ingredient_id', 'shoppingListItems:ingredient_id'], nullOf: [] },
+  { collection: 'dinners', serverKey: 'dinners', household: true, parentOf: ['dinnerItems:dinner_id', 'planEntries:dinner_id'], nullOf: [] },
+  { collection: 'dinnerItems', serverKey: 'dinner_items', household: false, parentOf: [], nullOf: [] },
+  { collection: 'dinnerPlans', serverKey: 'dinner_plans', household: true, parentOf: ['planEntries:dinner_plan_id'], nullOf: ['shoppingLists:dinner_plan_id'] },
+  { collection: 'planEntries', serverKey: 'plan_entries', household: false, parentOf: [], nullOf: [] },
+  { collection: 'shoppingLists', serverKey: 'shopping_lists', household: true, parentOf: ['shoppingListItems:shopping_list_id'], nullOf: [] },
+  { collection: 'shoppingListItems', serverKey: 'shopping_list_items', household: false, parentOf: [], nullOf: [] },
 ] as const;
 
 type SyncConfig = (typeof SYNCABLE)[number];
@@ -127,8 +133,10 @@ export type SyncResponse = {
   changes: Record<string, ServerRow[]>;
   rejected?: Record<string, Rejection[]>;
   remaps?: Record<string, Record<string, string>>;
-  /** More of a paged first sync to fetch; absent from servers that don't page. */
+  /** More of a paged sync to fetch; absent from servers that don't page. */
   next_page?: string | null;
+  /** The server's clock (ISO), when it reports one; else the `Date` header is used. */
+  server_time?: string;
 };
 
 /** What a single push sent, so we can clear exactly those entries on success. */
@@ -147,6 +155,27 @@ export class SyncPendingError extends Error {
   }
 }
 
+/** The account's active household is not the one this device is bound to. */
+class HouseholdMismatch extends Error {
+  constructor(readonly activeHouseholdId: number) {
+    super('The active household changed.');
+    this.name = 'HouseholdMismatch';
+  }
+}
+
+/**
+ * What the engine needs from the app around it (installed by the session):
+ *  - `onNoActiveHousehold`: the server has no usable active household for the
+ *    account (removed from it, or none chosen). Re-fetch the account so setup
+ *    can create or choose one, instead of retrying a sync that can't succeed.
+ *  - `confirmDiscard`: this device holds changes for a household the account
+ *    no longer belongs to. Ask whether to discard them and follow the account.
+ */
+export type SyncHooks = {
+  onNoActiveHousehold?: () => void;
+  confirmDiscard?: (pending: number) => Promise<boolean>;
+};
+
 /* ---- module state -------------------------------------------------------- */
 
 let tracking = false;
@@ -163,6 +192,14 @@ let pullAgain = false; // a doorbell rang mid-cycle: pull again straight after
 let realtimeLive = false; // the live socket is subscribed to the household
 let socketId: string | null = null; // sent so the server skips our own doorbell
 let peersPresent = false; // someone else has the same list or week open
+let hooks: SyncHooks = {};
+let discardOffered: string | null = null; // `bound:active` pair already asked about
+/**
+ * The outbox can't reach any household the account belongs to: no automatic
+ * sync would get further, so none runs until the user retries (`syncNow`) or
+ * the session reconnects.
+ */
+let stranded = false;
 
 let disposeListener: (() => void) | null = null;
 let appStateSub: NativeEventSubscription | null = null;
@@ -185,8 +222,14 @@ const node = (collection: string): any => (store$ as any)[collection];
 export function ensureChangeTracking(): void {
   if (tracking) return;
   tracking = true;
+  setClockOffset(store$.meta.clockOffsetMs.peek() ?? 0);
+  repairOutbox();
   disposeListener = store$.onChange(handleStoreChange);
   updatePending();
+}
+
+export function setSyncHooks(next: SyncHooks): void {
+  hooks = next;
 }
 
 /** Attach cloud sync to the local store (sign-in). Safe to call repeatedly. */
@@ -210,6 +253,7 @@ export async function connectCollections(): Promise<void> {
     return;
   }
   ensureChangeTracking();
+  repairOutbox();
 
   appStateSub = AppState.addEventListener('change', handleAppStateChange);
   foreground = AppState.currentState === 'active';
@@ -231,6 +275,9 @@ export async function connectCollections(): Promise<void> {
  */
 export async function syncNow(): Promise<void> {
   bumpActivity();
+  // An explicit retry may offer to discard stranded changes again.
+  discardOffered = null;
+  stranded = false;
   if (retryTimer) {
     clearTimeout(retryTimer);
     retryTimer = null;
@@ -311,6 +358,7 @@ export function disconnectCollections(): void {
   retryAttempt = 0;
   rerun = false;
   pullAgain = false;
+  stranded = false;
 }
 
 /* ---- live sync ------------------------------------------------------------ */
@@ -364,6 +412,9 @@ export function __resetEngineForTests(): void {
   realtimeLive = false;
   socketId = null;
   peersPresent = false;
+  hooks = {};
+  discardOffered = null;
+  setClockOffset(0);
 }
 
 /* ---- change tracking ----------------------------------------------------- */
@@ -424,7 +475,7 @@ function handleStoreChange(params: ListenerParams): void {
 }
 
 function scheduleSync(): void {
-  if (!started || retryTimer) return;
+  if (!started || retryTimer || stranded) return;
   if (debounceTimer) clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => void pushPull(), peersPresent ? DEBOUNCE_LIVE_MS : DEBOUNCE_MS);
 }
@@ -469,7 +520,7 @@ function schedulePoll(): void {
   pollTimer = null;
   if (!started || !foreground) return;
   pollTimer = setTimeout(() => {
-    if (!retryTimer) void pushPull();
+    if (!retryTimer && !stranded) void pushPull();
     schedulePoll();
   }, pollDelay());
 }
@@ -504,6 +555,39 @@ async function timed<T>(
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** One `/sync` round-trip; also measures the server clock against ours. */
+async function postSync(request: SyncRequest, body: Record<string, unknown>): Promise<SyncResponse> {
+  const sentAt = Date.now();
+  let receivedAt = 0;
+  let date: string | null = null;
+  const response = await timed<SyncResponse>(request, '/sync', {
+    method: 'POST',
+    headers: syncHeaders(),
+    body,
+    onResponse: (raw) => {
+      receivedAt = Date.now();
+      date = raw.headers?.get?.('Date') ?? null;
+    },
+  });
+  noteServerClock(response?.server_time ?? null, date, sentAt, receivedAt || Date.now());
+  return response;
+}
+
+/**
+ * Adopt the server's clock for new timestamps (see `@/lib/store/clock`). A
+ * precise `server_time` wins over the whole-second `Date` header. The offset
+ * is persisted so edits made offline right after a relaunch are corrected too.
+ */
+function noteServerClock(serverTime: string | null, date: string | null, sentAt: number, receivedAt: number): void {
+  const precise = serverTime ? Date.parse(serverTime) : NaN;
+  const coarse = date ? Date.parse(date) : NaN;
+  const [time, precision] = Number.isFinite(precise) ? [precise, 0] : [coarse, 1000];
+  if (!Number.isFinite(time)) return;
+  const offset = estimateClockOffset(time, sentAt, receivedAt, precision);
+  setClockOffset(offset);
+  if (Math.abs(offset - (store$.meta.clockOffsetMs.peek() ?? 0)) >= 1000) store$.meta.clockOffsetMs.set(offset);
 }
 
 function pushPull(): Promise<void> {
@@ -543,42 +627,36 @@ async function runCycle(request: SyncRequest, generation: number): Promise<void>
     if (!ready || !isCurrent()) return;
 
     hasPush = hasPush || hasSendable();
-    if (hasPush) markSyncing();
+    if (hasPush) markSyncing(store$.meta.cursor.get() === null);
 
     let received = 0;
     // Push in dependency-ordered chunks; the last request also carries the pull.
     for (const snapshot of collectPushChunks()) {
       refreshSnapshot(snapshot);
-      // A first sync downloads the household page by page, so a long history
-      // neither arrives as one huge response nor lands in the store at once.
-      const firstSync = store$.meta.cursor.get() === null;
-      let response = await timed<SyncResponse>(request, '/sync', {
-        method: 'POST',
-        headers: syncHeaders(),
-        body: {
-          cursor: store$.meta.cursor.get(),
-          household_id: store$.meta.serverHouseholdId.get(),
-          changes: snapshot.changes,
-          ...(firstSync ? { paged: true } : {}),
-        },
+      // A long pull (a first sync, or a device back after a long time away)
+      // arrives page by page, so it neither comes back as one huge response nor
+      // lands in the store at once. Every page asks from the same cursor.
+      const cursor = store$.meta.cursor.get();
+      const noteChanges = cursor !== null;
+      let response = await postSync(request, {
+        cursor,
+        household_id: store$.meta.serverHouseholdId.get(),
+        changes: snapshot.changes,
+        paged: true,
       });
       if (!isCurrent()) return; // a previous session must never touch the current store
 
-      received += applyResponse(snapshot, response, !firstSync).received;
+      received += applyResponse(snapshot, response, noteChanges).received;
       while (response.next_page) {
-        response = await timed<SyncResponse>(request, '/sync', {
-          method: 'POST',
-          headers: syncHeaders(),
-          body: {
-            cursor: null,
-            household_id: store$.meta.serverHouseholdId.get(),
-            changes: {},
-            paged: true,
-            page: response.next_page,
-          },
+        response = await postSync(request, {
+          cursor,
+          household_id: store$.meta.serverHouseholdId.get(),
+          changes: {},
+          paged: true,
+          page: response.next_page,
         });
         if (!isCurrent()) return;
-        received += applyResponse(emptySnapshot(), response, false).received;
+        received += applyResponse(emptySnapshot(), response, noteChanges).received;
       }
     }
 
@@ -595,24 +673,78 @@ async function runCycle(request: SyncRequest, generation: number): Promise<void>
     markSynced(countFailed(), moved);
   } catch (error) {
     if (!isCurrent()) return;
-    if (error instanceof ApiError && error.status === 409 && isHouseholdMismatch(error.body)) {
-      if (hasPending()) {
-        markSyncError('The active household changed. Switch back to the previous household to upload your pending changes.');
-        scheduleRetry();
+    if (error instanceof HouseholdMismatch) {
+      await handleHouseholdMismatch(request, error.activeHouseholdId, isCurrent);
+      return;
+    }
+    if (error instanceof ApiError && error.status === 409) {
+      if (isHouseholdMismatch(error.body)) {
+        await handleHouseholdMismatch(request, error.body.household_id, isCurrent);
         return;
       }
-      // The account's active household changed elsewhere: re-bind and start over.
-      resetLocalDataForHousehold((error.body as { household_id: number }).household_id);
-      rerun = true;
+      // No usable active household (removed from it, or none chosen): the
+      // session re-fetches the account and setup takes it from there.
+      markIdle();
+      hooks.onNoActiveHousehold?.();
+      scheduleRetry();
       return;
     }
     // Errors only matter when we have unsynced changes; a failed background
-    // pull (e.g. offline with nothing pending) stays quiet.
+    // pull (e.g. offline with nothing pending) stays quiet. Not reaching the
+    // server is not a failure: the changes wait, calmly, for the next try.
     if (hasPush) {
-      markSyncError(messageOf(error));
+      if (isTransientError(error)) markOffline();
+      else markSyncError('failed');
       scheduleRetry();
     }
   }
+}
+
+/**
+ * The account's active household is not the one this device is bound to
+ * (switched on another device, or this account was removed from it).
+ *
+ * With nothing left that can upload, re-bind and start over: rows the server
+ * already refused never will upload, so they are discarded with the rest.
+ * Changes still waiting to go up can only go to the household they were made
+ * in — so the user switches back, or, when the account is no longer a member
+ * there, is offered to discard them.
+ */
+async function handleHouseholdMismatch(request: SyncRequest, active: number, isCurrent: () => boolean): Promise<void> {
+  if (!hasSendable()) {
+    resetLocalDataForHousehold(active);
+    rerun = true;
+    return;
+  }
+  const bound = store$.meta.serverHouseholdId.get();
+  let member: boolean | null = null;
+  try {
+    const households = await timed<{ id: number }[]>(request, '/households');
+    member = Array.isArray(households) ? households.some((household) => household.id === bound) : null;
+  } catch {
+    // Unknown for now: treat it as a household the user can still switch back to.
+  }
+  if (!isCurrent()) return;
+  if (member !== false) {
+    markSyncError('householdChanged');
+    scheduleRetry();
+    return;
+  }
+  // Nothing to retry against: this device's changes can never reach the server.
+  markSyncError('householdGone');
+  stranded = true;
+  const key = `${bound}:${active}`;
+  if (!hooks.confirmDiscard || discardOffered === key) return;
+  discardOffered = key;
+  const pending = countPending(store$.meta.dirty.peek() ?? {}, store$.meta.tombstones.peek() ?? {});
+  // Not awaited inside the cycle: a pull-to-refresh must not wait on the dialog.
+  void hooks.confirmDiscard(pending).then((discard) => {
+    if (!discard || !isCurrent() || store$.meta.serverHouseholdId.peek() !== bound) return;
+    connectionGeneration += 1; // a response for the old household must not land after the wipe
+    resetLocalDataForHousehold(active);
+    stranded = false;
+    void pushPull();
+  }).catch(() => undefined);
 }
 
 /** The live socket's id, so the server's doorbell for this write skips us. */
@@ -650,17 +782,96 @@ async function prepareFirstSync(request: SyncRequest, isCurrent: () => boolean):
 
   const bound = store$.meta.serverHouseholdId.get();
   if (bound !== null && bound !== active) {
-    if (hasPending()) throw new SyncPendingError();
+    if (hasSendable()) throw new HouseholdMismatch(active);
     resetLocalDataForHousehold(active);
   } else {
     store$.meta.serverHouseholdId.set(active);
   }
   // From here on every edit and delete is recorded; the seed covers the rest,
-  // including items of archived lists, which only this device has.
-  restoreAllArchivedItems();
+  // including items of archived lists, which only this device has. Once per
+  // link: a first sync cut off halfway resumes from the outbox it left.
   store$.meta.linked.set(true);
-  seedOutboxFromLocal();
+  if (!store$.meta.seeded.peek()) {
+    restoreAllArchivedItems();
+    seedOutboxFromLocal();
+    store$.meta.seeded.set(true);
+  }
   return true;
+}
+
+/**
+ * Outbox entries that can never upload, from before the fixes that stop them
+ * forming (repaired at launch and on connect; writes nothing when clean):
+ *  - rows whose parent is gone here — e.g. items another account's archive
+ *    restored after a wipe — which the server can only refuse as
+ *    `unknown_parent`. Shopping items without their list are dropped even
+ *    unqueued: nothing can show them.
+ *  - a nullable reference to a deleted parent (a list generated from a plan
+ *    deleted elsewhere): cleared, so the edit uploads.
+ *  - outbox entries for rows that no longer exist.
+ *  - archived items kept for lists that no longer exist.
+ */
+export function repairOutbox(): void {
+  const meta = store$.meta.peek();
+  const queued = (collection: string, id: string) =>
+    meta.dirty?.[collection]?.[id] != null || meta.failed?.[collection]?.[id] != null;
+  const orphans: [string, string][] = [];
+  const unlink: [string, string, string][] = [];
+  // Children of `collection` (per link) whose parent row isn't here.
+  const missingParent = (collection: string, links: readonly string[], found: (child: string, id: string, fk: string) => void) => {
+    const parents = node(collection).peek() ?? {};
+    for (const link of links) {
+      const [child, fk] = link.split(':');
+      for (const row of Object.values(node(child).peek() ?? {}) as Row[]) {
+        const parent = row[fk];
+        if (typeof parent === 'string' && !parents[parent]) found(child, row.id, fk);
+      }
+    }
+  };
+  for (const { collection, parentOf, nullOf } of SYNCABLE) {
+    missingParent(collection, parentOf, (child, id) => {
+      if (queued(child, id) || child === 'shoppingListItems') orphans.push([child, id]);
+    });
+    missingParent(collection, nullOf, (child, id, fk) => {
+      if (queued(child, id)) unlink.push([child, id, fk]);
+    });
+  }
+  const stale: [OutboxKind, string, string][] = [];
+  for (const kind of ['dirty', 'failed'] as const) {
+    for (const [collection, rows] of Object.entries(meta[kind] ?? {})) {
+      for (const id of Object.keys(rows ?? {})) {
+        if (!node(collection)[id].peek()) stale.push([kind, collection, id]);
+      }
+    }
+  }
+
+  if (orphans.length > 0 || unlink.length > 0 || stale.length > 0) {
+    applyingRemote = true;
+    try {
+      batch(() => {
+        for (const [collection, id] of orphans) {
+          node(collection)[id].delete();
+          clearOutbox(collection, id);
+        }
+        for (const [collection, id, fk] of unlink) {
+          node(collection)[id][fk].set(null);
+          if (queuedIn('failed', collection, id)) store$.meta.failed[collection][id].delete();
+          store$.meta.dirty[collection][id].set(true);
+        }
+        for (const [kind, collection, id] of stale) store$.meta[kind][collection][id].delete();
+      });
+    } finally {
+      applyingRemote = false;
+    }
+  }
+
+  try {
+    const lists = store$.shoppingLists.peek() ?? {};
+    const gone = archive().listIds().filter((id) => !lists[id]);
+    if (gone.length > 0) archive().drop(gone);
+  } catch {
+    // The archive table can be busy; the next launch tries again.
+  }
 }
 
 /** Mark every existing local row dirty so the first sync uploads it. */
@@ -883,7 +1094,7 @@ function applyRemote(changes: Record<string, ServerRow[]>, noteChanges = false):
   applyingRemote = true;
   try {
     batch(() => {
-      for (const { collection, serverKey, household, parentOf } of SYNCABLE) {
+      for (const { collection, serverKey, household, parentOf, nullOf } of SYNCABLE) {
         const deleted = new Set<string>();
         for (const row of changes[serverKey] ?? []) {
           if (typeof row?.id !== 'string') continue;
@@ -940,6 +1151,21 @@ function applyRemote(changes: Record<string, ServerRow[]>, noteChanges = false):
             if (typeof childRow[fk] === 'string' && deleted.has(childRow[fk])) {
               node(child)[childRow.id].delete();
               clearOutbox(child, childRow.id);
+            }
+          }
+        }
+        // Children that outlive the parent only drop the reference — local
+        // edits included, which would otherwise be refused forever as
+        // `unknown_parent`. A queued edit uploads without it; a clean row
+        // matches what the server holds after its `nullOnDelete`.
+        for (const link of nullOf) {
+          const [child, fk] = link.split(':');
+          for (const childRow of Object.values(node(child).peek() ?? {}) as Row[]) {
+            if (typeof childRow[fk] !== 'string' || !deleted.has(childRow[fk])) continue;
+            node(child)[childRow.id][fk].set(null);
+            if (queuedIn('failed', child, childRow.id)) {
+              store$.meta.failed[child][childRow.id].delete();
+              store$.meta.dirty[child][childRow.id].set(true);
             }
           }
         }
@@ -1041,12 +1267,6 @@ export function getSyncFailures(): { collection: string; id: string; name: strin
 function updatePending(): void {
   setPendingCount(countPending(store$.meta.dirty.get() ?? {}, store$.meta.tombstones.get() ?? {}) + countFailed());
   setRejectedCount(countFailed());
-}
-
-function messageOf(error: unknown): string {
-  if (error instanceof ApiError) return error.message;
-  if (error instanceof Error) return error.message;
-  return 'Sync failed';
 }
 
 // Only used for the odd server-key lookup in tests/tooling; kept exported so the

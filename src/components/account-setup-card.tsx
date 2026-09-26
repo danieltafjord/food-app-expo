@@ -9,14 +9,16 @@ import { useT } from '@/lib/i18n';
 export function AccountSetupCard() {
   const t = useT();
   const { setupPhase, retrySetup } = useSession();
+  const title = setupPhase === 'error'
+    ? 'sync.setupFailed'
+    : setupPhase === 'offline' ? 'sync.setupWaiting' : 'sync.settingUp';
   return (
     <Card>
-      <ThemedText type="smallBold">
-        {t(setupPhase === 'error' ? 'sync.setupFailed' : 'sync.settingUp')}
-      </ThemedText>
+      <ThemedText type="smallBold">{t(title)}</ThemedText>
       <ThemedText themeColor="textSecondary">{t('sync.setupDescription')}</ThemedText>
-      {setupPhase === 'error'
-        ? <Button title={t('error.retry')} onPress={retrySetup} />
+      {/* Offline retries by itself when the connection returns; a retry button still helps the impatient. */}
+      {setupPhase === 'error' || setupPhase === 'offline'
+        ? <Button title={t('error.retry')} variant={setupPhase === 'offline' ? 'secondary' : undefined} onPress={retrySetup} />
         : <ActivityIndicator />}
     </Card>
   );

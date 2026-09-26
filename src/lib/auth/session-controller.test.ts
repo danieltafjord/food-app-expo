@@ -19,6 +19,7 @@ function setup() {
     refresh: jest.fn(async (_token: string, _signal?: AbortSignal) => rotated),
     request: jest.fn<Promise<any>, [string, any]>(async () => ({ ok: true })),
     onChange: jest.fn(),
+    onSignedOut: jest.fn(),
   };
   return { ...dependencies, controller: new SessionController(dependencies) };
 }
@@ -148,4 +149,26 @@ it('cancels one refresh waiter without interrupting another request', async () =
   pending.resolve(rotated);
   await expect(second).resolves.toEqual({ ok: true });
   expect(request.mock.calls.map(([path]) => path)).toEqual(['/me']);
+});
+
+it('tells an involuntary sign-out apart from one the user asked for', async () => {
+  const expired = setup();
+  await expired.controller.set({ ...session, expiresAt: 0 });
+  expired.refresh.mockRejectedValue({ code: 'invalid_grant' });
+  await expect(expired.controller.request('/me')).rejects.toEqual({ code: 'invalid_grant' });
+  expect(expired.onSignedOut).toHaveBeenCalledTimes(1);
+  expect(expired.onSignedOut).toHaveBeenCalledWith('expired');
+
+  const chosen = setup();
+  await chosen.controller.set(session);
+  await chosen.controller.signOut();
+  expect(chosen.onSignedOut).toHaveBeenCalledTimes(1);
+  expect(chosen.onSignedOut).toHaveBeenCalledWith('user');
+});
+
+it('reports a sign-out only when a session actually ended', async () => {
+  const { controller, onSignedOut } = setup();
+  await controller.set(session);
+  await controller.set(rotated);
+  expect(onSignedOut).not.toHaveBeenCalled();
 });

@@ -1,5 +1,6 @@
 import { observable } from '@legendapp/state';
 
+import type { User } from '@/lib/api/types';
 import type { Locale } from '@/lib/i18n/locale';
 import type { ClassificationJob } from '@/lib/ai-classification';
 import type { PendingImage } from '@/lib/dinner-images';
@@ -46,6 +47,12 @@ export const store$ = observable({
     locale: '' as Locale | '',
     /** Local reminders on this device (see `@/lib/notifications/reminders`). Stores from older versions lack it. */
     reminders: DEFAULT_REMINDERS as ReminderSettings,
+    /**
+     * Whether this device has already offered notifications for a shared
+     * household (see `NotificationsBridge`), so the offer never repeats.
+     * Stores from older versions lack it.
+     */
+    notificationsOffered: false as boolean,
   },
   meta: {
     /** Kept on this device and cleared when switching household/account. */
@@ -84,6 +91,21 @@ export const store$ = observable({
      * signs in, that outbox would otherwise grow to every row it ever had.
      */
     linked: false as boolean,
+    /**
+     * Whether the first sync of the current link has already put every local
+     * row in the outbox. Seeding happens once per link: a first sync cut off
+     * halfway resumes from the outbox instead of re-marking every row.
+     * Cleared with the local data.
+     */
+    seeded: false as boolean,
+    /**
+     * The signed-in account as `/me` last returned it (nothing secret), so a
+     * launch without a connection knows the account and its household at once
+     * and sync resumes offline. Only trusted while `id === accountId`.
+     */
+    cachedUser: null as User | null,
+    /** Last estimated server clock offset (ms), applied from launch on. See `./clock`. */
+    clockOffsetMs: 0 as number,
     /**
      * Cloud-sync bookkeeping (Phase 2). All persisted with the store, so the
      * outbox survives restarts. Keyed by client collection name

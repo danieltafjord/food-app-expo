@@ -13,7 +13,10 @@ import { ApiError } from '@/lib/api/client';
 import { setupAccount } from '@/lib/auth/account-setup';
 import { archive, MemoryArchive, setArchiveBackend } from '@/lib/store/archive';
 import { archiveShoppingList } from '@/lib/store/archiving';
+import { resetLocalDataForAccount } from '@/lib/store/account';
+import { getClockOffset } from '@/lib/store/clock';
 import { store$ } from '@/lib/store/collections';
+import { nowIso } from '@/lib/store/ids';
 import { saveDinnerCategory } from '@/lib/store/dinner-categories';
 import { createDinner, deleteDinner, setDinnerItems } from '@/lib/store/dinners';
 import { createIngredient, deleteIngredient } from '@/lib/store/ingredients';
@@ -31,7 +34,9 @@ import {
   hasPending,
   getSyncFailures,
   setPeersPresent,
+  repairOutbox,
   setRealtimeLink,
+  setSyncHooks,
   SyncPendingError,
   syncNow,
   type SyncResponse,
@@ -93,7 +98,7 @@ function resetStore() {
     shoppingLists: {},
     shoppingListItems: {},
   } as any);
-  syncStatus$.set({ phase: 'idle', lastSyncedAt: null, pending: 0, error: null, rejected: 0 });
+  syncStatus$.set({ phase: 'idle', lastSyncedAt: null, pending: 0, error: null, rejected: 0, firstSync: false });
 }
 
 beforeEach(() => {
@@ -581,8 +586,9 @@ describe('failures and state transitions', () => {
     await syncNow();
 
     expect(store$.meta.dirty.dinners[dinner].get()).toBe(true);
-    expect(syncStatus$.phase.get()).toBe('error');
-    expect(syncStatus$.error.get()).toBe('Network request failed');
+    // Not reaching the server is a calm offline state, never raw network text.
+    expect(syncStatus$.phase.get()).toBe('offline');
+    expect(syncStatus$.error.get()).toBeNull();
     const attempts = server.calls.length;
     await jest.advanceTimersByTimeAsync(1500);
     expect(server.calls).toHaveLength(attempts); // the debounce must not defeat retry backoff
@@ -1075,5 +1081,260 @@ describe('archived shopping lists', () => {
     // Uploaded, so it moves back out of the store.
     expect(store$.shoppingListItems[item].get()).toBeUndefined();
     expect(archive().read(list)).toHaveLength(1);
+  });
+});
+
+const planRow = (id: string) => ({ id, household_id: 'local-h', name: 'Week', start_date: null, end_date: null,
+  created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z' });
+
+describe('account and household switches', () => {
+  it('never resurrects another account’s archived items after an account switch', async () => {
+    ensureChangeTracking();
+    const server = fakeServer();
+    await connect(server);
+    const list = createShoppingList('Account A');
+    addShoppingItem(list, { name: 'A’s secret' });
+    await syncNow();
+    archiveShoppingList(list);
+    await syncNow();
+    expect(archive().listIds()).toEqual([list]);
+
+    disconnectCollections();
+    resetLocalDataForAccount(2);
+    expect(archive().listIds()).toEqual([]);
+
+    const next = fakeServer();
+    await connect(next);
+    const uploaded = next.calls.flatMap((call) => call.body?.changes?.shopping_list_items ?? []);
+    expect(uploaded).toEqual([]);
+    expect(hasPending()).toBe(false);
+  });
+
+  it('restores archived items only for lists the store still has', async () => {
+    store$.meta.assign({ linked: false });
+    ensureChangeTracking();
+    archive().stash('gone-list', [{ id: 'orphan', shopping_list_id: 'gone-list', ingredient_id: null, name: 'Old',
+      quantity: null, unit: null, is_checked: false, created_at: 'x', updated_at: 'x' }]);
+    const server = fakeServer();
+    await connect(server);
+    expect(store$.shoppingListItems.orphan.get()).toBeUndefined();
+    expect(archive().listIds()).toEqual([]);
+    expect(server.calls.flatMap((call) => call.body?.changes?.shopping_list_items ?? [])).toEqual([]);
+  });
+
+  it('repairs a device already wedged by orphaned, refused items', async () => {
+    store$.shoppingListItems.orphan.set({ id: 'orphan', shopping_list_id: 'gone-list', ingredient_id: null, name: 'A’s item',
+      quantity: null, unit: null, is_checked: false, created_at: 'x', updated_at: 'x' });
+    store$.meta.failed.set({ shoppingListItems: { orphan: { code: 'unknown_parent', message: 'Unknown list' }, ghost: { code: 'invalid', message: 'x' } } });
+    store$.meta.dirty.set({ dinners: { missing: true } });
+    archive().stash('gone-list', [{ id: 'kept', shopping_list_id: 'gone-list', ingredient_id: null, name: 'Old',
+      quantity: null, unit: null, is_checked: false, created_at: 'x', updated_at: 'x' }]);
+
+    ensureChangeTracking();
+
+    expect(store$.shoppingListItems.orphan.get()).toBeUndefined();
+    expect(getSyncFailures()).toEqual([]);
+    expect(hasPending()).toBe(false);
+    expect(store$.meta.tombstones.get() ?? {}).toEqual({});
+    expect(archive().listIds()).toEqual([]);
+    // Nothing left to repair: a second pass writes nothing.
+    repairOutbox();
+    expect(hasPending()).toBe(false);
+  });
+
+  it('re-binds on a mismatch when only refused rows are queued, discarding them', async () => {
+    ensureChangeTracking();
+    const server = fakeServer();
+    await connect(server);
+    const dinner = createDinner({ name: 'Refused' });
+    store$.meta.dirty.set({});
+    store$.meta.failed.set({ dinners: { [dinner]: { code: 'invalid', message: 'Nope' } } });
+    expect(hasPending()).toBe(true);
+
+    server.handlers.push(() => {
+      throw new ApiError(409, 'mismatch', undefined, { code: 'household_mismatch', household_id: 8 });
+    });
+    await syncNow();
+
+    expect(store$.meta.serverHouseholdId.get()).toBe(8);
+    expect(getSyncFailures()).toEqual([]);
+    expect(hasPending()).toBe(false);
+  });
+
+  it('offers to discard changes stranded in a household the account has left', async () => {
+    ensureChangeTracking();
+    const server = fakeServer();
+    await connect(server);
+    const dinner = createDinner({ name: 'Stranded' });
+    const confirmDiscard = jest.fn(async () => true);
+    setSyncHooks({ confirmDiscard });
+    me.current_household.id = 8;
+
+    server.handlers.push(
+      () => {
+        throw new ApiError(409, 'mismatch', undefined, { code: 'household_mismatch', household_id: 8 });
+      },
+      () => [{ id: 8, name: 'New', role: 'owner' }],
+    );
+    await syncNow();
+    expect(confirmDiscard).toHaveBeenCalledWith(1);
+    expect(syncStatus$.error.get()).toBe('householdGone');
+    await jest.advanceTimersByTimeAsync(0);
+    await syncNow();
+
+    expect(store$.dinners[dinner].get()).toBeUndefined();
+    expect(store$.meta.serverHouseholdId.get()).toBe(8);
+    expect(hasPending()).toBe(false);
+  });
+
+  it('keeps stranded changes, without retrying, when the user declines', async () => {
+    ensureChangeTracking();
+    const server = fakeServer();
+    await connect(server);
+    const dinner = createDinner({ name: 'Stranded' });
+    setSyncHooks({ confirmDiscard: async () => false });
+    server.handlers.push(
+      () => {
+        throw new ApiError(409, 'mismatch', undefined, { code: 'household_mismatch', household_id: 8 });
+      },
+      () => [{ id: 8, name: 'New', role: 'owner' }],
+    );
+    await syncNow();
+    await jest.advanceTimersByTimeAsync(0);
+    const calls = server.calls.length;
+    createDinner({ name: 'Edited meanwhile' });
+    await jest.advanceTimersByTimeAsync(10 * 60_000);
+
+    expect(store$.dinners[dinner].get()).toBeDefined();
+    expect(syncStatus$.error.get()).toBe('householdGone');
+    expect(server.calls).toHaveLength(calls);
+  });
+
+  it('hands a missing active household to the session instead of retrying blindly', async () => {
+    ensureChangeTracking();
+    const server = fakeServer();
+    await connect(server);
+    const onNoActiveHousehold = jest.fn();
+    setSyncHooks({ onNoActiveHousehold });
+    server.handlers.push(() => {
+      throw new ApiError(409, 'No active household selected.', undefined, { code: 'no_active_household' });
+    });
+    await syncNow();
+    expect(onNoActiveHousehold).toHaveBeenCalledTimes(1);
+    expect(syncStatus$.phase.get()).not.toBe('error');
+  });
+});
+
+describe('first sync seeding', () => {
+  it('seeds the outbox once per link, so an interrupted first sync resumes', async () => {
+    ensureChangeTracking();
+    const dinner = createDinner({ name: 'Uploaded in the first attempt' });
+    store$.meta.dirty.set({});
+    const server = fakeServer([
+      () => me,
+      () => {
+        throw new Error('Network request failed');
+      },
+    ]);
+    await connect(server);
+    expect(store$.meta.seeded.get()).toBe(true);
+    expect(store$.meta.dirty.dinners[dinner].get()).toBe(true);
+
+    // Say that row's chunk was acknowledged before the connection dropped.
+    store$.meta.dirty.dinners[dinner].delete();
+    await syncNow();
+    const retried = server.calls.filter((call) => call.path === '/sync').at(-1)!;
+    expect(retried.body.changes.dinners ?? []).toEqual([]);
+  });
+});
+
+describe('plans deleted elsewhere', () => {
+  it('drops a deleted plan from lists with unsent edits instead of wedging them', async () => {
+    ensureChangeTracking();
+    const server = fakeServer();
+    await connect(server);
+    store$.dinnerPlans.p1.set(planRow('p1'));
+    const edited = createShoppingList('Edited');
+    const refused = createShoppingList('Refused');
+    const clean = createShoppingList('Clean');
+    await syncNow();
+    for (const id of [edited, refused, clean]) store$.shoppingLists[id].dinner_plan_id.set('p1');
+    await syncNow();
+    store$.shoppingLists[edited].name.set('Edited again');
+    store$.meta.dirty.shoppingLists[refused].delete();
+    store$.meta.failed.shoppingLists[refused].set({ code: 'unknown_parent', message: 'Unknown plan' });
+
+    // The edit goes up with the plan the server just deleted, and is refused.
+    server.handlers.push(() => ({ ...emptySync(),
+      rejected: { shopping_lists: [{ id: edited, code: 'unknown_parent', message: 'Unknown plan' }] },
+      changes: { dinner_plans: [{ id: 'p1', updated_at: '2026-02-01T00:00:00.000Z', deleted_at: '2026-02-01T00:00:00.000Z' }] } }));
+    await syncNow();
+
+    for (const id of [edited, refused, clean]) expect(store$.shoppingLists[id].dinner_plan_id.get()).toBeNull();
+    await syncNow();
+    const sent = server.calls.at(-1)!.body.changes.shopping_lists ?? [];
+    expect(sent.map((row: { id: string }) => row.id).sort()).toEqual([edited, refused].sort());
+    expect(sent.every((row: { dinner_plan_id: string | null }) => row.dinner_plan_id === null)).toBe(true);
+    expect(getSyncFailures()).toEqual([]);
+    expect(hasPending()).toBe(false);
+  });
+
+  it('repairs a list already refused for pointing at a deleted plan', () => {
+    const list = createShoppingList('Wedged');
+    store$.shoppingLists[list].dinner_plan_id.set('deleted-plan');
+    store$.meta.dirty.set({});
+    store$.meta.failed.set({ shoppingLists: { [list]: { code: 'unknown_parent', message: 'Unknown plan' } } });
+
+    ensureChangeTracking();
+
+    expect(store$.shoppingLists[list].dinner_plan_id.get()).toBeNull();
+    expect(getSyncFailures()).toEqual([]);
+    expect(store$.meta.dirty.shoppingLists[list].get()).toBe(true);
+  });
+});
+
+describe('server clock', () => {
+  it('stamps edits with the server’s time when this device’s clock is slow', async () => {
+    ensureChangeTracking();
+    jest.setSystemTime(new Date('2026-03-01T12:00:00.000Z'));
+    const server = fakeServer([() => me, () => ({ ...emptySync(), server_time: '2026-03-01T12:05:00.000Z' })]);
+    await connect(server);
+
+    expect(getClockOffset()).toBeGreaterThan(4 * 60_000);
+    expect(nowIso() > '2026-03-01T12:04:00.000Z').toBe(true);
+    expect(store$.meta.clockOffsetMs.get()).toBe(getClockOffset());
+
+    // A clock within tolerance is left alone.
+    server.handlers.push(() => ({ ...emptySync(), server_time: new Date(Date.now() + 500).toISOString() }));
+    await syncNow();
+    expect(getClockOffset()).toBe(0);
+  });
+});
+
+describe('paged pulls', () => {
+  it('keeps pulling a long delta page by page from the same cursor', async () => {
+    ensureChangeTracking();
+    const server = fakeServer();
+    await connect(server);
+    const start = store$.meta.cursor.get();
+    const row = (id: string) => ({ id, name: id, default_unit: null, category: null, category_source: null,
+      created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z', deleted_at: null, erasure_version: 0 });
+    let cursorWhilePaging: unknown = 'unset';
+    server.handlers.push(
+      (call) => {
+        expect(call.body).toMatchObject({ cursor: start, paged: true });
+        return { ...emptySync(), cursor: 90, changes: { ingredients: [row('i-1')] }, next_page: '90.1.1' };
+      },
+      (call) => {
+        cursorWhilePaging = store$.meta.cursor.get();
+        expect(call.body).toMatchObject({ cursor: start, paged: true, page: '90.1.1', changes: {} });
+        return { ...emptySync(), cursor: 90, changes: { ingredients: [row('i-2')] }, next_page: null };
+      },
+    );
+    await syncNow();
+
+    expect(cursorWhilePaging).toBe(start);
+    expect(store$.meta.cursor.get()).toBe(90);
+    expect(Object.keys(store$.ingredients.get()).sort()).toEqual(['i-1', 'i-2']);
   });
 });

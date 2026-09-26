@@ -178,7 +178,8 @@ function WeekPage({
   }));
   const entriesByDate: Record<string, PlanEntryWithDinner[]> = {};
   for (const entry of entries) {
-    if (hidden[entry.dinner_id]) continue;
+    // A deleted dinner, or this one entry removed from the plan, awaiting Undo.
+    if (hidden[entry.dinner_id] || hidden[entry.id]) continue;
     // Not `??=`: the React Compiler can't lower it and would skip this component.
     const date = dateKeyOf(entry.scheduled_date);
     const bucket = entriesByDate[date];

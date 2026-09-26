@@ -1,116 +1,95 @@
-import { showSyncFailures } from './sync-failures';
-import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { showSyncFailures } from '@/components/sync-failures';
 import { ThemedText } from '@/components/themed-text';
-import { Colors, Spacing } from '@/constants/theme';
-import { useResolvedScheme } from '@/hooks/use-theme';
+import { BottomTabInset, Spacing } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
 import { useSession } from '@/lib/auth/session';
 import { useT, type TFunction } from '@/lib/i18n';
 import { syncNow } from '@/lib/sync/engine';
-import { useSyncStatus } from '@/lib/sync/status';
+import { useSyncStatus, type SyncStatus } from '@/lib/sync/status';
 
-/** How long the "Synced" confirmation lingers before fading out. */
-const SYNCED_FLASH_MS = 1800;
+type Tone = 'neutral' | 'danger';
 
-const COLORS = {
-  syncing: '#9aa0a6',
-  synced: '#2e9b5b',
-  pending: '#e5a23d',
-  error: '#e5484d',
-} as const;
-
-type Pill = { label: string; color: string; busy: boolean; onPress?: () => void } | null;
+type Pill = { label: string; tone: Tone; busy: boolean; onPress?: () => void } | null;
 
 /**
- * A subtle, app-wide sync status pill that floats below the status bar across
- * all tabs. Its job is confidence that your changes reached the server (so the
- * rest of the household pulls them): it flashes "Syncing… → Synced" when you
- * make changes, shows a quiet amber "Waiting to sync" while offline, and a
- * tappable red "Sync failed" on error. When everything is synced it shows
- * nothing.
+ * An app-wide sync status pill, floating just above the tab bar on every tab
+ * — clear of the screens' headers, and out of the way of touches unless it
+ * offers something to tap.
+ *
+ * Silent while things work: routine syncs after an edit show nothing (sync
+ * is the normal state, not news). It appears for the first download of a
+ * household, a calm neutral "Offline" while changes wait for a connection,
+ * and a tappable notice when something needs the user.
  */
 export function GlobalSyncBanner() {
   const t = useT();
+  const theme = useTheme();
   const { isAuthenticated, setupPhase, retrySetup } = useSession();
   const status = useSyncStatus();
-  const insets = useSafeAreaInsets();
-  const colors = Colors[useResolvedScheme()];
-
-  // Briefly show "Synced" after a sync that pushed something completes.
-  const [showSynced, setShowSynced] = useState(false);
-  const prevPhase = useRef(status.phase);
-  useEffect(() => {
-    const finishedSyncing =
-      prevPhase.current === 'syncing' && status.phase === 'idle' && !status.error &&
-      !!status.lastSyncedAt && status.pending === 0 && status.rejected === 0;
-    prevPhase.current = status.phase;
-    if (!finishedSyncing) return;
-    setShowSynced(true);
-  }, [status.phase, status.error, status.lastSyncedAt, status.pending, status.rejected]);
-
-  useEffect(() => {
-    if (!showSynced) return;
-    const timer = setTimeout(() => setShowSynced(false), SYNCED_FLASH_MS);
-    return () => clearTimeout(timer);
-  }, [showSynced]);
 
   if (!isAuthenticated) return null;
 
   const pill: Pill = setupPhase === 'setting-up'
-    ? { label: t('sync.settingUp'), color: COLORS.syncing, busy: true }
-    : setupPhase === 'error'
-      ? { label: t('sync.setupFailedRetry'), color: COLORS.error, busy: false, onPress: retrySetup }
-      : setupPhase === 'invitation'
-        ? null
-        : describe(t, status, showSynced);
+    ? { label: t('sync.settingUp'), tone: 'neutral', busy: true }
+    : setupPhase === 'offline'
+      ? { label: t('sync.offline'), tone: 'neutral', busy: false }
+      : setupPhase === 'error'
+        ? { label: t('sync.setupFailedRetry'), tone: 'danger', busy: false, onPress: retrySetup }
+        : setupPhase === 'invitation'
+          ? null
+          : describe(t, status);
   if (!pill) return null;
 
+  const color = pill.tone === 'danger' ? theme.danger : theme.textSecondary;
   const body = (
-    <View style={[styles.pill, { backgroundColor: colors.backgroundElement }]}>
+    <View style={[styles.pill, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
       {pill.busy ? (
-        <ActivityIndicator size="small" color={pill.color} />
+        <ActivityIndicator size="small" color={color} style={styles.spinner} />
       ) : (
-        <View style={[styles.dot, { backgroundColor: pill.color }]} />
+        <View style={[styles.dot, { backgroundColor: color }]} />
       )}
-      <ThemedText type="small" style={styles.label}>{pill.label}</ThemedText>
+      <ThemedText type="small" themeColor={pill.tone === 'danger' ? 'text' : 'textSecondary'} numberOfLines={1} style={styles.label}>
+        {pill.label}
+      </ThemedText>
     </View>
   );
 
   return (
-    <View pointerEvents="box-none" style={[styles.host, { top: insets.top + Spacing.two }]}>
+    <View pointerEvents={pill.onPress ? 'box-none' : 'none'} style={styles.host}>
       {pill.onPress ? (
-        <Pressable onPress={pill.onPress} accessibilityRole="button">
+        <Pressable onPress={pill.onPress} accessibilityRole="button" hitSlop={8}>
           {body}
         </Pressable>
       ) : (
-        body
+        <View accessibilityLiveRegion="polite">{body}</View>
       )}
     </View>
   );
 }
 
-function describe(
-  t: TFunction,
-  status: ReturnType<typeof useSyncStatus>,
-  showSynced: boolean,
-): Pill {
-  if (status.phase === 'syncing') {
-    return { label: t('sync.syncing'), color: COLORS.syncing, busy: true };
-  }
+function describe(t: TFunction, status: SyncStatus): Pill {
   if (status.phase === 'error') {
-    return { label: t('sync.failedRetry'), color: COLORS.error, busy: false, onPress: syncNow };
+    switch (status.error) {
+      case 'householdChanged':
+        return { label: t('sync.householdChanged'), tone: 'danger', busy: false, onPress: syncNow };
+      case 'householdGone':
+        return { label: t('sync.householdGone'), tone: 'danger', busy: false, onPress: syncNow };
+      default:
+        return { label: t('sync.failedRetry'), tone: 'danger', busy: false, onPress: syncNow };
+    }
   }
   if (status.rejected > 0) {
-    return { label: t('sync.rejectedCount', { count: status.rejected }), color: COLORS.error,
+    return { label: t(status.rejected === 1 ? 'sync.rejectedCountOne' : 'sync.rejectedCount', { count: status.rejected }), tone: 'danger',
       busy: false, onPress: () => showSyncFailures(t) };
   }
-  if (status.pending > 0) {
-    return { label: t('sync.waitingToSync'), color: COLORS.pending, busy: false };
+  // Only the first download is worth watching; routine syncs stay silent.
+  if (status.phase === 'syncing' && status.firstSync) {
+    return { label: t('sync.syncing'), tone: 'neutral', busy: true };
   }
-  if (showSynced) {
-    return { label: t('sync.synced'), color: COLORS.synced, busy: false };
+  if (status.phase === 'offline' && status.pending > 0) {
+    return { label: t('sync.offline'), tone: 'neutral', busy: false };
   }
   return null;
 }
@@ -120,29 +99,29 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 0,
     right: 0,
+    bottom: BottomTabInset + Spacing.two,
     alignItems: 'center',
   },
   pill: {
-    maxWidth: '90%',
+    // Narrow enough to stay clear of the bottom-right add button.
+    maxWidth: '60%',
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.two,
     paddingVertical: Spacing.one,
     paddingHorizontal: Spacing.three,
     borderRadius: 999,
-    // A soft lift so the pill reads as an overlay above content.
-    shadowColor: '#000',
-    shadowOpacity: 0.12,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 3,
+    borderWidth: StyleSheet.hairlineWidth,
   },
   label: {
     flexShrink: 1,
   },
+  spinner: {
+    transform: [{ scale: 0.7 }],
+  },
   dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
 });

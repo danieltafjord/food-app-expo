@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { Button } from '@/components/button';
@@ -12,10 +12,11 @@ import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { type CategoryId } from '@/lib/categorize';
 import { useT } from '@/lib/i18n';
+import { deleteWithUndo } from '@/lib/undo';
 import { amountText, isAmountValid, parseAmount } from '@/lib/parse-line';
 import {
   recategorizeShoppingItem,
-  removeShoppingItem,
+  removeShoppingItems,
   updateShoppingItem,
   useShoppingItem,
   type ShoppingListItemWithIngredient,
@@ -46,6 +47,8 @@ function ItemForm({ item }: { item: ShoppingListItemWithIngredient }) {
   const [amount, setAmount] = useState(amountText(item.quantity, item.unit));
   const [category, setCategory] = useState<CategoryId>(item.category);
   const parsed = parseAmount(amount);
+  // Once per sheet: a double tap on Save or Remove would pop two screens.
+  const closing = useRef(false);
 
   // A free-text item must keep a name; an ingredient-backed one keeps its ingredient.
   // An amount we can't read ("ca 2 dl") would be saved as no amount at all.
@@ -58,6 +61,8 @@ function ItemForm({ item }: { item: ShoppingListItemWithIngredient }) {
   }
 
   function save() {
+    if (closing.current) return;
+    closing.current = true;
     updateShoppingItem(item.id, {
       name: isFreeText ? name.trim() || null : item.name,
       quantity: parsed.quantity,
@@ -69,9 +74,14 @@ function ItemForm({ item }: { item: ShoppingListItemWithIngredient }) {
     router.back();
   }
 
+  // Like a swipe on the list: gone at once, with a moment to take it back.
   function remove() {
-    removeShoppingItem(item.id);
+    if (closing.current) return;
+    closing.current = true;
+    const id = item.id;
+    const name = item.ingredient_name ?? item.name ?? t('common.itemFallback');
     router.back();
+    deleteWithUndo(t('undo.itemRemoved', { name }), [id], () => removeShoppingItems([id]));
   }
 
   return (

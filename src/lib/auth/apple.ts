@@ -2,7 +2,7 @@ import * as AppleAuthentication from 'expo-apple-authentication';
 import * as AuthSession from 'expo-auth-session';
 import * as Crypto from 'expo-crypto';
 
-import { ApiError } from '@/lib/api/client';
+import { ApiError, requestLocale } from '@/lib/api/client';
 import { discovery } from '@/lib/auth/oauth';
 import { OAUTH_CLIENT_ID } from '@/lib/config';
 
@@ -82,7 +82,12 @@ export async function signInWithApple(): Promise<AuthSession.TokenResponse | nul
 
   const response = await fetch(discovery.tokenEndpoint!, {
     method: 'POST',
-    headers: { Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' },
+    // In the app's language, so a refusal (`hint`) reads like the rest of the app.
+    headers: {
+      Accept: 'application/json',
+      'Accept-Language': requestLocale(),
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
     body: new URLSearchParams(params).toString(),
   });
   const body = await response.json().catch(() => ({}));

@@ -3,7 +3,7 @@ import Constants from 'expo-constants';
 import { getCalendars } from 'expo-localization';
 import * as Notifications from 'expo-notifications';
 import { router, type Href } from 'expo-router';
-import { AppState, Linking, Platform } from 'react-native';
+import { Alert, AppState, Linking, Platform } from 'react-native';
 
 import { translate, type Locale } from '@/lib/i18n';
 import { isInPresenceScope } from '@/lib/realtime/live';
@@ -41,6 +41,36 @@ let registeredToken: string | null = null;
 
 export function getRegisteredPushToken(): string | null {
   return registeredToken;
+}
+
+function projectId(): string | undefined {
+  return Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
+}
+
+/**
+ * This install's push token, for the sign-out request so the server stops
+ * pushing the previous account's household here. After a cold start nothing
+ * has registered yet, so it is asked for — only when notifications are
+ * allowed (asking can't prompt then), and briefly: sign-out must not hang on it.
+ */
+export async function pushTokenForSignOut(timeoutMs = 2000): Promise<string | null> {
+  if (registeredToken) return registeredToken;
+  if (!notificationsSupported) return null;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const lookup = (async () => {
+      if (toPermission(await Notifications.getPermissionsAsync()) !== 'granted') return null;
+      return (await Notifications.getExpoPushTokenAsync({ projectId: projectId() })).data;
+    })();
+    const timeout = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), timeoutMs);
+    });
+    return await Promise.race([lookup, timeout]);
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /* ---- presentation -------------------------------------------------------- */
@@ -115,26 +145,54 @@ export async function askForNotificationsOnce(): Promise<void> {
   if ((await refreshNotificationPermission()) === 'undetermined') await requestNotificationPermission();
 }
 
+/**
+ * Offer notifications once to someone whose household is already shared (they
+ * were never asked: the prompt otherwise follows sending or accepting an
+ * invite). A short explanation first, so the system prompt — which can only
+ * be shown once — comes when the user said yes. Remembered on the device
+ * whatever the answer, so it never nags.
+ */
+export async function offerNotificationsOnce(locale: Locale): Promise<void> {
+  if (!notificationsSupported || store$.settings.notificationsOffered.peek()) return;
+  if ((await refreshNotificationPermission()) !== 'undetermined') return;
+  if (store$.settings.notificationsOffered.peek()) return;
+  store$.settings.notificationsOffered.set(true);
+  const accepted = await new Promise<boolean>((resolve) => {
+    Alert.alert(
+      translate(locale, 'notifications.primerTitle'),
+      translate(locale, 'notifications.primerMessage'),
+      [
+        { text: translate(locale, 'notifications.primerLater'), style: 'cancel', onPress: () => resolve(false) },
+        { text: translate(locale, 'notifications.primerAccept'), onPress: () => resolve(true) },
+      ],
+      { cancelable: true, onDismiss: () => resolve(false) },
+    );
+  });
+  if (accepted) await requestNotificationPermission();
+}
+
 /* ---- push token ---------------------------------------------------------- */
 
 /**
  * Tell the server where to push for this install. Needs the permission and a
  * signed-in account with a household; a no-op otherwise. Safe to repeat: it
  * also refreshes the token's time zone and which session it belongs to.
+ * Resolves to whether the server now has it.
  */
-export async function registerPushToken(token?: string): Promise<void> {
+export async function registerPushToken(token?: string): Promise<boolean> {
   const request = getSyncRequest();
-  if (!notificationsSupported || !request || notificationPermission$.peek() !== 'granted') return;
+  if (!notificationsSupported || !request || notificationPermission$.peek() !== 'granted') return false;
   try {
-    const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
-    const pushToken = token ?? (await Notifications.getExpoPushTokenAsync({ projectId })).data;
+    const pushToken = token ?? (await Notifications.getExpoPushTokenAsync({ projectId: projectId() })).data;
     await request('/me/push-token', {
       method: 'PUT',
       body: { token: pushToken, platform: Platform.OS, timezone: getCalendars()[0]?.timeZone ?? null },
     });
     registeredToken = pushToken;
+    return true;
   } catch {
     // Offline, a simulator without push, or an older server: retried on the next foreground.
+    return false;
   }
 }
 

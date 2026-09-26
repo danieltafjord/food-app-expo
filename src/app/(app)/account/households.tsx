@@ -7,6 +7,7 @@ import { Card } from '@/components/card';
 import { Screen } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
+import { errorMessage } from '@/lib/api/error-message';
 import { useActiveHousehold, useHouseholds, useSwitchHousehold } from '@/lib/api/households';
 import { useMembers } from '@/lib/api/members';
 import type { HouseholdRole } from '@/lib/api/types';
@@ -128,7 +129,7 @@ export default function HouseholdsScreen() {
                           t('household.switchTitle'),
                           error instanceof SyncPendingError
                             ? t('household.switchBlockedPending')
-                            : error.message,
+                            : errorMessage(error, t),
                         );
                       },
                     })

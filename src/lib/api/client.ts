@@ -1,4 +1,5 @@
 import { API_V1_URL } from '@/lib/config';
+import { getDeviceLocale } from '@/lib/i18n/locale';
 
 export type ValidationErrors = Record<string, string[]>;
 
@@ -32,7 +33,38 @@ export type RequestOptions = {
   signal?: AbortSignal;
   /** Extra request headers (e.g. the live-sync socket id). */
   headers?: Record<string, string>;
+  /** Sees the raw response before it is unwrapped (the sync engine reads its `Date`). */
+  onResponse?: (response: Response) => void;
 };
+
+/**
+ * The app's language for `Accept-Language`, so server messages (validation,
+ * conflicts) come back in the language the user reads. The session installs a
+ * reader of the user's chosen language; until then the device language.
+ */
+let localeSource: () => string = getDeviceLocale;
+
+export function setRequestLocaleSource(source: () => string): void {
+  localeSource = source;
+}
+
+export function requestLocale(): string {
+  try {
+    return localeSource();
+  } catch {
+    return getDeviceLocale();
+  }
+}
+
+/**
+ * Whether a failed request says nothing about the request itself — no
+ * connection, a timeout, or a server that is briefly unavailable — so it is
+ * worth retrying later and should read as "offline", not as a failure.
+ */
+export function isTransientError(error: unknown): boolean {
+  if (!(error instanceof ApiError)) return true;
+  return error.status === 0 || error.status === 408 || error.status === 429 || (error.status >= 502 && error.status <= 504);
+}
 
 function safeJsonParse(text: string): unknown {
   try {
@@ -54,7 +86,7 @@ function hasKey<K extends string>(value: unknown, key: K): value is Record<K, un
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { method = 'GET', body, accessToken, signal } = options;
 
-  const headers: Record<string, string> = { ...options.headers, Accept: 'application/json' };
+  const headers: Record<string, string> = { ...options.headers, Accept: 'application/json', 'Accept-Language': requestLocale() };
   if (accessToken) {
     headers.Authorization = `Bearer ${accessToken}`;
   }
@@ -69,6 +101,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     body: multipart ? body : body !== undefined ? JSON.stringify(body) : undefined,
     signal,
   });
+  options.onResponse?.(response);
 
   if (response.status === 204) {
     return undefined as T;

@@ -31,7 +31,7 @@ import {
   useDinner,
   type DinnerWithItems,
 } from '@/lib/store';
-import { deleteWithUndo } from '@/lib/undo';
+import { deleteWithUndo, useHiddenIds } from '@/lib/undo';
 
 const PICTURE_SIZE = 88;
 
@@ -65,7 +65,9 @@ function DinnerEditorForm({ dinner }: { dinner: DinnerWithItems }) {
   const notes = dinner.notes ?? '';
   const [amountDrafts, setAmountDrafts] = useState<Record<string, { source: string; value: string }>>({});
   const [focusedItem, setFocusedItem] = useState<string | null>(null);
-  const items = dinner.items.map((item) => {
+  // An ingredient removed with Undo still pending is gone from the list at once.
+  const hidden = useHiddenIds();
+  const items = dinner.items.filter((item) => !hidden[item.id]).map((item) => {
     const source = amountText(item.quantity, item.unit);
     const draft = amountDrafts[item.id];
     return { ...item, ingredient_name: getIngredient(item.ingredient_id)?.name ?? t('common.ingredientFallback'),
@@ -96,9 +98,15 @@ function DinnerEditorForm({ dinner }: { dinner: DinnerWithItems }) {
     updateAmount(item.id, amountText(item.quantity, item.unit === unit ? null : unit));
   }
 
+  // Like every other delete: gone at once, with a moment to take it back.
   function removeItem(itemId: string) {
-    removeDinnerItem(dinner.id, itemId);
+    const item = items.find((row) => row.id === itemId);
+    if (!item) return;
+    const dinnerId = dinner.id;
     if (focusedItem === itemId) setFocusedItem(null);
+    deleteWithUndo(t('undo.itemRemoved', { name: item.ingredient_name }), [itemId], () =>
+      removeDinnerItem(dinnerId, itemId),
+    );
   }
 
   function onDelete() {

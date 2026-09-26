@@ -157,9 +157,19 @@ function restoreItems(listId: string): void {
  * Bring every archived list's items back into the store. A device linking to
  * the cloud for the first time uploads what the store holds; its lists stay
  * archived and their items move out again after that sync.
+ *
+ * Only for lists the store still has: items kept for a list that is gone
+ * (another account's or household's, from before a wipe) would upload as
+ * orphans the server can only refuse. Those are forgotten instead.
  */
 export function restoreAllArchivedItems(): void {
-  for (const listId of archive().listIds()) restoreItems(listId);
+  const lists = store$.shoppingLists.peek();
+  const orphaned: string[] = [];
+  for (const listId of archive().listIds()) {
+    if (lists[listId]) restoreItems(listId);
+    else orphaned.push(listId);
+  }
+  if (orphaned.length > 0) archive().drop(orphaned);
 }
 
 /** Launch housekeeping: archive what is due and settle where items live. */

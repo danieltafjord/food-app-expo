@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
-import { FlatList, Pressable, StyleSheet, View } from 'react-native';
+import { FlatList, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
@@ -23,12 +23,17 @@ const MAX_AFTER = 104;
 /**
  * Fixed row heights so the list can be virtualised AND opened directly at the
  * selected week (`getItemLayout` + `initialScrollIndex`) — no mounting a
- * hundred-plus rows of dots and then jumping once they have laid out.
+ * hundred-plus rows of dots and then jumping once they have laid out. Fixed per
+ * text size, that is: they grow with Dynamic Type (`fontScale`), so larger text
+ * gets taller rows and a wider label column instead of being clipped.
  */
 const WEEK_ROW_HEIGHT = 56;
 const WEEK_ROW_GAP = Spacing.two;
-const WEEK_ITEM_HEIGHT = WEEK_ROW_HEIGHT + WEEK_ROW_GAP;
 const MONTH_ITEM_HEIGHT = 40;
+/** Fits the longest label ("29. sep. – 5. okt.", "Sep 29 – Oct 5") at the default text size. */
+const LABEL_WIDTH = 132;
+/** Beyond this the dots would get too cramped; the label shrinks to fit instead. */
+const MAX_LABEL_SCALE = 1.6;
 const MONTH_LONG: Intl.DateTimeFormatOptions = { month: 'long', year: 'numeric' };
 const WEEKDAY_NARROW: Intl.DateTimeFormatOptions = { weekday: 'narrow' };
 
@@ -39,6 +44,8 @@ type WeekRow = {
   dayKeys: string[];
   isCurrent: boolean;
   isSelected: boolean;
+  /** Days with a dinner, for VoiceOver (the dots say it visually). */
+  planned: number;
 };
 
 /** Printed above the first week of each month. */
@@ -63,6 +70,11 @@ export default function WeeksScreen() {
   const locale = useLocale();
   const fill = useWeekFill();
   const selectedKey = usePlannerWeekKey();
+  const { fontScale } = useWindowDimensions();
+  const scale = Math.max(1, fontScale);
+  const weekItemHeight = Math.round(WEEK_ROW_HEIGHT * scale) + WEEK_ROW_GAP;
+  const monthItemHeight = Math.round(MONTH_ITEM_HEIGHT * scale);
+  const labelWidth = Math.round(LABEL_WIDTH * Math.min(scale, MAX_LABEL_SCALE));
 
   const todayWeek = startOfWeek(new Date());
   const todayKey = toDateKey(todayWeek);
@@ -96,7 +108,7 @@ export default function WeeksScreen() {
     if (month !== prevMonth) {
       offsets.push(y);
       rows.push({ kind: 'month', key: `m:${key}`, label: titleCase(month) });
-      y += MONTH_ITEM_HEIGHT;
+      y += monthItemHeight;
       prevMonth = month;
     }
     if (key === selectedKey) selectedIndex = rows.length;
@@ -108,8 +120,9 @@ export default function WeeksScreen() {
       dayKeys: weekDayKeys(d),
       isCurrent: key === todayKey,
       isSelected: key === selectedKey,
+      planned: fill[key]?.size ?? 0,
     });
-    y += WEEK_ITEM_HEIGHT;
+    y += weekItemHeight;
   }
 
   // Localized single-letter weekday headers, Monday→Sunday.
@@ -137,7 +150,7 @@ export default function WeeksScreen() {
   function getItemLayout(_: ArrayLike<Row> | null | undefined, index: number) {
     const row = rows[index];
     return {
-      length: row?.kind === 'month' ? MONTH_ITEM_HEIGHT : WEEK_ITEM_HEIGHT,
+      length: row?.kind === 'month' ? monthItemHeight : weekItemHeight,
       offset: offsets[index] ?? 0,
       index,
     };
@@ -151,11 +164,12 @@ export default function WeeksScreen() {
     <ThemedView style={styles.container}>
       <SafeAreaView edges={['bottom']} style={styles.safe}>
         <View style={styles.headerBar}>
-          <ThemedText type="subtitle">{t('plans.weeksTitle')}</ThemedText>
+          <ThemedText type="subtitle" accessibilityRole="header">{t('plans.weeksTitle')}</ThemedText>
           <Pressable
             onPress={dismiss}
             hitSlop={10}
             accessibilityRole="button"
+            accessibilityLabel={t('common.close')}
             style={({ pressed }) => pressed && styles.pressed}>
             <SymbolView
               name={{ ios: 'xmark.circle.fill', android: 'cancel', web: 'cancel' }}
@@ -169,8 +183,8 @@ export default function WeeksScreen() {
           {t('plans.weeksHint')}
         </ThemedText>
 
-        <View style={styles.weekdayRow}>
-          <View style={styles.labelCol} />
+        <View style={styles.weekdayRow} importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>
+          <View style={[styles.labelCol, { width: labelWidth }]} />
           <View style={styles.dotsRow}>
             {weekdayInitials.map((initial, i) => (
               <View key={i} style={styles.dotCell}>
@@ -194,20 +208,27 @@ export default function WeeksScreen() {
           showsVerticalScrollIndicator={false}
           renderItem={({ item: row }) =>
             row.kind === 'month' ? (
-              <View style={styles.month}>
-                <ThemedText type="smallBold" themeColor="textSecondary">
+              <View style={[styles.month, { height: monthItemHeight }]}>
+                <ThemedText type="smallBold" themeColor="textSecondary" accessibilityRole="header">
                   {row.label}
                 </ThemedText>
               </View>
             ) : (
               <Pressable
                 onPress={() => onSelect(row.key)}
-                style={({ pressed }) => [styles.weekItem, pressed && styles.pressed]}>
+                accessibilityRole="button"
+                accessibilityState={{ selected: row.isSelected }}
+                accessibilityLabel={[
+                  row.label,
+                  row.isCurrent ? t('plans.thisWeek') : null,
+                  t('plans.plannedDays', { count: row.planned }),
+                ].filter(Boolean).join(', ')}
+                style={({ pressed }) => [styles.weekItem, { height: weekItemHeight }, pressed && styles.pressed]}>
                 <ThemedView
                   type={row.isSelected ? 'backgroundSelected' : 'backgroundElement'}
                   style={[styles.weekRow, row.isCurrent && { borderColor: theme.tint }]}>
-                  <View style={styles.labelCol}>
-                    <ThemedText type="smallBold" numberOfLines={1}>
+                  <View style={[styles.labelCol, { width: labelWidth }]}>
+                    <ThemedText type="smallBold" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>
                       {row.label}
                     </ThemedText>
                     {row.isCurrent ? (
@@ -221,8 +242,10 @@ export default function WeeksScreen() {
                       const on = fill[row.key]?.has(dayKey) ?? false;
                       return (
                         <View key={dayKey} style={styles.dotCell}>
+                          {/* Empty days in `borderStrong`: `border` is the selected
+                              row's own fill and the dots would vanish there. */}
                           <View
-                            style={[styles.dot, { backgroundColor: on ? theme.tint : theme.border }]}
+                            style={[styles.dot, { backgroundColor: on ? theme.tint : theme.borderStrong }]}
                           />
                         </View>
                       );
@@ -276,13 +299,11 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing.five,
   },
   month: {
-    height: MONTH_ITEM_HEIGHT,
     justifyContent: 'flex-end',
     paddingBottom: Spacing.one,
     paddingHorizontal: Spacing.one,
   },
   weekItem: {
-    height: WEEK_ITEM_HEIGHT,
     paddingBottom: WEEK_ROW_GAP,
   },
   weekRow: {
@@ -296,7 +317,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.three,
   },
   labelCol: {
-    width: 88,
     gap: Spacing.half,
   },
   dotsRow: {

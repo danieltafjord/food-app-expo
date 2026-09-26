@@ -8,7 +8,9 @@ import { useTheme } from '@/hooks/use-theme';
 import { useAiSettings, useUpdateAiSettings, type AiFeature } from '@/lib/api/ai';
 import { useSession } from '@/lib/auth/session';
 import { useT } from '@/lib/i18n';
+import { dateFormatter } from '@/lib/intl';
 import { useLocale } from '@/lib/store/settings';
+import { toDateKey } from '@/lib/week';
 
 export function AiSettingsSection() {
   const t = useT();
@@ -49,7 +51,6 @@ export function AiSettingsSection() {
                 <Switch
                   value={settings[`${feature}_enabled`]}
                   onValueChange={(enabled) => change(feature, enabled)}
-                  disabled={update.isPending}
                   trackColor={{ true: theme.accent }}
                   accessibilityLabel={t(feature === 'categorization' ? 'ai.categorization' : 'ai.suggestions')}
                 />
@@ -64,7 +65,7 @@ export function AiSettingsSection() {
               })}
             </ThemedText>
             <ThemedText type="small" themeColor="textSecondary">
-              {t('ai.resets', { time: new Date(settings.usage.resets_at).toLocaleString(locale) })}
+              {t('ai.resets', { time: formatReset(settings.usage.resets_at, locale) })}
             </ThemedText>
           </>
         ) : query.isError ? (
@@ -81,6 +82,17 @@ export function AiSettingsSection() {
       </Card>
     </View>
   );
+}
+
+const TIME: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit' };
+const DAY_AND_TIME: Intl.DateTimeFormatOptions = { weekday: 'short', hour: '2-digit', minute: '2-digit' };
+
+/** When the allowance resets: "02:00" today, "Sat 02:00" on another day — no seconds. */
+function formatReset(iso: string, locale: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  const today = toDateKey(date) === toDateKey(new Date());
+  return dateFormatter(locale, today ? TIME : DAY_AND_TIME).format(date);
 }
 
 const styles = StyleSheet.create({

@@ -7,7 +7,15 @@ type Dependencies = {
   refresh: (token: string, signal?: AbortSignal) => Promise<StoredSession>;
   request: <T>(path: string, options: RequestOptions) => Promise<T>;
   onChange: (session: StoredSession | null) => void;
+  /**
+   * The session ended: `user` for a sign-out, `expired` when the server
+   * refused the tokens (refresh token revoked or expired) — the user did not
+   * ask for it and should be told once.
+   */
+  onSignedOut?: (reason: SignOutReason) => void;
 };
+
+export type SignOutReason = 'user' | 'expired';
 
 function isInvalidSession(error: unknown): boolean {
   if (error instanceof ApiError) return error.status === 401;
@@ -39,7 +47,17 @@ export class SessionController {
   }
 
   async set(session: StoredSession | null, persist = true): Promise<void> {
+    return this.replace(session, persist, 'user');
+  }
+
+  /** The server refused the tokens: clear them and say it wasn't the user's doing. */
+  private expire(): Promise<void> {
+    return this.replace(null, true, 'expired');
+  }
+
+  private async replace(session: StoredSession | null, persist: boolean, reason: SignOutReason): Promise<void> {
     const revision = ++this.generation;
+    const hadSession = this.session !== null;
     this.session = session;
     this.refreshing = null;
     // Invalidate queries and stop sync immediately, before any Keychain I/O.
@@ -58,6 +76,7 @@ export class SessionController {
       }
     }
     if (revision === this.generation && session) this.dependencies.onChange(session);
+    if (!session && hadSession) this.dependencies.onSignedOut?.(reason);
   }
 
   private refresh(revision: number): Promise<StoredSession> {
@@ -81,7 +100,7 @@ export class SessionController {
       this.assertCurrent(revision);
       return next;
     }).catch(async (error: unknown) => {
-      if (revision === this.generation && isInvalidSession(error)) await this.set(null);
+      if (revision === this.generation && isInvalidSession(error)) await this.expire();
       throw error;
     }).finally(() => {
       clearTimeout(timer);
@@ -108,7 +127,7 @@ export class SessionController {
       this.assertCurrent(revision);
       if (!(error instanceof ApiError) || error.status !== 401) throw error;
       if (!this.session?.refreshToken) {
-        await this.set(null);
+        await this.expire();
         throw error;
       }
       // Another request may already have rotated the rejected access token.
@@ -121,7 +140,7 @@ export class SessionController {
         this.assertCurrent(revision);
         return result;
       } catch (retryError) {
-        if (revision === this.generation && isInvalidSession(retryError)) await this.set(null);
+        if (revision === this.generation && isInvalidSession(retryError)) await this.expire();
         throw retryError;
       }
     }

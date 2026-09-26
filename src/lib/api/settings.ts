@@ -2,6 +2,7 @@ import { useMutation } from '@tanstack/react-query';
 
 import type { Locale } from '@/lib/i18n';
 import type { User } from '@/lib/api/types';
+import type { AppleProof } from '@/lib/auth/apple';
 import { useSession } from '@/lib/auth/session';
 import { applyServerSettings, type ThemePreference } from '@/lib/store';
 
@@ -26,5 +27,38 @@ export function useUpdateSettings() {
       if (context?.seq !== latestSettingsUpdate) return;
       applyServerSettings(user.theme, user.locale);
     },
+  });
+}
+
+/** Change the signed-in person's display name (what the household sees), then reload `/me`. */
+export function useUpdateProfile() {
+  const { request, refreshUser } = useSession();
+  return useMutation({
+    mutationFn: (input: { name: string }) =>
+      request<User>('/me/profile', { method: 'PATCH', body: input }),
+    onSuccess: () => refreshUser().catch(() => undefined),
+  });
+}
+
+/**
+ * How the person proves it's them before the account is deleted: a fresh Sign
+ * in with Apple, their password, or — for accounts without one (Google) — their
+ * email address typed out.
+ */
+export type DeleteAccountProof =
+  | AppleProof
+  | { password: string }
+  | { email: string };
+
+/**
+ * Delete the account, then sign this device out as the person's own choice —
+ * waiting for the dead token's 401 would read as an expired session. Local
+ * data stays until the person clears it.
+ */
+export function useDeleteAccount() {
+  const { request, signOut } = useSession();
+  return useMutation({
+    mutationFn: (proof: DeleteAccountProof) => request<void>('/me', { method: 'DELETE', body: proof }),
+    onSuccess: () => signOut().catch(() => undefined),
   });
 }

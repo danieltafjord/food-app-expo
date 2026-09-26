@@ -91,3 +91,17 @@ export function relativeTime(iso: string | null | undefined): string {
   if (hours < 24) return translate(locale, 'time.hoursAgo', { count: hours });
   return translate(locale, 'time.daysAgo', { count: Math.round(hours / 24) });
 }
+
+/**
+ * A weekday with its day of the month, in the given language's order and
+ * punctuation: "man. 21." (nb, ordinal dot) / "Mon 21" (en). `weekday` is the
+ * already localized name (see `buildWeek`), so lists of days share one formatter.
+ */
+export function weekdayWithDay(weekday: string, dayOfMonth: number, locale: string = getLocale()): string {
+  return usesOrdinalDot(locale) ? `${weekday} ${dayOfMonth}.` : `${weekday} ${dayOfMonth}`;
+}
+
+/** Languages that write the day of the month as an ordinal with a dot ("21."). */
+function usesOrdinalDot(locale: string): boolean {
+  return /^(nb|nn|no|da|de)\b/i.test(locale);
+}

@@ -46,6 +46,7 @@ import { useResolvedScheme, useTheme } from '@/hooks/use-theme';
 import { BadgeColors, BottomTabInset, Spacing } from '@/constants/theme';
 import { useIncomingSuggestions, useSwapInProgress } from '@/lib/dinner-suggester';
 import { hapticDrop, hapticLift } from '@/lib/haptics';
+import { weekdayWithDay } from '@/lib/format';
 import { useT } from '@/lib/i18n';
 import { dinnerCategory } from '@/lib/dinner-categories';
 import type { PlanEntryWithDinner } from '@/lib/store';
@@ -296,9 +297,11 @@ function DaySection({
       <View
         style={styles.dayRail}
         accessible
-        accessibilityLabel={`${day.weekday} ${day.dayOfMonth}`}>
+        accessibilityLabel={weekdayWithDay(day.weekday, day.dayOfMonth)}>
+        {/* Today in tomato: the small weekday in the text-safe shade (4.5:1);
+            the large bold date clears 3:1 in the icon's own. */}
         <ThemedText
-          style={[styles.railWeekday, { color: day.isToday ? theme.accent : theme.textSecondary }]}>
+          style={[styles.railWeekday, { color: day.isToday ? theme.accentText : theme.textSecondary }]}>
           {day.weekday}
         </ThemedText>
         <ThemedText style={[styles.railDate, day.isToday && { color: theme.accent }]}>
@@ -333,6 +336,7 @@ function DaySection({
           <Pressable
             onPress={() => onAdd(day.date)}
             accessibilityRole="button"
+            accessibilityLabel={`${t('weekBoard.addDinner')}, ${weekdayWithDay(day.weekday, day.dayOfMonth)}`}
             style={({ pressed }) => [
               styles.addButton,
               { borderColor: theme.borderStrong },
@@ -485,9 +489,30 @@ const DraggableDinnerCard = memo(function DraggableDinnerCard({
     };
   });
 
+  // VoiceOver can't long-press-drag: the card reads as one button that opens
+  // the entry sheet, where "Move to" does what dragging does.
+  const name = entry.dinner_name ?? t('common.dinnerFallback');
+  const a11yLabel = [
+    name,
+    category ? categoryLabel(category) : null,
+    `${count} ${count === 1 ? t('common.ingredient') : t('common.ingredients')}`,
+    `${entry.servings} ${entry.servings === 1 ? t('common.serving') : t('common.servings')}`,
+  ].filter(Boolean).join(', ');
+
   return (
     <GestureDetector gesture={gesture}>
-      <Animated.View layout={REFLOW} style={[styles.card, { backgroundColor: cardBg }, cardStyle]}>
+      <Animated.View
+        layout={REFLOW}
+        accessible
+        accessibilityRole="button"
+        accessibilityLabel={a11yLabel}
+        accessibilityHint={t('weekBoard.cardHint')}
+        accessibilityState={{ busy: swapping }}
+        accessibilityActions={[{ name: 'activate' }]}
+        onAccessibilityAction={({ nativeEvent }) => {
+          if (nativeEvent.actionName === 'activate') onEdit(entryId);
+        }}
+        style={[styles.card, { backgroundColor: cardBg }, cardStyle]}>
         {/* Someone else just planned, moved or changed this dinner. */}
         <RemoteChangeWash id={entry.id} radius={Spacing.three} />
         <DinnerImage dinnerId={entry.dinner_id} name={entry.dinner_name} size={40} />

@@ -1,5 +1,6 @@
 import { useValue } from '@legendapp/state/react';
 import { router, useLocalSearchParams } from 'expo-router';
+import { useRef } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 
 import { Button } from '@/components/button';
@@ -11,6 +12,7 @@ import { ThemedText } from '@/components/themed-text';
 import { BadgeColors, Spacing } from '@/constants/theme';
 import { useResolvedScheme, useTheme } from '@/hooks/use-theme';
 import { suggestDinners, useSuggestionFailure, useSwapInProgress } from '@/lib/dinner-suggester';
+import { weekdayWithDay } from '@/lib/format';
 import { hapticSelection } from '@/lib/haptics';
 import { useT } from '@/lib/i18n';
 import { pushOnce } from '@/lib/navigation';
@@ -23,6 +25,7 @@ import {
 } from '@/lib/store';
 import { store$ } from '@/lib/store/collections';
 import { releaseSuggestedDinner } from '@/lib/store/week-suggestions';
+import { deleteWithUndo } from '@/lib/undo';
 import { buildWeek, dateKeyOf, fromDateKey, startOfWeek } from '@/lib/week';
 
 /**
@@ -32,7 +35,7 @@ import { buildWeek, dateKeyOf, fromDateKey, startOfWeek } from '@/lib/week';
  * another" swaps in a new idea for the day (the sheet stays open, so it can be
  * tapped again until one sticks), "Edit dinner" opens the recipe itself, and
  * "Add another dinner" opens the picker for the same day. Removing the dinner
- * from the plan is a separate red action below a divider.
+ * from the plan is a separate red action below a divider, with Undo.
  */
 export default function EntryEditorSheet() {
   const t = useT();
@@ -63,21 +66,33 @@ function EntryForm({ entry }: { entry: PlanEntryWithDinner }) {
   const failure = useSuggestionFailure();
   const failed = failure?.job.kind === 'swap' && failure.job.entryId === entry.id ? failure.message : null;
   const fromSaved = useValue(() => store$.meta.planningPreferences.get()?.source === 'saved');
+  // Every action below closes the sheet: once per sheet, or a double tap pops
+  // the screen beneath it too.
+  const leaving = useRef(false);
+
+  function leave(): boolean {
+    if (leaving.current) return false;
+    leaving.current = true;
+    return true;
+  }
 
   function moveTo(date: string) {
-    if (date === scheduled) return;
+    if (date === scheduled || !leave()) return;
     hapticSelection();
     updatePlanEntry(entry.id, { scheduled_date: date });
     router.back();
   }
 
   function editDinner() {
-    // Leave the sheet, then push the recipe onto the Dinners tab.
+    if (!leave()) return;
+    // Leave the sheet, then push the recipe over the tabs (not onto the Dinners
+    // tab), so Back returns to the plan.
     router.back();
-    pushOnce({ pathname: '/dinners/[id]', params: { id: entry.dinner_id } });
+    pushOnce({ pathname: '/dinner/[id]', params: { id: entry.dinner_id } });
   }
 
   function addAnother() {
+    if (!leave()) return;
     // Leave the sheet, then open the picker for this dinner's day.
     router.back();
     pushOnce({ pathname: '/sheets/dinner-picker', params: { date: scheduled } });
@@ -89,11 +104,17 @@ function EntryForm({ entry }: { entry: PlanEntryWithDinner }) {
     void suggestDinners({ kind: 'swap', entryId: entry.id });
   }
 
+  // Off the board at once; written when the Undo window closes, so an undone
+  // removal leaves no trace (and a suggested dinner isn't deleted meanwhile).
   function remove() {
-    deletePlanEntry(entry.id);
-    // A suggestion nobody kept doesn't linger in the household's dinners.
-    releaseSuggestedDinner(entry.dinner_id, scheduled);
+    if (!leave()) return;
+    const { id, dinner_id: dinnerId } = entry;
     router.back();
+    deleteWithUndo(t('undo.dinnerRemoved', { name: entry.dinner_name ?? t('common.dinnerFallback') }), [id], () => {
+      deletePlanEntry(id);
+      // A suggestion nobody kept doesn't linger in the household's dinners.
+      releaseSuggestedDinner(dinnerId, scheduled);
+    });
   }
 
   const current = days.find((day) => day.date === scheduled);
@@ -108,7 +129,7 @@ function EntryForm({ entry }: { entry: PlanEntryWithDinner }) {
           </ThemedText>
           {current ? (
             <ThemedText type="small" themeColor="textSecondary" style={styles.capitalize}>
-              {current.weekday} {current.dayOfMonth}.
+              {weekdayWithDay(current.weekday, current.dayOfMonth, locale)}
             </ThemedText>
           ) : null}
         </View>
@@ -137,7 +158,7 @@ function EntryForm({ entry }: { entry: PlanEntryWithDinner }) {
                 onPress={() => moveTo(day.date)}
                 accessibilityRole="radio"
                 accessibilityState={{ selected }}
-                accessibilityLabel={`${day.weekday} ${day.dayOfMonth}`}
+                accessibilityLabel={weekdayWithDay(day.weekday, day.dayOfMonth, locale)}
                 style={({ pressed }) => [
                   styles.day,
                   { backgroundColor: selected ? theme.tint : theme.backgroundElement },
@@ -153,7 +174,8 @@ function EntryForm({ entry }: { entry: PlanEntryWithDinner }) {
                   type="smallBold"
                   style={[
                     selected && { color: theme.onTint },
-                    !selected && day.isToday && { color: theme.tint },
+                    // Today in the brand accent, like the board (the text-safe shade).
+                    !selected && day.isToday && { color: theme.accentText },
                   ]}>
                   {day.dayOfMonth}
                 </ThemedText>

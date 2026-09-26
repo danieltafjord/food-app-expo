@@ -26,11 +26,10 @@ import {
   ensurePlanForWeek,
   getDinner,
   useDinnerOptions,
-  useLocale,
   type LocalDinner,
 } from '@/lib/store';
 import { useHouseholdDefaultServings } from '@/lib/store/household';
-import { addDays, fromDateKey, startOfWeek, toDateKey, weekLabel } from '@/lib/week';
+import { addDays, fromDateKey, isoWeekNumber, startOfWeek, toDateKey } from '@/lib/week';
 
 // Snappy enough that the list still feels instant, long enough to read as motion.
 // Only the action row and the "recent" strip animate; list rows do not.
@@ -74,7 +73,6 @@ export default function DinnerPickerSheet() {
   const t = useT();
   const categoryLabel = useDinnerCategoryLabel();
   const theme = useTheme();
-  const locale = useLocale();
   const { date } = useLocalSearchParams<{ date: string }>();
   const dinners = useDinnerOptions();
   const [query, setQuery] = useState('');
@@ -109,7 +107,7 @@ export default function DinnerPickerSheet() {
     const planId = ensurePlanForWeek(
       toDateKey(weekStart),
       toDateKey(addDays(weekStart, 6)),
-      t('plans.weekOf', { label: weekLabel(weekStart, locale) }),
+      t('plans.weekOf', { week: isoWeekNumber(weekStart) }),
     );
     createPlanEntry(planId, {
       dinner_id: dinner.id,
@@ -228,6 +226,7 @@ export default function DinnerPickerSheet() {
         <Animated.View key={action} entering={FADE_IN}>
           <Pressable
             accessibilityRole="button"
+            accessibilityHint={t(action === 'create' ? 'dinnerPicker.createHint' : 'dinnerPicker.addExistingHint')}
             onPress={onSubmit}
             style={({ pressed }) => [styles.action, { backgroundColor: theme.backgroundElement },
               pressed && { backgroundColor: theme.backgroundSelected }]}>

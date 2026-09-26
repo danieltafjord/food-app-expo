@@ -17,6 +17,10 @@ import { PusherSocket, type ChannelAuth, type ChannelMessage, type SocketConfig 
  *  - `presence-household.{id}.{scope}`: who else has a shopping list
  *    (`list.{uuid}`) or a week of the plan (`week.{monday}`) open right now.
  *
+ * The household channel also says when a member is removed. For this account
+ * that means the household is gone from under it: live sync stops and the
+ * session re-fetches the account (see `RealtimeOptions.onRemovedFromHousehold`).
+ *
  * Everything is optional: with no socket (server without Reverb, offline,
  * backgrounded) the engine keeps polling and presence is simply empty.
  */
@@ -44,13 +48,22 @@ let appStateSub: NativeEventSubscription | null = null;
 let myId: string | null = null;
 const rooms = new Map<string, Room>();
 let retryTimer: ReturnType<typeof setTimeout> | null = null;
+let options: RealtimeOptions = {};
+
+export type RealtimeOptions = {
+  /** The signed-in account, to recognise its own removal from the household. */
+  userId?: number | null;
+  /** This account was removed from the household the device is bound to. */
+  onRemovedFromHousehold?: () => void;
+};
 /** How long to wait before asking for the socket config again after a failed ask. */
 const CONFIG_RETRY_MS = 60_000;
 
 /* ---- lifecycle ----------------------------------------------------------- */
 
 /** Open live sync for the signed-in account. Safe to call repeatedly. */
-export async function startRealtime(): Promise<void> {
+export async function startRealtime(next: RealtimeOptions = options): Promise<void> {
+  options = next;
   if (running) return;
   running = true;
   const current = ++generation;
@@ -69,7 +82,7 @@ export async function startRealtime(): Promise<void> {
     running = false;
     retryTimer = setTimeout(() => {
       retryTimer = null;
-      if (current === generation) void startRealtime();
+      if (current === generation) void startRealtime(options);
     }, CONFIG_RETRY_MS);
     return;
   }
@@ -114,6 +127,7 @@ export function stopRealtime(): void {
 /** Test-only: forget all module state. */
 export function __resetRealtimeForTests(): void {
   stopRealtime();
+  options = {};
   for (const room of rooms.values()) if (room.leaveTimer) clearTimeout(room.leaveTimer);
   rooms.clear();
 }
@@ -165,6 +179,13 @@ function onHouseholdMessage({ event, data }: ChannelMessage): void {
     setRealtimeLink(true, socket?.socketId ?? null);
   } else if (event === 'synced') {
     handleRemoteVersion(Number(data?.version));
+  } else if (event === 'household.member-removed' || event === '.household.member-removed') {
+    const removed = data?.user_id;
+    if (removed == null || options.userId == null || Number(removed) !== options.userId) return;
+    // Our membership is gone: every channel here would be refused from now on.
+    const notify = options.onRemovedFromHousehold;
+    stopRealtime();
+    notify?.();
   }
 }
 

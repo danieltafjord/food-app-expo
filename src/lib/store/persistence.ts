@@ -133,6 +133,10 @@ class SqliteArchive implements ArchiveBackend {
     this.deleteWhere('id', itemIds);
   }
 
+  clear(): void {
+    this.db.runSync('DELETE FROM archived_items');
+  }
+
   listIds(): string[] {
     return this.db.getAllSync<{ list_id: string }>('SELECT DISTINCT list_id FROM archived_items').map((row) => row.list_id);
   }

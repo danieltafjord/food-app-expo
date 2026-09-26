@@ -97,6 +97,23 @@ it('listens to the household and pulls when the doorbell rings', async () => {
   expect(setRealtimeLink).toHaveBeenLastCalledWith(false, null);
 });
 
+it('stops and tells the session when this account is removed from the household', async () => {
+  server();
+  const onRemovedFromHousehold = jest.fn();
+  await startRealtime({ userId: 1, onRemovedFromHousehold });
+  const ws = FakeWebSocket.latest();
+  ws.establish('9.9');
+  await jest.advanceTimersByTimeAsync(0);
+  ws.receive('pusher_internal:subscription_succeeded', {}, 'private-household.7');
+
+  ws.receive('household.member-removed', { user_id: 2 }, 'private-household.7');
+  expect(onRemovedFromHousehold).not.toHaveBeenCalled();
+
+  ws.receive('household.member-removed', { user_id: 1 }, 'private-household.7');
+  expect(onRemovedFromHousehold).toHaveBeenCalledTimes(1);
+  expect(setRealtimeLink).toHaveBeenLastCalledWith(false, null);
+});
+
 it('follows the device to another household', async () => {
   server();
   const ws = await live();

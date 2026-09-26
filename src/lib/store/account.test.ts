@@ -5,6 +5,7 @@ import {
   getBoundAccountId,
   resetLocalDataForAccount,
 } from '@/lib/store/account';
+import { archive, MemoryArchive, setArchiveBackend } from '@/lib/store/archive';
 import { store$ } from '@/lib/store/collections';
 
 function seedLocalData() {
@@ -48,6 +49,7 @@ beforeEach(() => {
   store$.meta.cursor.set(null);
   store$.meta.localHouseholdId.set('');
   store$.meta.accountId.set(null);
+  setArchiveBackend(new MemoryArchive(), async () => undefined);
 });
 
 describe('account binding', () => {
@@ -98,5 +100,18 @@ describe('account binding', () => {
     const localId = store$.meta.localHouseholdId.get();
     expect(localId).toBeTruthy();
     expect(store$.households.get()[localId]).toBeDefined();
+  });
+
+  it('forgets archived lists\' items and the first-sync seed with the rest of the data', () => {
+    bindAccount(1);
+    seedLocalData();
+    store$.meta.seeded.set(true);
+    archive().stash('l1', [{ id: 'i1', shopping_list_id: 'l1', ingredient_id: null, name: 'Account A secret',
+      quantity: null, unit: null, is_checked: true, created_at: 'x', updated_at: 'x' }]);
+
+    resetLocalDataForAccount(2);
+
+    expect(archive().listIds()).toEqual([]);
+    expect(store$.meta.seeded.get()).toBe(false);
   });
 });

@@ -90,6 +90,13 @@ export type User = {
   two_factor_enabled: boolean;
   /** Apple/Google identities linked to the account. */
   sign_in_providers: ('apple' | 'google')[];
+  /** False for Apple/Google-only accounts: they confirm deletion another way. */
+  has_password: boolean;
+  /**
+   * True when the person never gave a real name (an Apple sign-up without one,
+   * Hide My Email), so the household would see a placeholder. Ask for one.
+   */
+  needs_name: boolean;
   theme: 'system' | 'light' | 'dark';
   locale: 'en' | 'nb';
   current_household: Household | null;

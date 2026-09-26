@@ -3,7 +3,7 @@ import * as AuthSession from 'expo-auth-session';
 import { router } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { useState } from 'react';
-import { Alert, Platform, Pressable, StyleSheet } from 'react-native';
+import { ActivityIndicator, Alert, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/button';
@@ -11,7 +11,8 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useResolvedScheme, useTheme } from '@/hooks/use-theme';
-import { ApiError, apiRequest } from '@/lib/api/client';
+import { apiRequest } from '@/lib/api/client';
+import { errorMessage } from '@/lib/api/error-message';
 import type { User } from '@/lib/api/types';
 import { signInWithApple } from '@/lib/auth/apple';
 import { authRequestConfig, discovery, googleAuthRequestConfig, redirectUri } from '@/lib/auth/oauth';
@@ -19,6 +20,7 @@ import { takePendingInvite } from '@/lib/auth/pending-invite';
 import { useSession } from '@/lib/auth/session';
 import { isOAuthConfigured, OAUTH_CLIENT_ID } from '@/lib/config';
 import { useT } from '@/lib/i18n';
+import { pushOnce } from '@/lib/navigation';
 import { hasPending } from '@/lib/sync/engine';
 import { accountTransitionFor, bindAccount, resetLocalDataForAccount } from '@/lib/store';
 
@@ -84,19 +86,19 @@ export default function SignInScreen() {
   // Bind the local data to this account before the session (and the sync engine)
   // start. If the device's data belongs to a *different* account, wipe it first —
   // with the user's confirmation — so one account's data never uploads into
-  // another. Returns false if the user backs out of a switch (data left untouched).
-  async function reconcileLocalData(accessToken: string): Promise<boolean> {
+  // another. Returns null if the user backs out of a switch (data left untouched).
+  async function reconcileLocalData(accessToken: string): Promise<User | null> {
     const me = await apiRequest<User>('/me', { accessToken });
     if (accountTransitionFor(me.id) === 'switch') {
       const confirmed = await confirmAccountSwitch(me.email);
       if (!confirmed) {
-        return false;
+        return null;
       }
       resetLocalDataForAccount(me.id);
     } else {
       bindAccount(me.id);
     }
-    return true;
+    return me;
   }
 
   function dismiss() {
@@ -112,7 +114,8 @@ export default function SignInScreen() {
   // the user came from an invite link (deferred while signed out), resume it
   // now — doing that from a root effect races with `dismiss()` and loses the token.
   async function completeSignIn(token: AuthSession.TokenResponse) {
-    if (!(await reconcileLocalData(token.accessToken))) {
+    const me = await reconcileLocalData(token.accessToken);
+    if (!me) {
       return;
     }
     await signIn(token);
@@ -121,6 +124,9 @@ export default function SignInScreen() {
       router.replace({ pathname: '/invitations/[token]', params: { token: invite } });
     } else {
       dismiss(); // connected — return to Settings.
+      // Without a real name (Apple's Hide My Email) the household would see a
+      // placeholder on lists and in notifications: ask for one straight away.
+      if (me.needs_name) pushOnce('/account/name');
     }
   }
 
@@ -135,13 +141,10 @@ export default function SignInScreen() {
       if (__DEV__) {
         console.error('[sign-in] failed', err);
       }
-      const message =
-        err instanceof ApiError
-          ? err.message
-          : err instanceof Error && err.message
-            ? err.message
-            : t('auth.signInFailed');
-      setError(message);
+      // Apple's own errors carry an `ERR_…` code and English native text; say it
+      // in the app's language. A server refusal (a deactivated account) is
+      // already localized.
+      setError(isAppleError(err) ? t('auth.appleFailed') : errorMessage(err, t, 'auth.signInFailed'));
     } finally {
       setPending(null);
     }
@@ -161,11 +164,12 @@ export default function SignInScreen() {
           return;
         }
         // The server redirected back with an OAuth error instead of a code.
+        // Its description is protocol English, so say it in the app's language.
         if (result.params.error) {
-          setError(result.params.error_description ?? result.params.error);
+          setError(t('auth.authFailed'));
         }
       } else if (result.type === 'error') {
-        setError(result.error?.message ?? t('auth.authFailed'));
+        setError(t('auth.authFailed'));
       }
       // 'cancel' / 'dismiss' / 'locked' need no message — the user backed out.
     });
@@ -215,19 +219,34 @@ export default function SignInScreen() {
           )}
 
           {APPLE_SIGN_IN && (
-            <AppleAuthentication.AppleAuthenticationButton
-              buttonType={AppleAuthentication.AppleAuthenticationButtonType.CONTINUE}
-              buttonStyle={
-                scheme === 'dark'
-                  ? AppleAuthentication.AppleAuthenticationButtonStyle.WHITE
-                  : AppleAuthentication.AppleAuthenticationButtonStyle.BLACK
-              }
-              cornerRadius={Spacing.three}
-              style={[styles.appleButton, (pending !== null || !isOAuthConfigured) && styles.disabled]}
-              onPress={() => {
-                if (pending === null && isOAuthConfigured) void onAppleSignIn();
-              }}
-            />
+            // Apple's button can't show progress itself, so a spinner covers it
+            // while the token is exchanged and the account is set up — in the
+            // button's own pure black / white, which Apple fixes, not our theme.
+            <View accessibilityState={{ busy: pending === 'apple' }}>
+              <AppleAuthentication.AppleAuthenticationButton
+                buttonType={AppleAuthentication.AppleAuthenticationButtonType.CONTINUE}
+                buttonStyle={
+                  scheme === 'dark'
+                    ? AppleAuthentication.AppleAuthenticationButtonStyle.WHITE
+                    : AppleAuthentication.AppleAuthenticationButtonStyle.BLACK
+                }
+                cornerRadius={Spacing.three}
+                style={[
+                  styles.appleButton,
+                  ((pending !== null && pending !== 'apple') || !isOAuthConfigured) && styles.disabled,
+                ]}
+                onPress={() => {
+                  if (pending === null && isOAuthConfigured) void onAppleSignIn();
+                }}
+              />
+              {pending === 'apple' ? (
+                <View
+                  pointerEvents="none"
+                  style={[styles.appleBusy, { backgroundColor: scheme === 'dark' ? '#ffffff' : '#000000' }]}>
+                  <ActivityIndicator color={scheme === 'dark' ? '#000000' : '#ffffff'} />
+                </View>
+              ) : null}
+            </View>
           )}
           <Button
             title={t('auth.continueWithGoogle')}
@@ -260,6 +279,11 @@ export default function SignInScreen() {
       </SafeAreaView>
     </ThemedView>
   );
+}
+
+/** A failure raised by Apple's native sheet (`ERR_REQUEST_FAILED`, …) rather than our server. */
+function isAppleError(error: unknown): boolean {
+  return error instanceof Error && 'code' in error && typeof error.code === 'string' && error.code.startsWith('ERR_');
 }
 
 const styles = StyleSheet.create({
@@ -303,6 +327,12 @@ const styles = StyleSheet.create({
   },
   appleButton: {
     height: 52,
+  },
+  appleBusy: {
+    ...StyleSheet.absoluteFill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: Spacing.three,
   },
   disabled: {
     opacity: 0.5,

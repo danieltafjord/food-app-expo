@@ -7,6 +7,7 @@ import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
 import { useTheme } from '@/hooks/use-theme';
 import { ApiError } from '@/lib/api/client';
+import { errorMessage } from '@/lib/api/error-message';
 import { useCreateHousehold } from '@/lib/api/households';
 import { useT } from '@/lib/i18n';
 import { SyncPendingError } from '@/lib/sync/engine';
@@ -34,12 +35,12 @@ export default function CreateHouseholdScreen() {
       if (err instanceof ApiError && err.isValidation) {
         setFieldError(err.errors?.name?.[0] ?? null);
         if (!err.errors?.name) {
-          setFormError(err.message);
+          setFormError(errorMessage(err, t));
         }
       } else if (err instanceof SyncPendingError) {
         setFormError(t('household.switchBlockedPending'));
       } else {
-        setFormError(err instanceof ApiError ? err.message : t('common.somethingWrong'));
+        setFormError(errorMessage(err, t));
       }
     }
   }

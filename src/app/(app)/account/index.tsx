@@ -1,28 +1,32 @@
 import * as WebBrowser from 'expo-web-browser';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Alert, Platform } from 'react-native';
 
 import { useDeferredTab } from '@/hooks/use-deferred-tab';
 import { AiSettingsSection } from '@/components/ai-settings';
+import { clearDeviceData, confirmAccountDeleted } from '@/components/account-deletion';
 import { AccountSetupCard } from '@/components/account-setup-card';
 import { IngredientExclusions } from '@/components/ingredient-exclusions';
 import { Badge } from '@/components/badge';
+import { Button } from '@/components/button';
+import { Card } from '@/components/card';
 import { NotificationSettingsSection } from '@/components/notification-settings';
 import { OptionGroup, type Option } from '@/components/option-group';
 import { Screen } from '@/components/screen';
 import { SettingsGroup, SettingsRow, SettingsSection } from '@/components/settings-list';
 import { Stepper } from '@/components/stepper';
 import { SyncIndicator } from '@/components/sync-indicator';
+import { ThemedText } from '@/components/themed-text';
+import { errorMessage } from '@/lib/api/error-message';
 import { useActiveHousehold, useUpdateHousehold } from '@/lib/api/households';
-import { useUpdateSettings } from '@/lib/api/settings';
+import { useDeleteAccount, useUpdateSettings } from '@/lib/api/settings';
 import type { HouseholdRole } from '@/lib/api/types';
 import { requestAppleCredential } from '@/lib/auth/apple';
 import { useSession } from '@/lib/auth/session';
-import { API_BASE_URL, PRIVACY_URL, SUPPORT_URL } from '@/lib/config';
+import { PRIVACY_URL, SUPPORT_URL } from '@/lib/config';
 import { LOCALE_LABELS, LOCALES, useT, type Locale } from '@/lib/i18n';
 import { pushOnce } from '@/lib/navigation';
 import {
-  clearLocalData,
   setHouseholdDefaultServings,
   setLocale,
   setThemePreference,
@@ -35,7 +39,6 @@ import {
   type ThemePreference,
 } from '@/lib/store';
 import { flushPendingChanges } from '@/lib/sync/engine';
-import { flushPersistence } from '@/lib/store/persistence';
 
 function roleTone(role: HouseholdRole) {
   return role === 'owner' ? 'brand' : 'neutral';
@@ -48,7 +51,7 @@ export default function AccountScreen() {
 
 function AccountScreenContent() {
   const t = useT();
-  const { user, signOut, refreshUser, request, isAuthenticated } = useSession();
+  const { user, signOut, isAuthenticated } = useSession();
   const { household, role, isOwner } = useActiveHousehold();
 
   const themePreference = useThemePreference();
@@ -57,9 +60,16 @@ function AccountScreenContent() {
   const defaultServings = useHouseholdDefaultServings();
   const updateSettings = useUpdateSettings();
   const updateHousehold = useUpdateHousehold();
+  const deleteAccount = useDeleteAccount();
 
   const [signingOut, setSigningOut] = useState(false);
   const [clearingData, setClearingData] = useState(false);
+  const [deletingWithApple, setDeletingWithApple] = useState(false);
+  // One "couldn't save" at a time: offline, every stepper tap fails on its own.
+  const syncFailure = useRef<{ timer: ReturnType<typeof setTimeout> | null; showing: boolean }>({
+    timer: null,
+    showing: false,
+  });
 
   function onClearDeviceData() {
     Alert.alert(t('account.clearDeviceData'), t('account.clearDeviceDataHint'), [
@@ -67,14 +77,8 @@ function AccountScreenContent() {
       { text: t('account.clearDeviceData'), style: 'destructive', onPress: async () => {
         setClearingData(true);
         // No `finally`: the React Compiler can't lower it and would skip this
-        // (always mounted) screen. The catch swallows every error anyway.
-        try {
-          await signOut();
-          clearLocalData();
-          await flushPersistence();
-        } catch {
-          Alert.alert(t('account.clearFailedTitle'), t('account.clearFailedMessage'));
-        }
+        // (always mounted) screen. `clearDeviceData` never rejects anyway.
+        await clearDeviceData(signOut, t);
         setClearingData(false);
       } },
     ]);
@@ -82,9 +86,22 @@ function AccountScreenContent() {
 
   // The change already landed locally (local-first), so the mirror to the server
   // is best-effort — but a silent failure would leave this device and the account
-  // disagreeing, so surface it and let the user retry.
+  // disagreeing, so surface it and let the user retry. Offline, five quick
+  // stepper taps fail five times: they're gathered into one alert, and none
+  // stacks on top of one still showing.
   function notifySyncFailure() {
-    Alert.alert(t('account.syncFailedTitle'), t('account.syncFailedMessage'));
+    const state = syncFailure.current;
+    if (state.timer || state.showing) return;
+    state.timer = setTimeout(() => {
+      state.timer = null;
+      state.showing = true;
+      Alert.alert(
+        t('account.syncFailedTitle'),
+        t('account.syncFailedMessage'),
+        [{ text: t('common.ok'), onPress: () => { state.showing = false; } }],
+        { onDismiss: () => { state.showing = false; } },
+      );
+    }, 800);
   }
 
   // Apply locally first (instant), then mirror to the account when signed in.
@@ -126,9 +143,6 @@ function AccountScreenContent() {
       .finally(() => setSigningOut(false));
   }
 
-  // Deletion lives on the web profile page (it needs a password confirmation the
-  // token-based API can't do). Once the browser closes, re-fetch `/me`: a deleted
-  // account answers 401, which clears the session like any other revoked token.
   async function openPage(url: string) {
     try {
       await WebBrowser.openBrowserAsync(url);
@@ -137,10 +151,14 @@ function AccountScreenContent() {
     }
   }
 
-  async function onDeleteAccount() {
-    // People who signed up with Apple have no password and cannot sign in on
-    // the website, so they confirm by signing in with Apple again right here.
-    if (Platform.OS === 'ios' && user?.sign_in_providers?.includes('apple')) {
+  // Every account can be deleted here (App Review 5.1.1(v)). Apple accounts on
+  // iOS confirm by signing in with Apple once more; everyone else confirms on
+  // the next screen with their password, or their email address when the
+  // account has no password (Google).
+  const deletesWithApple = Platform.OS === 'ios' && !!user?.sign_in_providers?.includes('apple');
+
+  function onDeleteAccount() {
+    if (deletesWithApple) {
       Alert.alert(t('account.deleteWithAppleTitle'), t('account.deleteWithAppleMessage'), [
         { text: t('common.cancel'), style: 'cancel' },
         {
@@ -151,23 +169,31 @@ function AccountScreenContent() {
       ]);
       return;
     }
-    await openPage(`${API_BASE_URL}/settings/profile`);
-    await refreshUser().catch(() => {});
+    pushOnce('/account/delete');
   }
 
   async function deleteWithApple() {
+    let credential: Awaited<ReturnType<typeof requestAppleCredential>>;
     try {
-      const credential = await requestAppleCredential();
-      if (!credential) {
-        return; // Closed Apple's sheet.
-      }
-      await request('/me', { method: 'DELETE', body: credential.proof });
-    } catch (err) {
-      Alert.alert(t('account.deleteFailedTitle'), err instanceof Error ? err.message : undefined);
+      credential = await requestAppleCredential();
+    } catch {
+      Alert.alert(t('account.deleteFailedTitle'), t('auth.appleFailed'));
       return;
     }
-    // The deleted account's token now answers 401, which signs this device out.
-    await refreshUser().catch(() => {});
+    if (!credential) {
+      return; // Closed Apple's sheet.
+    }
+    setDeletingWithApple(true);
+    try {
+      // Signs this device out once the account is gone (see useDeleteAccount).
+      await deleteAccount.mutateAsync(credential.proof);
+    } catch (err) {
+      setDeletingWithApple(false);
+      Alert.alert(t('account.deleteFailedTitle'), errorMessage(err, t));
+      return;
+    }
+    setDeletingWithApple(false);
+    confirmAccountDeleted(signOut, t);
   }
 
   const themeOptions: Option<ThemePreference>[] = [
@@ -186,6 +212,16 @@ function AccountScreenContent() {
 
   return (
     <Screen topInset={false}>
+      {/* Without a real name the household sees a placeholder (Apple's Hide My
+          Email) on lists, in presence and in notifications. */}
+      {isAuthenticated && user?.needs_name ? (
+        <Card>
+          <ThemedText type="smallBold">{t('account.addNameTitle')}</ThemedText>
+          <ThemedText type="small" themeColor="textSecondary">{t('account.addNameMessage')}</ThemedText>
+          <Button title={t('account.addName')} onPress={() => pushOnce('/account/name')} />
+        </Card>
+      ) : null}
+
       {isAuthenticated ? (
         <SettingsSection
           title={t('household.sectionTitle')}
@@ -275,6 +311,12 @@ function AccountScreenContent() {
               <SyncIndicator />
             </SettingsRow>
             <SettingsRow
+              icon={{ ios: 'person.text.rectangle', android: 'badge', web: 'badge' }}
+              title={t('account.yourName')}
+              subtitle={user && !user.needs_name ? user.name : t('account.nameMissing')}
+              onPress={() => pushOnce('/account/name')}
+            />
+            <SettingsRow
               icon={{
                 ios: 'rectangle.portrait.and.arrow.right',
                 android: 'logout',
@@ -334,7 +376,9 @@ function AccountScreenContent() {
               }}
               tone="danger"
               title={t('account.deleteAccount')}
-              accessory="external"
+              // Apple confirms in place; everyone else goes on to a screen.
+              accessory={deletesWithApple ? 'none' : 'chevron'}
+              loading={deletingWithApple}
               onPress={onDeleteAccount}
             />
           ) : null}

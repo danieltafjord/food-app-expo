@@ -6,7 +6,7 @@ import { Screen } from '@/components/screen';
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
 import { useTheme } from '@/hooks/use-theme';
-import { ApiError } from '@/lib/api/client';
+import { errorMessage } from '@/lib/api/error-message';
 import { useActiveHousehold, useUpdateHousehold } from '@/lib/api/households';
 import type { Household } from '@/lib/api/types';
 import { useT } from '@/lib/i18n';
@@ -38,7 +38,7 @@ function RenameForm({ household }: { household: Household }) {
       await update.mutateAsync({ id: household.id, name: name.trim() });
       router.back();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : t('common.somethingWrong'));
+      setError(errorMessage(err, t));
     }
   }
 
