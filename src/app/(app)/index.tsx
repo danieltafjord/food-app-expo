@@ -9,8 +9,13 @@ import { PresenceBar } from '@/components/presence-bar';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { WeekPager, type WeekPagerHandle } from '@/components/week-pager';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import { BadgeColors, BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useResolvedScheme, useTheme } from '@/hooks/use-theme';
+import {
+  dismissSuggestionFailure,
+  retrySuggestion,
+  useSuggestionFailure,
+} from '@/lib/dinner-suggester';
 import { hapticLight, hapticSelection } from '@/lib/haptics';
 import { useT } from '@/lib/i18n';
 import { pushOnce } from '@/lib/navigation';
@@ -173,6 +178,8 @@ export default function PlansScreen() {
           ) : null}
         </View>
 
+        <SuggestionFailure />
+
         <WeekPager
           ref={weekPager}
           weekKey={weekStartKey}
@@ -269,6 +276,30 @@ function PlannerAction({
   );
 }
 
+/**
+ * A suggestion that failed after its sheet closed (no connection, the day's
+ * limit): said once here, with a retry, until dismissed or another starts.
+ */
+function SuggestionFailure() {
+  const t = useT();
+  const warning = BadgeColors[useResolvedScheme()].warning;
+  const failure = useSuggestionFailure();
+  if (!failure) return null;
+  return (
+    <View accessibilityLiveRegion="polite" style={[styles.failure, { backgroundColor: warning.bg }]}>
+      <Icon name="exclamationmark.triangle.fill" size={13} color={warning.fg} />
+      <ThemedText type="small" style={[styles.failureText, { color: warning.fg }]}>{t(failure.message)}</ThemedText>
+      <Pressable accessibilityRole="button" hitSlop={8} onPress={retrySuggestion} style={({ pressed }) => pressed && styles.pressed}>
+        <ThemedText type="smallBold" style={{ color: warning.fg }}>{t('error.retry')}</ThemedText>
+      </Pressable>
+      <Pressable accessibilityRole="button" accessibilityLabel={t('ai.dismiss')} hitSlop={8}
+        onPress={dismissSuggestionFailure} style={({ pressed }) => pressed && styles.pressed}>
+        <Icon name="xmark" size={12} weight="bold" color={warning.fg} />
+      </Pressable>
+    </View>
+  );
+}
+
 function NavButton({
   icon,
   accessibilityLabel,
@@ -356,6 +387,19 @@ const styles = StyleSheet.create({
   },
   presence: {
     paddingTop: Spacing.two,
+  },
+  failure: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    marginHorizontal: Spacing.four,
+    marginBottom: Spacing.two,
+    paddingVertical: Spacing.two,
+    paddingHorizontal: Spacing.three,
+    borderRadius: Spacing.three,
+  },
+  failureText: {
+    flex: 1,
   },
   weekNav: {
     flexDirection: 'row',

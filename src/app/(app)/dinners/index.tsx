@@ -1,15 +1,14 @@
 import { useDeferredTab } from '@/hooks/use-deferred-tab';
 import { useDinnerCategoryLabel } from '@/lib/store/dinner-categories';
 import { useMemo, useRef, useState } from 'react';
-import { FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
-import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
+import { FlatList, Pressable, RefreshControl, StyleSheet, TextInput, View } from 'react-native';
+import Animated, { FadeIn } from 'react-native-reanimated';
 
 import { EmptyState } from '@/components/empty-state';
 import { DinnerCategorySelect } from '@/components/dinner-category-select';
 import { DinnerImage } from '@/components/dinner-image';
 import { Icon } from '@/components/icon';
 import { SwipeToDelete } from '@/components/swipe-to-delete';
-import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { BadgeColors, BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
@@ -22,16 +21,15 @@ import { indexByName } from '@/lib/search';
 import { createDinner, deleteDinner, useDinners, type DinnerWithItems } from '@/lib/store';
 import { deleteWithUndo, useHiddenIds } from '@/lib/undo';
 
-const SWAP = 140;
-const FADE_IN = FadeIn.duration(SWAP);
-const FADE_OUT = FadeOut.duration(SWAP);
+const REVEAL = FadeIn.duration(160);
+const THUMB = 40;
 
 /**
- * The recipe list, behind the same "search or create" field the pickers use:
- * typing filters the household's dinners, and a name that doesn't exist yet
- * is created (and opened) from the action card or the return key. A
- * virtualised `FlatList` rather than the shared `Screen` ScrollView: this is
- * the one list that grows without bound.
+ * The recipe list: one search field that also creates (a name that doesn't
+ * exist yet shows a "Create" row, and the return key makes and opens it), a
+ * filter icon for categories, and plain rows that open the editor. A
+ * virtualised `FlatList` rather than the
+ * shared `Screen` ScrollView: this is the one list that grows without bound.
  */
 /** Built when the tab is first shown, or once launch has settled — see `useDeferredTab`. */
 export default function DinnersScreen() {
@@ -42,7 +40,6 @@ function DinnersScreenContent() {
   const t = useT();
   const categoryLabel = useDinnerCategoryLabel();
   const theme = useTheme();
-  const brand = BadgeColors[useResolvedScheme()].brand;
   const hidden = useHiddenIds();
   const allDinners = useDinners();
   const dinners = useMemo(
@@ -59,21 +56,26 @@ function DinnersScreenContent() {
   const index = useMemo(() => indexByName(dinners, (dinner) => dinner.name), [dinners]);
   const trimmed = query.trim();
   const { results, exact } = useMemo(() => searchDinners(index, trimmed, categoryFilter), [index, trimmed, categoryFilter]);
-  const action: 'idle' | 'create' | 'open' = !trimmed ? 'idle' : exact ? 'open' : 'create';
-  const idle = action === 'idle';
+  const newCategory = dinnerCategory(categoryFilter);
+  // A row above the list only when the list can't do the job itself: the
+  // typed name is new, or its dinner is hidden by the category filter.
+  const action = !trimmed ? null : !exact ? 'create'
+    : results.some((dinner) => dinner.id === exact.id) ? null : 'open';
+  const actionCategory = action === 'create' ? newCategory : dinnerCategory(exact?.category);
 
   function openDinner(id: string) {
     pushOnce({ pathname: '/dinners/[id]', params: { id } });
   }
 
   function onCreate() {
-    if (action !== 'create' || created.current) return;
+    if (!trimmed || exact || created.current) return;
     created.current = true;
-    const id = createDinner({ name: trimmed, category: dinnerCategory(categoryFilter) });
+    const id = createDinner({ name: trimmed, category: newCategory });
     setQuery('');
     openDinner(id);
   }
 
+  // The return key opens a dinner that already has the typed name, or creates it.
   function onSubmit() {
     if (exact) {
       setQuery('');
@@ -88,19 +90,6 @@ function DinnersScreenContent() {
       deleteDinner(dinner.id),
     );
   }
-
-  const actionTitle =
-    action === 'create'
-      ? t('dinners.create', { name: trimmed })
-      : action === 'open'
-        ? t('dinners.open', { name: trimmed })
-        : t('dinners.idleTitle');
-  const actionHint =
-    action === 'create'
-      ? t('dinnerCategories.createHint', { category: categoryLabel(dinnerCategory(categoryFilter) ?? 'none') })
-      : action === 'open'
-        ? t('dinnerCategories.existingHint', { category: categoryLabel(dinnerCategory(exact?.category) ?? 'none') })
-        : t('dinners.idleHint');
 
   return (
     <ThemedView style={styles.flex}>
@@ -117,84 +106,92 @@ function DinnersScreenContent() {
           />
         )}
         keyboardShouldPersistTaps="handled"
+        // No automaticallyAdjustKeyboardInsets: under the large title it
+        // scrolled the search field out of sight on focus, and a drag closes
+        // the keyboard anyway, so there's nothing to scroll to above it.
         keyboardDismissMode="on-drag"
-        automaticallyAdjustKeyboardInsets
         contentInsetAdjustmentBehavior="automatic"
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         contentContainerStyle={styles.content}
         ListHeaderComponent={
           <View style={styles.header}>
-            <TextField
-              label={t('dinners.searchOrCreate')}
-              placeholder={t('dinners.placeholder')}
-              value={query}
-              onChangeText={(text) => {
-                created.current = false;
-                setQuery(text);
-              }}
-              autoCapitalize="sentences"
-              autoCorrect={false}
-              returnKeyType="done"
-              submitBehavior="submit"
-              onSubmitEditing={onSubmit}
-            />
-            <DinnerCategorySelect filter value={categoryFilter} onChange={setCategoryFilter} />
-            <View style={styles.actionSlot}>
-              <Animated.View
-                key={action}
-                entering={FADE_IN}
-                exiting={FADE_OUT}
-                style={StyleSheet.absoluteFill}>
+            <View style={styles.searchRow}>
+              <View style={[styles.search, { backgroundColor: theme.backgroundElement }]}>
+                <Icon name="magnifyingglass" size={15} color={theme.textSecondary} />
+                <TextInput
+                  accessibilityLabel={t('dinners.searchOrCreate')}
+                  placeholder={t('dinners.searchPlaceholder')}
+                  placeholderTextColor={theme.textSecondary}
+                  value={query}
+                  onChangeText={(text) => {
+                    created.current = false;
+                    setQuery(text);
+                  }}
+                  maxLength={255}
+                  autoCapitalize="sentences"
+                  autoCorrect={false}
+                  returnKeyType="done"
+                  submitBehavior="submit"
+                  onSubmitEditing={onSubmit}
+                  style={[styles.searchInput, { color: theme.text }]}
+                />
+                {query ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={t('dinners.clearSearch')}
+                    hitSlop={10}
+                    onPress={() => setQuery('')}>
+                    <Icon name="xmark.circle.fill" size={17} color={theme.textSecondary} />
+                  </Pressable>
+                ) : null}
+              </View>
+              <DinnerCategorySelect filter variant="icon" value={categoryFilter} onChange={setCategoryFilter} />
+            </View>
+            {categoryFilter !== 'all' ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`${categoryLabel(categoryFilter)}. ${t('dinnerCategories.clearFilter')}`}
+                onPress={() => setCategoryFilter('all')}
+                style={({ pressed }) => [styles.filterChip, { backgroundColor: theme.backgroundSelected }, pressed && styles.pressed]}>
+                <ThemedText type="smallBold">{categoryLabel(categoryFilter)}</ThemedText>
+                <Icon name="xmark" size={10} weight="bold" color={theme.textSecondary} />
+              </Pressable>
+            ) : null}
+            {action ? (
+              <Animated.View key={action} entering={REVEAL}>
                 <Pressable
-                  onPress={onSubmit}
-                  disabled={idle}
                   accessibilityRole="button"
-                  accessibilityLabel={actionTitle}
-                  style={({ pressed }) => [
-                    styles.actionCard,
-                    { backgroundColor: idle ? theme.backgroundElement : brand.bg },
-                    pressed && styles.actionPressed,
-                  ]}>
-                  <View
-                    style={[
-                      styles.actionBadge,
-                      { backgroundColor: idle ? theme.backgroundSelected : theme.tint },
-                    ]}>
+                  onPress={onSubmit}
+                  style={({ pressed }) => [styles.action, { backgroundColor: theme.backgroundElement },
+                    pressed && { backgroundColor: theme.backgroundSelected }]}>
+                  <View style={[styles.actionGlyph,
+                    { backgroundColor: action === 'create' ? theme.accent : theme.backgroundSelected }]}>
                     <Icon
-                      name={action === 'open' ? 'chevron.right' : 'plus'}
-                      size={16}
+                      name={action === 'create' ? 'plus' : 'chevron.right'}
+                      size={14}
                       weight="bold"
-                      color={idle ? theme.textSecondary : theme.onTint}
+                      color={action === 'create' ? theme.onAccent : theme.text}
                     />
                   </View>
-                  <View style={styles.flexText}>
-                    <ThemedText
-                      type="smallBold"
-                      themeColor={idle ? 'textSecondary' : undefined}
-                      style={idle ? undefined : { color: brand.fg }}
-                      numberOfLines={1}>
-                      {actionTitle}
+                  <ThemedText style={styles.flexText} numberOfLines={1}>
+                    {t(action === 'create' ? 'dinners.create' : 'dinners.open', { name: trimmed })}
+                  </ThemedText>
+                  {actionCategory ? (
+                    <ThemedText type="small" themeColor="textSecondary" numberOfLines={1} style={styles.actionCategory}>
+                      {categoryLabel(actionCategory)}
                     </ThemedText>
-                    <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
-                      {actionHint}
-                    </ThemedText>
-                  </View>
+                  ) : null}
                 </Pressable>
               </Animated.View>
-            </View>
+            ) : null}
           </View>
         }
+        // Searching needs no message of its own: the Create row already says
+        // what the return key will do, and the filter chip clears the category.
         ListEmptyComponent={
           categoryFilter !== 'all' ? (
-            <View style={{ gap: Spacing.two }}>
-              <ThemedText themeColor="textSecondary">{t('dinnerCategories.noMatches')}</ThemedText>
-              <Pressable accessibilityRole="button" style={{ minHeight: 44, justifyContent: 'center' }} onPress={() => setCategoryFilter('all')}>
-                <ThemedText style={{ color: theme.tint }}>{t('dinnerCategories.clearFilter')}</ThemedText>
-              </Pressable>
-            </View>
-          ) : trimmed ? (
-            <ThemedText themeColor="textSecondary">{t('dinners.noMatches')}</ThemedText>
-          ) : (
+            trimmed ? null : <ThemedText themeColor="textSecondary">{t('dinnerCategories.noMatches')}</ThemedText>
+          ) : trimmed ? null : (
             <EmptyState icon="fork.knife" title={t('dinners.emptyTitle')} message={t('dinners.empty')} />
           )
         }
@@ -214,44 +211,29 @@ type DinnerRowProps = {
   onDelete: (dinner: DinnerWithItems) => void;
 };
 
+/** Just the picture and the name, plus a warning icon when there's nothing to shop for. */
 function DinnerRow({ dinner, first, last, onPress, onDelete }: DinnerRowProps) {
   const t = useT();
-  const categoryLabel = useDinnerCategoryLabel();
   const theme = useTheme();
   const warning = BadgeColors[useResolvedScheme()].warning;
-  const count = dinner.items.length;
-  const category = dinnerCategory(dinner.category);
+  const empty = dinner.items.length === 0;
   return (
     // Clipped so the sliding row keeps the card's rounded corners.
     <View style={[first && styles.rowFirst, last && styles.rowLast, styles.clip]}>
       <SwipeToDelete label={t('common.delete')} onDelete={() => onDelete(dinner)}>
         <Pressable
           onPress={() => onPress(dinner.id)}
+          accessibilityRole="button"
+          accessibilityLabel={empty ? `${dinner.name}, ${t('weekBoard.noIngredients')}` : dinner.name}
           style={({ pressed }) => [
             styles.row,
             { backgroundColor: theme.backgroundElement },
             !first && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border },
             pressed && { backgroundColor: theme.backgroundSelected },
           ]}>
-          <DinnerImage dinnerId={dinner.id} name={dinner.name} size={44} />
-          <View style={styles.rowText}>
-            <ThemedText numberOfLines={1}>{dinner.name}</ThemedText>
-            {count === 0 ? (
-              <View style={styles.warn} accessible accessibilityLabel={`${category ? `${categoryLabel(category)}, ` : ''}${t('weekBoard.noIngredients')}, ${dinner.default_servings} ${t('common.servings')}`}>
-                <Icon name="exclamationmark.triangle.fill" size={10} color={warning.fg} />
-                <ThemedText type="small" themeColor="textSecondary" numberOfLines={1} style={styles.warnText}>
-                  {category ? `${categoryLabel(category)} · ` : ''}
-                  <ThemedText type="small" style={{ color: warning.fg }}>0 {t('common.ingredients')}</ThemedText>
-                  {' '}· {dinner.default_servings} {t('common.servings')}
-                </ThemedText>
-              </View>
-            ) : (
-              <ThemedText type="small" themeColor="textSecondary">
-                {category ? `${categoryLabel(category)} · ` : ''}{count} {count === 1 ? t('common.ingredient') : t('common.ingredients')} ·{' '}
-                {dinner.default_servings} {t('common.servings')}
-              </ThemedText>
-            )}
-          </View>
+          <DinnerImage dinnerId={dinner.id} name={dinner.name} size={THUMB} />
+          <ThemedText style={styles.flexText} numberOfLines={1}>{dinner.name}</ThemedText>
+          {empty ? <Icon name="exclamationmark.triangle.fill" size={13} color={warning.fg} /> : null}
           <Icon name="chevron.right" size={13} color={theme.textSecondary} />
         </Pressable>
       </SwipeToDelete>
@@ -267,40 +249,69 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     flexGrow: 1,
   },
+  pressed: {
+    opacity: 0.7,
+  },
   content: {
     flexGrow: 1,
     width: '100%',
     maxWidth: MaxContentWidth,
     alignSelf: 'center',
     paddingHorizontal: Spacing.four,
-    paddingTop: Spacing.four,
+    paddingTop: Spacing.three,
     paddingBottom: BottomTabInset + Spacing.five,
   },
   header: {
     gap: Spacing.three,
-    marginBottom: Spacing.four,
+    marginBottom: Spacing.three,
   },
-  actionSlot: {
-    height: 36 + Spacing.three * 2,
+  searchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
   },
-  actionCard: {
+  search: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
+    gap: Spacing.two,
+    height: 44,
+    borderRadius: Spacing.two + Spacing.one,
+    paddingHorizontal: Spacing.three,
+  },
+  searchInput: {
+    flex: 1,
+    height: '100%',
+    padding: 0,
+    fontSize: 16,
+  },
+  filterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: Spacing.two,
+    minHeight: 32,
+    paddingHorizontal: Spacing.three,
+    borderRadius: 999,
+  },
+  action: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: Spacing.three,
+    minHeight: 56,
     paddingHorizontal: Spacing.three,
     borderRadius: Spacing.three,
   },
-  actionBadge: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+  actionGlyph: {
+    width: THUMB,
+    height: THUMB,
+    borderRadius: Math.round(THUMB * 0.24),
     alignItems: 'center',
     justifyContent: 'center',
   },
-  actionPressed: {
-    opacity: 0.85,
-    transform: [{ scale: 0.98 }],
+  actionCategory: {
+    flexShrink: 0,
+    maxWidth: '40%',
   },
   clip: {
     overflow: 'hidden',
@@ -308,9 +319,9 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     gap: Spacing.three,
-    paddingVertical: Spacing.three,
+    minHeight: 56,
+    paddingVertical: Spacing.two,
     paddingHorizontal: Spacing.three,
   },
   rowFirst: {
@@ -320,17 +331,5 @@ const styles = StyleSheet.create({
   rowLast: {
     borderBottomLeftRadius: Spacing.three,
     borderBottomRightRadius: Spacing.three,
-  },
-  rowText: {
-    flex: 1,
-    gap: Spacing.half,
-  },
-  warn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.one,
-  },
-  warnText: {
-    flexShrink: 1,
   },
 });

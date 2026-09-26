@@ -1,22 +1,14 @@
 import { batch } from '@legendapp/state';
-import { createShoppingListFromPlan, updateShoppingListFromPlan } from '@/lib/shopping/generate';
 import { addDays, dateKeyOf, fromDateKey, toDateKey } from '@/lib/week';
 import { hasExcludedIngredient } from '@/lib/ingredient-exclusions';
 import { mealNameKey, type SuggestedDinner } from '@/lib/week-suggestions';
 import { store$ } from './collections';
-import { createDinner, dinnerItemsOf, upsertDinnerItem } from './dinners';
+import { createDinner, deleteDinner, dinnerItemsOf, upsertDinnerItem } from './dinners';
 import { derivedById } from './derived';
-import { compareIds, compareIso } from './ids';
+import { compareIds } from './ids';
 import { createIngredient } from './ingredients';
-import { createPlanEntry, ensurePlanForWeek, planIdsForWeekOf } from './plans';
+import { createPlanEntry, ensurePlanForWeek, updatePlanEntry } from './plans';
 import { getWeekPlanningContext } from './week-planning';
-
-export type SuggestedWeekDraft = {
-  weekStart: string;
-  contextKey: string;
-  /** Servings are per day: a Saturday for guests can cook more than a weekday. */
-  entries: { date: string; dinner: SuggestedDinner; servings: number }[];
-};
 
 /** Detached recipes bind a preview to exactly what the user reviewed, including ingredient quantities. */
 export function getSuggestionContext(weekStart: string, today = toDateKey(new Date())) {
@@ -64,46 +56,90 @@ export function suggestionContext$(weekStart: string, today = toDateKey(new Date
   return suggestionContextFor(`${weekStart}|${today}`);
 }
 
-/** Return the prepared list, or reject the complete draft without writing anything. */
-export function acceptSuggestedWeek(draft: SuggestedWeekDraft, name: string, today = toDateKey(new Date())): string | null {
-  const context = getSuggestionContext(draft.weekStart, today);
-  if (draft.contextKey !== context.key || !draft.entries.length || draft.entries.length > 7
-    || draft.entries.some((entry) => !Number.isInteger(entry.servings) || entry.servings < 1 || entry.servings > 99)
-    || new Set(draft.entries.map((entry) => entry.date)).size !== draft.entries.length
-    || new Set(draft.entries.map((entry) => mealNameKey(entry.dinner.name))).size !== draft.entries.length) return null;
-  for (const { date, dinner } of draft.entries) {
-    if (hasExcludedIngredient(dinner.ingredients.map((item) => item.name), context.excludedIngredients)) return null;
-    if (!context.dates.includes(date) || !dinner.name.trim() || !dinner.ingredients.length
-      || !Number.isInteger(dinner.baseServings) || dinner.baseServings < 1 || dinner.baseServings > 99
-      || dinner.ingredients.some((item) => !item.name.trim() || !Number.isFinite(item.quantity) || item.quantity <= 0)) return null;
-    if (dinner.existingId) {
-      if (!context.recipes.some((recipe) => JSON.stringify(recipe) === JSON.stringify(dinner))) return null;
-    } else if (context.allNames.some((existing) => mealNameKey(existing) === mealNameKey(dinner.name))) {
-      return null;
-    }
+/** A dinner the planner chose for a day, with that day's servings. */
+export type SuggestedEntry = { date: string; dinner: SuggestedDinner; servings: number };
+
+/** What the planner wrote for a dinner; any edit since then changes it. */
+function recipeFingerprint(dinnerId: string): string | null {
+  const dinner = store$.dinners[dinnerId].peek();
+  if (!dinner) return null;
+  const items = Object.values(store$.dinnerItems.peek())
+    .filter((item) => item.dinner_id === dinnerId)
+    .map((item) => [item.ingredient_id, item.quantity == null ? null : Number(item.quantity), item.unit])
+    .sort((a, b) => compareIds(JSON.stringify(a), JSON.stringify(b)));
+  return JSON.stringify([dinner.name, dinner.notes, dinner.category, dinner.default_servings,
+    dinner.emoji, dinner.image_path, !!store$.meta.pendingImages[dinnerId].peek(), items]);
+}
+
+/**
+ * The dinner id to plan for a suggestion: the saved recipe it names, or a new
+ * recipe written from it. A dinner by the same name that appeared meanwhile
+ * (another device, an earlier suggestion) is used instead of a duplicate.
+ */
+function saveSuggestedDinner(dinner: SuggestedDinner): string | null {
+  if (dinner.existingId) return store$.dinners[dinner.existingId].peek() ? dinner.existingId : null;
+  const householdId = store$.meta.localHouseholdId.peek();
+  const key = mealNameKey(dinner.name);
+  const same = Object.values(store$.dinners.peek())
+    .find((row) => row.household_id === householdId && mealNameKey(row.name) === key);
+  if (same) return same.id;
+  const id = createDinner({ name: dinner.name.trim(), default_servings: dinner.baseServings,
+    category: dinner.category, notes: dinner.notes });
+  for (const item of dinner.ingredients) {
+    const ingredientId = createIngredient({ name: item.name, default_unit: item.unit });
+    upsertDinnerItem(id, { ingredient_id: ingredientId, quantity: item.quantity, unit: item.unit });
   }
-  let listId = '';
+  store$.meta.suggestedDinners[id].set(recipeFingerprint(id)!);
+  return id;
+}
+
+/** Plan suggestions on their days in the week's plan. Returns the new entry ids. */
+export function planSuggestedDinners(weekStart: string, planName: string, entries: SuggestedEntry[]): string[] {
+  const ids: string[] = [];
+  if (!entries.length) return ids;
   batch(() => {
-    const planId = ensurePlanForWeek(draft.weekStart, toDateKey(addDays(fromDateKey(draft.weekStart), 6)), name);
-    for (const { date, dinner, servings } of draft.entries) {
-      const dinnerId = dinner.existingId ?? createDinner({ name: dinner.name, default_servings: dinner.baseServings,
-        category: dinner.category, notes: dinner.notes });
-      if (!dinner.existingId) {
-        for (const item of dinner.ingredients) {
-          const ingredientId = createIngredient({ name: item.name, default_unit: item.unit });
-          upsertDinnerItem(dinnerId, { ingredient_id: ingredientId, quantity: item.quantity, unit: item.unit });
-        }
-      }
-      createPlanEntry(planId, { dinner_id: dinnerId, scheduled_date: date, servings });
+    const planId = ensurePlanForWeek(weekStart, toDateKey(addDays(fromDateKey(weekStart), 6)), planName);
+    for (const { date, dinner, servings } of entries) {
+      const dinnerId = saveSuggestedDinner(dinner);
+      if (dinnerId) ids.push(createPlanEntry(planId, { dinner_id: dinnerId, scheduled_date: date, servings }));
     }
-    const planIds = planIdsForWeekOf(planId);
-    const list = Object.values(store$.shoppingLists.get())
-      .filter((row) => row.dinner_plan_id && planIds.has(row.dinner_plan_id) && !row.archived_at)
-      .sort((a, b) => compareIso(b.created_at, a.created_at) || compareIds(b.id, a.id))[0];
-    if (list) {
-      updateShoppingListFromPlan(list.id, planId);
-      listId = list.id;
-    } else listId = createShoppingListFromPlan(planId);
   });
-  return listId;
+  return ids;
+}
+
+/** Swap a planned day's dinner for a suggestion, keeping its day and servings. */
+export function replacePlannedDinner(entryId: string, dinner: SuggestedDinner, today = toDateKey(new Date())): boolean {
+  const entry = store$.planEntries[entryId].peek();
+  if (!entry) return false;
+  // Copied out: the peeked row is the live object the update below changes.
+  const previous = entry.dinner_id;
+  const date = dateKeyOf(entry.scheduled_date);
+  let replaced = false;
+  batch(() => {
+    const dinnerId = saveSuggestedDinner(dinner);
+    if (!dinnerId || dinnerId === previous) return;
+    updatePlanEntry(entryId, { dinner_id: dinnerId });
+    releaseSuggestedDinner(previous, date, today);
+    replaced = true;
+  });
+  return replaced;
+}
+
+/**
+ * After a dinner left a day (swapped out, removed, or undone): a planner-made
+ * recipe that nobody changed and nothing else plans was only ever a suggestion,
+ * so it goes. One someone edited, or a past day's (it was cooked), is kept.
+ */
+export function releaseSuggestedDinner(dinnerId: string, date: string, today = toDateKey(new Date())): void {
+  const fingerprint = store$.meta.suggestedDinners[dinnerId].peek();
+  if (fingerprint === undefined) return;
+  if (Object.values(store$.planEntries.peek()).some((entry) => entry.dinner_id === dinnerId)) return;
+  store$.meta.suggestedDinners[dinnerId].delete();
+  if (date >= today && recipeFingerprint(dinnerId) === fingerprint) deleteDinner(dinnerId);
+}
+
+/** Whether the planner made this dinner and it hasn't been changed since. */
+export function isUntouchedSuggestion(dinnerId: string): boolean {
+  const fingerprint = store$.meta.suggestedDinners[dinnerId].peek();
+  return fingerprint !== undefined && recipeFingerprint(dinnerId) === fingerprint;
 }

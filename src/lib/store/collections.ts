@@ -48,6 +48,14 @@ export const store$ = observable({
     /** Kept on this device and cleared when switching household/account. */
     planningPreferences: { text: '', shortcuts: [], excluded: [] } as PlanningPreferences,
     /**
+     * Dinners the week planner created on this device, with a fingerprint of
+     * the recipe it wrote. While a dinner still matches, it's only a suggestion:
+     * swapping it out or taking it off the plan deletes it instead of leaving it
+     * in the household's recipes. Stores from older versions lack it; Legend
+     * reads through the missing map and creates it on the first write.
+     */
+    suggestedDinners: {} as Record<string, string>,
+    /**
      * On-device schema version. Bumped by migrations (see `./migrations`) when
      * the shape in `schema.ts` changes, so persisted rows from an older app
      * version are upgraded on launch instead of hydrating with a stale shape.

@@ -9,15 +9,17 @@ export type TextFieldProps = TextInputProps & {
   /** Reaches the underlying TextInput (e.g. to focus it once a sheet has presented). */
   ref?: Ref<TextInput>;
   label: string;
+  /** Leave the label unseen when the row above already names the field. */
+  hideLabel?: boolean;
   /** First validation message for this field, if any. */
   error?: string | null;
 };
 
-export function TextField({ ref, label, error, style, ...rest }: TextFieldProps) {
+export function TextField({ ref, label, hideLabel = false, error, style, ...rest }: TextFieldProps) {
   const theme = useTheme();
   return (
     <View style={styles.wrap}>
-      <ThemedText type="smallBold">{label}</ThemedText>
+      {hideLabel ? null : <ThemedText type="smallBold">{label}</ThemedText>}
       <TextInput
         ref={ref}
         placeholderTextColor={theme.textSecondary}

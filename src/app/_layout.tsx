@@ -125,7 +125,7 @@ function RootNavigator() {
       <Stack.Screen name="sheets/entry-editor" options={formSheet} />
       <Stack.Screen name="sheets/shopping-item" options={formSheet} />
       <Stack.Screen name="sheets/dinner-picker" options={listSheet} />
-      <Stack.Screen name="sheets/plan-week" options={{ ...listSheet, sheetInitialDetentIndex: 1 }} />
+      <Stack.Screen name="sheets/plan-week" options={listSheet} />
       <Stack.Screen name="sheets/ingredient-picker" options={listSheet} />
       <Stack.Screen name="sheets/dinner-image" options={{ ...listSheet, sheetAllowedDetents: [0.75, 1] }} />
     </Stack>

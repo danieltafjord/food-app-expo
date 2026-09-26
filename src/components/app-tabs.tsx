@@ -21,23 +21,27 @@ export default function AppTabs() {
       // Without a tint the selected icon falls back to system blue.
       tintColor={colors.tint}
       labelStyle={{ selected: { color: colors.text } }}>
-      <NativeTabs.Trigger name="index">
-        <NativeTabs.Trigger.Label>{t('tabs.plans')}</NativeTabs.Trigger.Label>
+      {/* Icon-only, so each trigger carries its label for VoiceOver instead. */}
+      <NativeTabs.Trigger name="index" accessibilityLabel={t('tabs.plans')}>
+        <NativeTabs.Trigger.Label hidden>{t('tabs.plans')}</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon sf="calendar" />
       </NativeTabs.Trigger>
 
-      <NativeTabs.Trigger name="dinners">
-        <NativeTabs.Trigger.Label>{t('tabs.dinners')}</NativeTabs.Trigger.Label>
+      <NativeTabs.Trigger name="dinners" accessibilityLabel={t('tabs.dinners')}>
+        <NativeTabs.Trigger.Label hidden>{t('tabs.dinners')}</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon sf="fork.knife" />
       </NativeTabs.Trigger>
 
-      <NativeTabs.Trigger name="shopping">
-        <NativeTabs.Trigger.Label>{t('tabs.shopping')}</NativeTabs.Trigger.Label>
+      <NativeTabs.Trigger name="shopping" accessibilityLabel={t('tabs.shopping')}>
+        <NativeTabs.Trigger.Label hidden>{t('tabs.shopping')}</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon sf={{ default: 'cart', selected: 'cart.fill' }} />
       </NativeTabs.Trigger>
 
-      <NativeTabs.Trigger name="account">
-        <NativeTabs.Trigger.Label>{t('tabs.account')}</NativeTabs.Trigger.Label>
+      {/* The `search` role is only borrowed for its placement: on iOS 26 it
+          detaches the tab into its own circle at the trailing edge. The
+          custom icon replaces the magnifying glass. */}
+      <NativeTabs.Trigger name="account" role="search" accessibilityLabel={t('tabs.account')}>
+        <NativeTabs.Trigger.Label hidden>{t('tabs.account')}</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon sf={{ default: 'gearshape', selected: 'gearshape.fill' }} />
       </NativeTabs.Trigger>
     </NativeTabs>

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, View, type StyleProp, type TextStyle } from 'react-native';
 
 import { Button } from '@/components/button';
 import { TextField } from '@/components/text-field';
@@ -11,14 +11,21 @@ import { useSession } from '@/lib/auth/session';
 import { useT } from '@/lib/i18n';
 import { parseIngredientExclusions } from '@/lib/ingredient-exclusions';
 
-type Props = { onPendingChange?: (pending: boolean) => void; disabled?: boolean };
+type Props = {
+  onPendingChange?: (pending: boolean) => void;
+  disabled?: boolean;
+  hideLabel?: boolean;
+  /** For an editor inside a card, whose background would hide the field's own. */
+  inputStyle?: StyleProp<TextStyle>;
+};
 
-export function IngredientExclusions({ onPendingChange, disabled }: Props) {
+export function IngredientExclusions({ onPendingChange, disabled, hideLabel, inputStyle }: Props) {
   const { user, isAuthenticated } = useSession();
-  return <ExclusionsEditor key={isAuthenticated ? `${user?.id}/${user?.current_household?.id}` : 'guest'} onPendingChange={onPendingChange} disabled={disabled} />;
+  return <ExclusionsEditor key={isAuthenticated ? `${user?.id}/${user?.current_household?.id}` : 'guest'} onPendingChange={onPendingChange}
+    disabled={disabled} hideLabel={hideLabel} inputStyle={inputStyle} />;
 }
 
-function ExclusionsEditor({ onPendingChange, disabled }: Props) {
+function ExclusionsEditor({ onPendingChange, disabled, hideLabel, inputStyle }: Props) {
   const t = useT();
   const { isAuthenticated } = useSession();
   const { isOwner } = useActiveHousehold();
@@ -34,7 +41,7 @@ function ExclusionsEditor({ onPendingChange, disabled }: Props) {
     update.mutate(names, { onSuccess: () => { setDraft(null); onPendingChange?.(false); } });
   }
   return <View style={styles.content}>
-    <TextField label={t('ingredientExclusions.title')} accessibilityLabel={t('ingredientExclusions.title')}
+    <TextField label={t('ingredientExclusions.title')} hideLabel={hideLabel} style={inputStyle} accessibilityLabel={t('ingredientExclusions.title')}
       placeholder={t('ingredientExclusions.placeholder')} multiline maxLength={2450}
       value={draft ?? exclusions.join(', ')} editable={editable && ready && !update.isPending && !disabled}
       onChangeText={(value) => { setDraft(value); setInvalid(false); onPendingChange?.(true); }}

@@ -1,19 +1,23 @@
 import { useDinnerCategoryLabel } from '@/lib/store/dinner-categories';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useMemo, useRef, useState } from 'react';
-import { FlatList, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { FlatList, Keyboard, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 
+import { Button } from '@/components/button';
 import { DinnerCategorySelect } from '@/components/dinner-category-select';
 import { DinnerImage } from '@/components/dinner-image';
 import { Icon } from '@/components/icon';
 import { SheetScreen } from '@/components/sheet';
-import { TextField } from '@/components/text-field';
+import { NoteField, StepperRow, SuggestionSettings, settingStyles, usePlanningPreferences } from '@/components/suggestion-settings';
 import { ThemedText } from '@/components/themed-text';
-import { BadgeColors, Spacing } from '@/constants/theme';
-import { useResolvedScheme, useTheme } from '@/hooks/use-theme';
+import { Spacing } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
+import { useHouseholdIngredientExclusions } from '@/lib/api/ingredient-exclusions';
 import { dinnerCategory, matchesDinnerCategory, searchDinners, type DinnerCategoryFilter } from '@/lib/dinner-categories';
+import { suggestDinners } from '@/lib/dinner-suggester';
 import { formatDate, formatDay } from '@/lib/format';
+import { hapticSelection } from '@/lib/haptics';
 import { useT, type TFunction } from '@/lib/i18n';
 import { indexByName } from '@/lib/search';
 import {
@@ -25,10 +29,11 @@ import {
   useLocale,
   type LocalDinner,
 } from '@/lib/store';
+import { useHouseholdDefaultServings } from '@/lib/store/household';
 import { addDays, fromDateKey, startOfWeek, toDateKey, weekLabel } from '@/lib/week';
 
 // Snappy enough that the list still feels instant, long enough to read as motion.
-// Only the single action card and the "recent" strip animate; list rows do not.
+// Only the action row and the "recent" strip animate; list rows do not.
 // Exit + layout animations on every row meant a keystroke that narrows a long
 // list kept ~all the dropped rows alive to fade them, while the keyboard was up.
 const SWAP = 140;
@@ -37,6 +42,9 @@ const FADE_OUT = FadeOut.duration(SWAP);
 /** How many recently planned dinners get a one-tap chip above the list. */
 const RECENT_COUNT = 6;
 const DAY_MS = 86_400_000;
+const THUMB = 40;
+/** Room for a day's own wish; the week's standing wishes share the request with it. */
+const WISH_MAX = 200;
 
 /** "Laget for 2 uker siden" / "Planlagt 15. sep." / "Ikke planlagt ennå". */
 function recencyLabel(t: TFunction, lastPlanned: string | null, todayMs: number): string {
@@ -51,24 +59,27 @@ function recencyLabel(t: TFunction, lastPlanned: string | null, todayMs: number)
 }
 
 /**
- * One "search or create" field for the day given as `date` (`YYYY-MM-DD`):
- * typing filters the household's dinners as you go (ranked, see `@/lib/search`).
- * A fixed action card under the field always shows what the return key will
- * do with the typed name — create it, or add the dinner that already has that
- * name — so nothing above the list changes height as you type. Picking a row
- * or the card schedules the dinner into that week's plan (created lazily) and
- * closes. Presented as a native form sheet from the Plans board.
+ * The Dinners tab's search, for the day given as `date` (`YYYY-MM-DD`): one
+ * field that filters the household's dinners as you go (ranked, see
+ * `@/lib/search`) with the category filter icon beside it. A typed name that
+ * doesn't exist yet gets a "Create" row, and the return key adds the dinner
+ * with that name or creates it. Picking a row or the action schedules the dinner into that week's plan (created lazily) and
+ * closes. "Suggest a dinner" swaps the search for a short form — servings, a
+ * wish for this day only, and the choices shared with Plan the week — whose
+ * button closes the sheet while the suggestion lands on the day (see
+ * `@/lib/dinner-suggester`). Presented as a native form sheet from the Plans
+ * board.
  */
 export default function DinnerPickerSheet() {
   const t = useT();
   const categoryLabel = useDinnerCategoryLabel();
   const theme = useTheme();
-  const brand = BadgeColors[useResolvedScheme()].brand;
   const locale = useLocale();
   const { date } = useLocalSearchParams<{ date: string }>();
   const dinners = useDinnerOptions();
   const [query, setQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<DinnerCategoryFilter>('all');
+  const [suggesting, setSuggesting] = useState(false);
   // One create per typed name — a "done" + tap double-fire would otherwise
   // create two dinners with the same name.
   const created = useRef(false);
@@ -78,7 +89,10 @@ export default function DinnerPickerSheet() {
   const index = useMemo(() => indexByName(dinners, (dinner) => dinner.name), [dinners]);
   const trimmed = query.trim();
   const { results, exact } = useMemo(() => searchDinners(index, trimmed, categoryFilter), [index, trimmed, categoryFilter]);
-  const action: 'idle' | 'create' | 'add' = !trimmed ? 'idle' : exact ? 'add' : 'create';
+  // A row above the list only when the list can't do the job itself: the
+  // typed name is new, or its dinner is hidden by the category filter.
+  const action = !trimmed ? null : !exact ? 'create'
+    : results.some((dinner) => dinner.id === exact.id) ? null : 'add';
   // The options are already recency-ordered; the chips are the planned head of it.
   const recent = useMemo(
     () => dinners.filter((d) => d.last_planned && matchesDinnerCategory(d.category, categoryFilter)).slice(0, RECENT_COUNT),
@@ -106,8 +120,22 @@ export default function DinnerPickerSheet() {
     router.back();
   }
 
+  // The board shows the dinner arriving.
+  function suggest(servings: number, wish: string) {
+    if (!date || scheduled.current) return;
+    scheduled.current = true;
+    hapticSelection();
+    void suggestDinners({ kind: 'day', date, servings, wish });
+    router.back();
+  }
+
+  function openSuggest() {
+    Keyboard.dismiss();
+    setSuggesting(true);
+  }
+
   function onCreate() {
-    if (action !== 'create' || created.current) return;
+    if (!trimmed || exact || created.current) return;
     created.current = true;
     const id = createDinner({ name: trimmed, category: dinnerCategory(categoryFilter) });
     // Read the row back synchronously — the reactive list above hasn't
@@ -123,94 +151,108 @@ export default function DinnerPickerSheet() {
     else onCreate();
   }
 
-  const actionTitle =
-    action === 'create'
-      ? t('dinnerPicker.create', { name: trimmed })
-      : action === 'add'
-        ? t('dinnerPicker.addExisting', { name: trimmed })
-        : t('dinnerPicker.idleTitle');
-  const actionHint =
-    action === 'create'
-      ? t('dinnerCategories.createHint', { category: categoryLabel(dinnerCategory(categoryFilter) ?? 'none') })
-      : action === 'add'
-        ? t('dinnerCategories.existingHint', { category: categoryLabel(dinnerCategory(exact?.category) ?? 'none') })
-        : t('dinnerPicker.idleHint');
-  const idle = action === 'idle';
+  const actionCategory = action === 'create' ? dinnerCategory(categoryFilter) : dinnerCategory(exact?.category);
+
+  if (suggesting && date) {
+    return (
+      <SheetScreen layout="fill">
+        <DaySuggestion date={date} onBack={() => setSuggesting(false)} onStart={suggest} />
+      </SheetScreen>
+    );
+  }
 
   return (
     <SheetScreen layout="fill">
       {date ? (
-        <ThemedText type="small" themeColor="textSecondary">
-          {formatDate(date)}
-        </ThemedText>
+        <View style={styles.header}>
+          <ThemedText type="small" themeColor="textSecondary" style={styles.flex}>
+            {formatDate(date)}
+          </ThemedText>
+          <Pressable
+            onPress={openSuggest}
+            accessibilityRole="button"
+            hitSlop={6}
+            style={({ pressed }) => [styles.suggest, { backgroundColor: theme.backgroundElement }, pressed && styles.pressed]}>
+            <Icon name="sparkles" size={13} color={theme.text} />
+            <ThemedText type="smallBold">{t('dinnerPicker.suggest')}</ThemedText>
+          </Pressable>
+        </View>
       ) : null}
 
-      <TextField
-        label={t('dinnerPicker.searchOrCreate')}
-        placeholder={t('dinnerPicker.placeholder')}
-        maxLength={255}
-        value={query}
-        onChangeText={(text) => {
-          created.current = false;
-          setQuery(text);
-        }}
-        autoFocus
-        autoCapitalize="sentences"
-        autoCorrect={false}
-        returnKeyType="done"
-        submitBehavior="submit"
-        onSubmitEditing={onSubmit}
-      />
-
-      <DinnerCategorySelect filter value={categoryFilter} onChange={setCategoryFilter} />
-
-      {/* Fixed-height slot: the card crossfades between states but never
-          resizes, so the list below stays put while typing. */}
-      <View style={styles.actionSlot}>
-        <Animated.View
-          key={action}
-          entering={FADE_IN}
-          exiting={FADE_OUT}
-          style={StyleSheet.absoluteFill}>
-          <Pressable
-            onPress={onSubmit}
-            disabled={idle}
-            accessibilityRole="button"
-            accessibilityLabel={actionTitle}
-            style={({ pressed }) => [
-              styles.actionCard,
-              { backgroundColor: idle ? theme.backgroundElement : brand.bg },
-              pressed && styles.actionPressed,
-            ]}>
-            <View
-              style={[
-                styles.actionBadge,
-                { backgroundColor: idle ? theme.backgroundSelected : theme.tint },
-              ]}>
-              <Icon
-                name={action === 'add' ? 'checkmark' : 'plus'}
-                size={16}
-                weight="bold"
-                color={idle ? theme.textSecondary : theme.onTint}
-              />
-            </View>
-            <View style={styles.flex}>
-              <ThemedText
-                type="smallBold"
-                themeColor={idle ? 'textSecondary' : undefined}
-                style={idle ? undefined : { color: brand.fg }}
-                numberOfLines={1}>
-                {actionTitle}
-              </ThemedText>
-              <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
-                {actionHint}
-              </ThemedText>
-            </View>
-          </Pressable>
-        </Animated.View>
+      <View style={styles.searchRow}>
+        <View style={[styles.search, { backgroundColor: theme.backgroundElement }]}>
+          <Icon name="magnifyingglass" size={15} color={theme.textSecondary} />
+          <TextInput
+            accessibilityLabel={t('dinners.searchOrCreate')}
+            placeholder={t('dinners.searchPlaceholder')}
+            placeholderTextColor={theme.textSecondary}
+            value={query}
+            onChangeText={(text) => {
+              created.current = false;
+              setQuery(text);
+            }}
+            maxLength={255}
+            autoFocus
+            autoCapitalize="sentences"
+            autoCorrect={false}
+            returnKeyType="done"
+            submitBehavior="submit"
+            onSubmitEditing={onSubmit}
+            style={[styles.searchInput, { color: theme.text }]}
+          />
+          {query ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={t('dinners.clearSearch')}
+              hitSlop={10}
+              onPress={() => setQuery('')}>
+              <Icon name="xmark.circle.fill" size={17} color={theme.textSecondary} />
+            </Pressable>
+          ) : null}
+        </View>
+        <DinnerCategorySelect filter variant="icon" value={categoryFilter} onChange={setCategoryFilter} />
       </View>
 
-      {idle && recent.length > 0 ? (
+      {categoryFilter !== 'all' ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`${categoryLabel(categoryFilter)}. ${t('dinnerCategories.clearFilter')}`}
+          onPress={() => setCategoryFilter('all')}
+          style={({ pressed }) => [styles.filterChip, { backgroundColor: theme.backgroundSelected }, pressed && styles.pressed]}>
+          <ThemedText type="smallBold">{categoryLabel(categoryFilter)}</ThemedText>
+          <Icon name="xmark" size={10} weight="bold" color={theme.textSecondary} />
+        </Pressable>
+      ) : null}
+
+      {action ? (
+        <Animated.View key={action} entering={FADE_IN}>
+          <Pressable
+            accessibilityRole="button"
+            onPress={onSubmit}
+            style={({ pressed }) => [styles.action, { backgroundColor: theme.backgroundElement },
+              pressed && { backgroundColor: theme.backgroundSelected }]}>
+            <View style={[styles.actionGlyph,
+              { backgroundColor: action === 'create' ? theme.accent : theme.backgroundSelected }]}>
+              <Icon
+                name={action === 'create' ? 'plus' : 'checkmark'}
+                size={14}
+                weight="bold"
+                color={action === 'create' ? theme.onAccent : theme.text}
+              />
+            </View>
+            <ThemedText style={styles.flex} numberOfLines={1}>
+              {t(action === 'create' ? 'dinnerPicker.create' : 'dinnerPicker.addExisting', { name: trimmed })}
+            </ThemedText>
+            {actionCategory ? (
+              <ThemedText type="small" themeColor="textSecondary" numberOfLines={1} style={styles.actionCategory}>
+                {categoryLabel(actionCategory)}
+              </ThemedText>
+            ) : null}
+          </Pressable>
+        </Animated.View>
+      ) : null}
+
+      {!trimmed && recent.length > 0 ? (
         <Animated.View entering={FADE_IN} exiting={FADE_OUT} style={styles.recent}>
           <ThemedText type="smallBold">{t('dinnerPicker.recent')}</ThemedText>
           <ScrollView
@@ -242,6 +284,7 @@ export default function DinnerPickerSheet() {
         data={results}
         keyExtractor={(dinner) => dinner.id}
         style={styles.list}
+        contentContainerStyle={styles.listContent}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
         // The sheet opens at 60% height: mount roughly one screen of rows and
@@ -251,79 +294,248 @@ export default function DinnerPickerSheet() {
         maxToRenderPerBatch={12}
         windowSize={5}
         removeClippedSubviews
-        renderItem={({ item: dinner }) => (
-          <Pressable
-            onPress={() => schedule(dinner)}
-            accessibilityRole="button"
-            style={({ pressed }) => [
-              styles.row,
-              { borderBottomColor: theme.border },
-              pressed && styles.pressed,
-            ]}>
-            <DinnerImage dinnerId={dinner.id} name={dinner.name} size={40} />
-            <View style={styles.flex}>
-              <ThemedText numberOfLines={1}>{dinner.name}</ThemedText>
-              {dinnerCategory(dinner.category) ? (
-                <ThemedText type="small" themeColor="textSecondary">
-                  {categoryLabel(dinnerCategory(dinner.category)!)}
+        // Rows render as one continuous card, like the Dinners tab: each row
+        // carries the card surface and draws its own divider.
+        renderItem={({ item: dinner, index: i }) => {
+          const category = dinnerCategory(dinner.category);
+          const recency = recencyLabel(t, dinner.last_planned, todayMs);
+          return (
+            <Pressable
+              onPress={() => schedule(dinner)}
+              accessibilityRole="button"
+              style={({ pressed }) => [
+                styles.row,
+                { backgroundColor: theme.backgroundElement },
+                i === 0 && styles.rowFirst,
+                i === results.length - 1 && styles.rowLast,
+                i > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border },
+                pressed && { backgroundColor: theme.backgroundSelected },
+              ]}>
+              <DinnerImage dinnerId={dinner.id} name={dinner.name} size={THUMB} />
+              <View style={styles.flex}>
+                <ThemedText numberOfLines={1}>{dinner.name}</ThemedText>
+                <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
+                  {category ? `${categoryLabel(category)} · ${recency}` : recency}
                 </ThemedText>
-              ) : null}
-            </View>
-            <ThemedText type="small" themeColor="textSecondary">
-              {recencyLabel(t, dinner.last_planned, todayMs)}
-            </ThemedText>
-          </Pressable>
-        )}
+              </View>
+            </Pressable>
+          );
+        }}
+        // Searching needs no message of its own: the action row already says
+        // what the return key will do, and the filter chip clears the category.
         ListEmptyComponent={
-          <Animated.View entering={FADE_IN} style={styles.empty}>
-            <ThemedText type="small" themeColor="textSecondary">
-              {categoryFilter !== 'all' ? t('dinnerCategories.noMatches') : trimmed ? t('dinnerPicker.noMatches') : t('dinnerPicker.empty')}
-            </ThemedText>
-            {categoryFilter !== 'all' ? <Pressable accessibilityRole="button" style={{ minHeight: 44, justifyContent: 'center' }} onPress={() => setCategoryFilter('all')}>
-              <ThemedText style={{ color: theme.tint }}>{t('dinnerCategories.clearFilter')}</ThemedText>
-            </Pressable> : null}
-          </Animated.View>
+          trimmed ? null : (
+            <Animated.View entering={FADE_IN} style={styles.empty}>
+              <ThemedText type="small" themeColor="textSecondary">
+                {categoryFilter !== 'all' ? t('dinnerCategories.noMatches') : t('dinnerPicker.empty')}
+              </ThemedText>
+            </Animated.View>
+          )
         }
       />
     </SheetScreen>
   );
 }
 
+/**
+ * One more dinner for `date`, shaped before asking: servings for this day, a
+ * wish that goes with this request only, and the household's standing choices
+ * (see `SuggestionSettings`), which Plan the week uses too. Everything starts
+ * filled in, so the button alone is enough.
+ */
+function DaySuggestion({ date, onBack, onStart }: {
+  date: string;
+  onBack: () => void;
+  onStart: (servings: number, wish: string) => void;
+}) {
+  const t = useT();
+  const theme = useTheme();
+  const { ai } = usePlanningPreferences();
+  const { ready: exclusionsLoaded } = useHouseholdIngredientExclusions();
+  const defaultServings = useHouseholdDefaultServings();
+  // Follows the household default until changed here.
+  const [servings, setServings] = useState<number | null>(null);
+  const [wish, setWish] = useState('');
+  const [editingExclusions, setEditingExclusions] = useState(false);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const toggle = (row: string) => setExpanded(expanded === row ? null : row);
+  // The household's own list works offline from the saved copy of the exclusions.
+  const canStart = !editingExclusions && (!ai || exclusionsLoaded);
+
+  function start() {
+    if (!canStart) return;
+    Keyboard.dismiss();
+    // Free text only steers new recipes; the household's own are picked for variety.
+    onStart(servings ?? defaultServings, ai ? wish : '');
+  }
+
+  return (
+    <Animated.View entering={FADE_IN} style={styles.panel}>
+      <View style={styles.header}>
+        <Pressable
+          onPress={onBack}
+          accessibilityRole="button"
+          accessibilityLabel={t('common.back')}
+          hitSlop={6}
+          style={({ pressed }) => [styles.back, { backgroundColor: theme.backgroundElement }, pressed && styles.pressed]}>
+          <Icon name="chevron.left" size={14} weight="bold" color={theme.text} />
+        </Pressable>
+        <View style={styles.flex}>
+          <ThemedText type="smallBold">{t('dinnerPicker.suggest')}</ThemedText>
+          <ThemedText type="small" themeColor="textSecondary">{formatDate(date)}</ThemedText>
+        </View>
+      </View>
+
+      <ScrollView
+        style={styles.list}
+        contentContainerStyle={styles.suggestContent}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag">
+        {ai ? (
+          <View style={styles.wish}>
+            <ThemedText type="smallBold" style={settingStyles.label}>{t('dinnerPicker.wishLabel')}</ThemedText>
+            <NoteField
+              accessibilityLabel={t('dinnerPicker.wishLabel')}
+              placeholder={t('dinnerPicker.wishPlaceholder')}
+              value={wish}
+              onChangeText={setWish}
+              maxLength={WISH_MAX}
+              style={{ backgroundColor: theme.backgroundElement }}
+            />
+          </View>
+        ) : null}
+        <SuggestionSettings
+          expanded={expanded}
+          onToggle={toggle}
+          onEditingExclusionsChange={setEditingExclusions}
+          note={
+            <ThemedText type="small" themeColor="textSecondary" style={settingStyles.label}>
+              {t('dinnerPicker.sharedSettings')}
+            </ThemedText>
+          }>
+          <StepperRow label={t('weekPlanning.servings')} value={servings ?? defaultServings} onChange={setServings} />
+        </SuggestionSettings>
+      </ScrollView>
+
+      <View style={styles.footer}>
+        <Button disabled={!canStart} onPress={start} title={t('weekPlanning.generateOne')} />
+        {ai ? (
+          <ThemedText type="small" themeColor="textSecondary" style={styles.center}>
+            {t('weekPlanning.privacy')}
+          </ThemedText>
+        ) : null}
+      </View>
+    </Animated.View>
+  );
+}
+
 const styles = StyleSheet.create({
+  panel: {
+    flex: 1,
+    gap: Spacing.three,
+  },
+  back: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  suggestContent: {
+    gap: Spacing.four,
+    paddingBottom: Spacing.three,
+  },
+  wish: {
+    gap: Spacing.two,
+  },
+  footer: {
+    gap: Spacing.two,
+  },
+  center: {
+    textAlign: 'center',
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+  },
+  suggest: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.one + Spacing.half,
+    minHeight: 32,
+    paddingHorizontal: Spacing.three,
+    borderRadius: 999,
+  },
+  searchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+  },
+  search: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    height: 44,
+    borderRadius: Spacing.two + Spacing.one,
+    paddingHorizontal: Spacing.three,
+  },
+  searchInput: {
+    flex: 1,
+    height: '100%',
+    padding: 0,
+    fontSize: 16,
+  },
+  filterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: Spacing.two,
+    minHeight: 32,
+    paddingHorizontal: Spacing.three,
+    borderRadius: 999,
+  },
+  action: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.three,
+    minHeight: 56,
+    paddingHorizontal: Spacing.three,
+    borderRadius: Spacing.three,
+  },
+  actionGlyph: {
+    width: THUMB,
+    height: THUMB,
+    borderRadius: Math.round(THUMB * 0.24),
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actionCategory: {
+    flexShrink: 0,
+    maxWidth: '40%',
+  },
   list: {
     flex: 1,
+  },
+  listContent: {
+    paddingBottom: Spacing.three,
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     gap: Spacing.three,
-    paddingVertical: Spacing.three,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  actionSlot: {
-    // Badge (36) + card padding (2 × 16): the card's natural height, pinned so
-    // the crossfading copies overlap and the list never moves.
-    height: 36 + Spacing.three * 2,
-  },
-  actionCard: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.three,
+    minHeight: 56,
+    paddingVertical: Spacing.two,
     paddingHorizontal: Spacing.three,
-    borderRadius: Spacing.three,
   },
-  actionBadge: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
+  rowFirst: {
+    borderTopLeftRadius: Spacing.three,
+    borderTopRightRadius: Spacing.three,
   },
-  actionPressed: {
-    opacity: 0.85,
-    transform: [{ scale: 0.98 }],
+  rowLast: {
+    borderBottomLeftRadius: Spacing.three,
+    borderBottomRightRadius: Spacing.three,
   },
   recent: {
     gap: Spacing.two,

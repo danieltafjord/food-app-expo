@@ -14,6 +14,7 @@ import { useDinnerCategoryLabel } from '@/lib/store/dinner-categories';
 import { SymbolView } from 'expo-symbols';
 import { memo, useMemo } from 'react';
 import {
+  ActivityIndicator,
   Pressable,
   RefreshControl,
   StyleSheet,
@@ -43,6 +44,7 @@ import { ThemedText } from '@/components/themed-text';
 import { useSyncRefresh } from '@/hooks/use-sync-refresh';
 import { useResolvedScheme, useTheme } from '@/hooks/use-theme';
 import { BadgeColors, BottomTabInset, Spacing } from '@/constants/theme';
+import { useIncomingSuggestions, useSwapInProgress } from '@/lib/dinner-suggester';
 import { hapticDrop, hapticLift } from '@/lib/haptics';
 import { useT } from '@/lib/i18n';
 import { dinnerCategory } from '@/lib/dinner-categories';
@@ -260,6 +262,8 @@ function DaySection({
   const t = useT();
   const theme = useTheme();
   const hasEntries = entries.length > 0;
+  // Suggested dinners on their way to this day hold their place on the board.
+  const incoming = useIncomingSuggestions(day.date);
 
   // Record this section's position within the scroll content for drag hit-testing.
   function onLayout(event: LayoutChangeEvent) {
@@ -323,7 +327,7 @@ function DaySection({
               onEdit={onEdit}
             />
           ))
-        ) : (
+        ) : incoming ? null : (
           // An open slot, not content: a dashed outline that stays quiet next
           // to the planned dinners, and fills in softly under the finger.
           <Pressable
@@ -338,6 +342,13 @@ function DaySection({
             <ThemedText themeColor="textSecondary">{t('weekBoard.addDinner')}</ThemedText>
           </Pressable>
         )}
+        {Array.from({ length: incoming }, (_, slot) => (
+          <View key={`incoming-${slot}`} accessible accessibilityLiveRegion="polite"
+            style={[styles.addButton, styles.incoming, { borderColor: theme.border, backgroundColor: theme.backgroundElement }]}>
+            <ActivityIndicator size="small" color={theme.textSecondary} />
+            <ThemedText themeColor="textSecondary">{t('weekBoard.suggesting')}</ThemedText>
+          </View>
+        ))}
       </Animated.View>
     </Animated.View>
   );
@@ -393,6 +404,7 @@ const DraggableDinnerCard = memo(function DraggableDinnerCard({
   const cardBg = scheme === 'dark' ? theme.backgroundElement : theme.background;
   const count = entry.ingredient_count;
   const category = dinnerCategory(entry.dinner_category);
+  const swapping = useSwapInProgress(entry.id);
   const entryId = entry.id; // worklets capture this primitive, never the entry object
   // Drag is vertical-only (day to day), so the card never slides past the
   // list's side edges and get clipped.
@@ -485,7 +497,11 @@ const DraggableDinnerCard = memo(function DraggableDinnerCard({
           </ThemedText>
           {/* What the dinner brings to the shopping list — a dinner with no
               ingredients is the one thing worth flagging on the board. */}
-          {count === 0 ? (
+          {swapping ? (
+            <ThemedText type="small" themeColor="textSecondary" numberOfLines={1} accessibilityLiveRegion="polite">
+              {t('weekBoard.swapping')}
+            </ThemedText>
+          ) : count === 0 ? (
             <View style={styles.warn} accessible accessibilityLabel={`${category ? `${categoryLabel(category)}, ` : ''}${t('weekBoard.noIngredients')}`}>
               <Icon name="exclamationmark.triangle.fill" size={10} color={warning.fg} />
               <ThemedText type="small" themeColor="textSecondary" numberOfLines={1} style={styles.warnText}>
@@ -499,7 +515,7 @@ const DraggableDinnerCard = memo(function DraggableDinnerCard({
             </ThemedText>
           )}
         </View>
-        <View style={styles.servings}>
+        {swapping ? <ActivityIndicator size="small" color={theme.textSecondary} /> : <View style={styles.servings}>
           <SymbolView
             name={{ ios: 'person.fill', android: 'person', web: 'person' }}
             size={12}
@@ -509,7 +525,7 @@ const DraggableDinnerCard = memo(function DraggableDinnerCard({
           <ThemedText type="small" themeColor="textSecondary">
             {entry.servings}
           </ThemedText>
-        </View>
+        </View>}
       </Animated.View>
     </GestureDetector>
   );
@@ -552,6 +568,11 @@ const styles = StyleSheet.create({
     borderColor: 'transparent',
     borderRadius: Spacing.three + Spacing.one,
     padding: Spacing.one,
+  },
+  // Same footprint as the card it becomes, so nothing jumps when it lands.
+  incoming: {
+    borderStyle: 'solid',
+    borderWidth: StyleSheet.hairlineWidth,
   },
   addButton: {
     flexDirection: 'row',

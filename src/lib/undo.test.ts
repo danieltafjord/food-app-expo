@@ -10,9 +10,9 @@ jest.mock('react-native', () => ({
     },
   },
 }));
-jest.mock('@/lib/haptics', () => ({ hapticWarning: () => {} }));
+jest.mock('@/lib/haptics', () => ({ hapticWarning: () => {}, hapticSuccess: () => {} }));
 
-import { commitPendingDelete, deleteWithUndo, undoPendingDelete } from './undo';
+import { addWithUndo, commitPendingDelete, deleteWithUndo, undoPendingDelete } from './undo';
 
 beforeEach(() => {
   jest.useFakeTimers();
@@ -59,4 +59,22 @@ it('commits when the app leaves the foreground', () => {
   expect(run).toHaveBeenCalledTimes(1);
   commitPendingDelete();
   expect(run).toHaveBeenCalledTimes(1);
+});
+
+it('takes back an addition only when Undo is pressed within the window', () => {
+  const undo = jest.fn();
+  addWithUndo('Added', undo);
+  jest.advanceTimersByTime(5000);
+  undoPendingDelete();
+  expect(undo).not.toHaveBeenCalled();
+
+  addWithUndo('Added', undo);
+  undoPendingDelete();
+  expect(undo).toHaveBeenCalledTimes(1);
+
+  // A delete starting afterwards keeps the addition.
+  addWithUndo('Added', undo);
+  deleteWithUndo('Deleted', ['a'], jest.fn());
+  undoPendingDelete();
+  expect(undo).toHaveBeenCalledTimes(1);
 });

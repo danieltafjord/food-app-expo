@@ -11,11 +11,16 @@ import { DINNER_CATEGORIES, type DinnerCategoryFilter } from '@/lib/dinner-categ
 import { useT } from '@/lib/i18n';
 import { deleteDinnerCategory, findDinnerCategory, normalizeCategoryName, saveDinnerCategory, useDinnerCategories, useDinnerCategoryLabel } from '@/lib/store/dinner-categories';
 
-/** One picker for assignments and filters, with household category management. */
-export function DinnerCategorySelect({ value, onChange, filter = false }: {
+/**
+ * One picker for assignments and filters, with household category management.
+ * `icon` swaps the labelled row for a square filter button that fills in while
+ * a choice other than the default is active.
+ */
+export function DinnerCategorySelect({ value, onChange, filter = false, variant = 'row' }: {
   value: DinnerCategoryFilter;
   onChange: (value: DinnerCategoryFilter) => void;
   filter?: boolean;
+  variant?: 'row' | 'icon';
 }) {
   const t = useT();
   const theme = useTheme();
@@ -46,18 +51,29 @@ export function DinnerCategorySelect({ value, onChange, filter = false }: {
     if (editing) setMode('manage');
     else { onChange(id); setOpen(false); }
   };
+  const active = value !== (filter ? 'all' : 'none');
   return (
     <View style={styles.group}>
-      <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }}
-        accessibilityLabel={`${t('dinnerCategories.label')}: ${label(value)}`}
-        onPress={() => { Keyboard.dismiss(); setMode('choose'); setOpen(true); }}
-        style={({ pressed }) => [styles.row, { backgroundColor: theme.backgroundElement }, pressed && styles.pressed]}>
-        <View style={styles.label}>
-          <ThemedText type="small" themeColor="textSecondary">{t(filter ? 'dinnerCategories.label' : 'dinnerCategories.optional')}</ThemedText>
-          <ThemedText>{label(value)}</ThemedText>
-        </View>
-        <Icon name="chevron.right" size={14} color={theme.textSecondary} />
-      </Pressable>
+      {variant === 'icon' ? (
+        <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }}
+          accessibilityLabel={`${t('dinnerCategories.label')}: ${label(value)}`}
+          onPress={() => { Keyboard.dismiss(); setMode('choose'); setOpen(true); }}
+          style={({ pressed }) => [styles.iconButton, { backgroundColor: active ? theme.tint : theme.backgroundElement },
+            pressed && styles.pressed]}>
+          <Icon name="line.3.horizontal.decrease" size={17} color={active ? theme.onTint : theme.text} />
+        </Pressable>
+      ) : (
+        <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }}
+          accessibilityLabel={`${t('dinnerCategories.label')}: ${label(value)}`}
+          onPress={() => { Keyboard.dismiss(); setMode('choose'); setOpen(true); }}
+          style={({ pressed }) => [styles.row, { backgroundColor: theme.backgroundElement }, pressed && styles.pressed]}>
+          <View style={styles.label}>
+            <ThemedText type="small" themeColor="textSecondary">{t(filter ? 'dinnerCategories.label' : 'dinnerCategories.optional')}</ThemedText>
+            <ThemedText>{label(value)}</ThemedText>
+          </View>
+          <Icon name="chevron.right" size={14} color={theme.textSecondary} />
+        </Pressable>
+      )}
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.overlay}>
           <Pressable style={[StyleSheet.absoluteFill, { backgroundColor: theme.scrim }]}
@@ -111,6 +127,7 @@ export function DinnerCategorySelect({ value, onChange, filter = false }: {
 const styles = StyleSheet.create({
   group: { gap: Spacing.two },
   row: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, padding: Spacing.three, borderRadius: Spacing.three, minHeight: 48 },
+  iconButton: { width: 44, height: 44, borderRadius: Spacing.two + Spacing.one, alignItems: 'center', justifyContent: 'center' },
   label: { flex: 1, gap: Spacing.half },
   input: { minHeight: 52, padding: Spacing.three, borderRadius: Spacing.two, fontSize: 17 },
   pressed: { opacity: 0.7 },

@@ -2,7 +2,7 @@ import { observable } from '@legendapp/state';
 import { useValue } from '@legendapp/state/react';
 import { AppState } from 'react-native';
 
-import { hapticWarning } from '@/lib/haptics';
+import { hapticSuccess, hapticWarning } from '@/lib/haptics';
 
 /** How long a delete can be taken back before it is written to the store. */
 const UNDO_WINDOW_MS = 5000;
@@ -20,6 +20,7 @@ const EMPTY: Record<string, true> = {};
 const pending$ = observable<PendingDelete | null>(null);
 // Kept outside the observable: Legend State treats functions in state as computeds.
 let commit: (() => void) | null = null;
+let revert: (() => void) | null = null;
 let timer: ReturnType<typeof setTimeout> | null = null;
 let nextKey = 1;
 
@@ -43,6 +44,19 @@ export function deleteWithUndo(message: string, hiddenIds: string[], run: () => 
   timer = setTimeout(commitPendingDelete, UNDO_WINDOW_MS);
 }
 
+/**
+ * The other direction: something was already added (a planned week), and Undo
+ * takes it back. Shares the one toast with deletes; starting either replaces
+ * the other, committing a pending delete first.
+ */
+export function addWithUndo(message: string, undo: () => void): void {
+  commitPendingDelete();
+  hapticSuccess();
+  revert = undo;
+  pending$.set({ key: nextKey++, message, hidden: {} });
+  timer = setTimeout(commitPendingDelete, UNDO_WINDOW_MS);
+}
+
 /** Write the pending delete now (the window ran out, or another delete started). */
 export function commitPendingDelete(): void {
   const run = commit;
@@ -50,15 +64,18 @@ export function commitPendingDelete(): void {
   run?.();
 }
 
-/** Take the pending delete back: the rows reappear untouched. */
+/** Take the pending delete back (the rows reappear untouched), or remove what was just added. */
 export function undoPendingDelete(): void {
+  const undo = revert;
   reset();
+  undo?.();
 }
 
 function reset() {
   if (timer) clearTimeout(timer);
   timer = null;
   commit = null;
+  revert = null;
   pending$.set(null);
 }
 

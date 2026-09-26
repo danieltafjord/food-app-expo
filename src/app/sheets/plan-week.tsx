@@ -1,30 +1,27 @@
 import { useValue } from '@legendapp/state/react';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { Keyboard, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { Button } from '@/components/button';
+import { EmptyState } from '@/components/empty-state';
 import { Icon } from '@/components/icon';
-import { IngredientExclusions } from '@/components/ingredient-exclusions';
 import { SheetScreen } from '@/components/sheet';
 import { Stepper } from '@/components/stepper';
-import { TextField } from '@/components/text-field';
+import { Separator, SettingRow, SuggestionSettings, settingStyles, usePlanningPreferences } from '@/components/suggestion-settings';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { ApiError } from '@/lib/api/client';
 import { useHouseholdIngredientExclusions } from '@/lib/api/ingredient-exclusions';
-import { hasExcludedIngredient } from '@/lib/ingredient-exclusions';
-import { formatQuantity } from '@/lib/format';
+import { suggestDinners, useIncomingDays } from '@/lib/dinner-suggester';
+import { hapticSelection } from '@/lib/haptics';
 import { useT } from '@/lib/i18n';
-import { pushOnce } from '@/lib/navigation';
+import { dateFormatter } from '@/lib/intl';
 import { store$ } from '@/lib/store/collections';
 import { useHouseholdDefaultServings } from '@/lib/store/household';
 import { useLocale } from '@/lib/store/settings';
-import { suggestWeek } from '@/lib/store/week-planning';
-import { acceptSuggestedWeek, getSuggestionContext, suggestionContext$, type SuggestedWeekDraft } from '@/lib/store/week-suggestions';
-import { buildWeek, fromDateKey, startOfWeek, toDateKey, weekLabel } from '@/lib/week';
-import { mealNameKey, PLANNING_SHORTCUTS, requestWeekSuggestions, type PlanningPreferences, type SuggestedDinner } from '@/lib/week-suggestions';
+import { suggestionContext$ } from '@/lib/store/week-suggestions';
+import { buildWeek, fromDateKey, startOfWeek, toDateKey } from '@/lib/week';
 
 export default function PlanWeekSheet() {
   const { weekStart } = useLocalSearchParams<{ weekStart: string }>();
@@ -37,282 +34,157 @@ export default function PlanWeekSheet() {
   return <WeekPlanner key={`${scope}/${weekStart}`} weekStart={weekStart} />;
 }
 
+/**
+ * Fill the week's open days in one tap. The sheet says what happens (dinners
+ * land on the board and can be swapped there), then shows one card of rows —
+ * days, where dinners come from, wishes, ingredients to avoid — each with its
+ * current value, opening in place to change it. Opened, the days read like
+ * the board: one row per day left in the week, ticked when it's to be filled,
+ * with that day's servings beside it; days that already have a dinner say so.
+ * Everything starts filled in, so the button alone is enough. See
+ * `@/lib/dinner-suggester` for the request; the sheet closes as soon as it
+ * starts.
+ */
 function WeekPlanner({ weekStart }: { weekStart: string }) {
   const t = useT();
   const theme = useTheme();
   const locale = useLocale();
-  const householdServings = useHouseholdDefaultServings();
-  const preferences = useValue(store$.meta.planningPreferences);
-  const { exclusions, ready: exclusionsLoaded } = useHouseholdIngredientExclusions();
+  const defaultServings = useHouseholdDefaultServings();
+  const { preferences, ai } = usePlanningPreferences();
+  const { ready: exclusionsLoaded } = useHouseholdIngredientExclusions();
   const [editingExclusions, setEditingExclusions] = useState(false);
-  const exclusionsReady = exclusionsLoaded && !editingExclusions;
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const toggle = (row: string) => setExpanded(expanded === row ? null : row);
   const context = useValue(suggestionContext$(weekStart));
-  const defaultServings = preferences?.servings ?? householdServings;
+  // Days a running request is already filling aren't offered again.
+  const incoming = useIncomingDays();
+  const openDates = context.dates.filter((date) => !incoming[date]);
+  // Remember the days switched off, so a day that opens up meanwhile starts on.
+  const [skipped, setSkipped] = useState<string[]>([]);
+  const dates = openDates.filter((date) => !skipped.includes(date));
   const [servingsByDate, setServingsByDate] = useState<Record<string, number>>({});
   const servingsFor = (date: string) => servingsByDate[date] ?? defaultServings;
-  const [selected, setSelected] = useState(context.dates);
-  const [draft, setDraft] = useState<SuggestedWeekDraft | null>(null);
-  const [editing, setEditing] = useState(true);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [saveRejected, setSaveRejected] = useState(false);
-  const activeRequest = useRef<AbortController | null>(null);
-  const saved = useRef(false);
-  useEffect(() => () => activeRequest.current?.abort(), []);
-  const days = buildWeek(fromDateKey(weekStart), locale);
-  const dates = selected.filter((date) => context.dates.includes(date));
-  const excluded = preferences?.excluded ?? [];
-  const excludedKeys = new Set(excluded.map(mealNameKey));
-  const eligible = context.recipes.filter((recipe) => !excludedKeys.has(mealNameKey(recipe.name))
-    && !hasExcludedIngredient(recipe.ingredients.map((item) => item.name), exclusions));
-  const stale = saveRejected || (!!draft && draft.contextKey !== context.key);
-  const hasRejected = draft?.entries.some(({ dinner }) => excludedKeys.has(mealNameKey(dinner.name)));
+  const today = toDateKey(new Date());
+  const weekday = dateFormatter(locale, { weekday: 'long' });
+  const dayName = (date: string) => {
+    const name = `${weekday.format(fromDateKey(date))} ${fromDateKey(date).getDate()}.`;
+    return name.charAt(0).toUpperCase() + name.slice(1);
+  };
+  const days = buildWeek(fromDateKey(weekStart), locale).filter((day) => day.date >= today);
+  const servingValues = [...new Set(dates.map(servingsFor))].sort((a, b) => a - b);
+  const servingsSummary = servingValues.length > 1
+    ? t('weekPlanning.servingsRange', { min: servingValues[0], max: servingValues[servingValues.length - 1] })
+    : `${servingValues[0]} ${t(servingValues[0] === 1 ? 'common.serving' : 'common.servings')}`;
+  const daysSummary = !dates.length ? t('weekPlanning.noDays')
+    : `${dates.length === 1 ? dayName(dates[0])
+      : dates.length < openDates.length ? t('weekPlanning.someDays', { count: dates.length, total: openDates.length })
+        : openDates.length === 7 ? t('weekPlanning.wholeWeek') : t('weekPlanning.allOpen', { count: openDates.length })
+    } · ${servingsSummary}`;
+  const vegetarian = preferences.shortcuts.includes('vegetarian');
+  const saved = context.candidates.filter((candidate) => !vegetarian || candidate.category === 'vegetarian').length;
+  // The household's own list can't fill more days than it has dinners for
+  // (with none, the button still names the days and the note says why it's off).
+  const count = ai ? dates.length : Math.min(dates.length, saved);
+  const shown = count || dates.length;
+  // The household's own list works offline from the saved copy of the exclusions.
+  const canStart = count > 0 && !editingExclusions && (!ai || exclusionsLoaded);
 
-  function remember(patch: Partial<PlanningPreferences>) {
-    const current = store$.meta.planningPreferences.get() ?? { text: '', shortcuts: [], excluded: [] };
-    store$.meta.planningPreferences.set({ ...current, ...patch });
+  function toggleDay(date: string) {
+    hapticSelection();
+    setSkipped((current) => current.includes(date) ? current.filter((value) => value !== date) : [...current, date]);
   }
 
-  async function generate(date?: string, disliked?: string) {
-    if (activeRequest.current || !exclusionsReady) return;
+  function start() {
+    if (!canStart) return;
     Keyboard.dismiss();
-    const live = getSuggestionContext(weekStart);
-    const requestDates = date ? [date] : selected.filter((value) => live.dates.includes(value));
-    if (!requestDates.length || (date && draft?.contextKey !== live.key)) {
-      setError(t('weekPlanning.changed'));
-      return;
-    }
-    const hiddenNames = disliked ? [...new Set([...excluded, disliked])].slice(-40) : excluded;
-    const servings = usualServings(requestDates.map(servingsFor), defaultServings);
-    remember({ servings, excluded: hiddenNames });
-    const available = live.recipes.filter((recipe) => recipe.name.length <= 120 && recipe.ingredients.length <= 20
-      && recipe.ingredients.every((item) => item.name.length <= 120)
-      && !hasExcludedIngredient(recipe.ingredients.map((item) => item.name), exclusions)
-      && !hiddenNames.some((name) => mealNameKey(name) === mealNameKey(recipe.name)))
-      .slice(0, 20);
-    const availableIds = new Set(available.map((recipe) => recipe.existingId));
-    // Already planned, incomplete and hidden recipes must not return as newly generated duplicates.
-    const excludedNames = [...new Set([
-      ...hiddenNames,
-      ...(date ? draft?.entries.map(({ dinner }) => dinner.name) ?? [] : []),
-      ...live.allNames.filter((name) => !available.some((recipe) => mealNameKey(recipe.name) === mealNameKey(name))),
-    ])].filter((name) => name.length <= 120).slice(0, 60);
-    const blocked = new Set(excludedNames.map(mealNameKey));
-    const request = new AbortController();
-    activeRequest.current = request;
-    setBusy(date ?? 'all');
-    setError(null);
-    const payload = {
-      count: requestDates.length, servings, locale, preferences: preferences?.text.trim() ?? '',
-      shortcuts: preferences?.shortcuts ?? [], exclude: excludedNames,
-      excluded_ingredients: exclusions,
-      reuse_ingredients: [...new Set([...live.plannedIngredients,
-        ...(date ? draft?.entries.filter((entry) => entry.date !== date).flatMap((entry) => entry.dinner.ingredients.map((item) => item.name)) ?? [] : []),
-      ])].filter((name) => name.length <= 120 && !hasExcludedIngredient([name], exclusions)).slice(0, 140),
-      available: available.filter((recipe) => !blocked.has(mealNameKey(recipe.name))).map((recipe) => ({
-        id: recipe.existingId!, name: recipe.name, category: recipe.category,
-        ingredients: recipe.ingredients.map((item) => item.name),
-      })),
-    };
-    // Promise callbacks rather than try/catch/finally: the React Compiler can't
-    // lower those here and would skip this whole sheet. `.catch` after `.then`
-    // still covers a failure while applying the result.
-    await requestWeekSuggestions(payload, live.recipes.filter((recipe) => availableIds.has(recipe.existingId)), request.signal)
-      .then((suggestions) => {
-        if (request.signal.aborted) return;
-        if (getSuggestionContext(weekStart).key !== live.key) {
-          setSaveRejected(true);
-          setError(t('weekPlanning.changed'));
-          return;
-        }
-        const entries = date && draft
-          ? draft.entries.map((entry) => entry.date === date ? { ...entry, dinner: suggestions[0] } : entry)
-          : requestDates.map((value, index) => ({ date: value, dinner: suggestions[index], servings: servingsFor(value) }));
-        setDraft({ weekStart, contextKey: live.key, entries });
-        setSaveRejected(false);
-        setEditing(false);
-      })
-      .catch((cause: unknown) => {
-        if (request.signal.aborted) return;
-        const code = cause instanceof ApiError ? (cause.body as { code?: string } | undefined)?.code : null;
-        setError(t(code === 'daily_limit' ? 'weekPlanning.limited' : cause instanceof ApiError && cause.status === 429
-          ? 'weekPlanning.busy' : code === 'unavailable' ? 'weekPlanning.unavailable' : 'weekPlanning.failed'));
-      })
-      .finally(() => {
-        if (activeRequest.current === request) {
-          activeRequest.current = null;
-          if (!request.signal.aborted) setBusy(null);
-        }
-      });
-  }
-
-  function useSavedDinners() {
-    if (!exclusionsReady) return;
-    const ids = new Set(eligible.map((recipe) => recipe.existingId));
-    const candidates = context.candidates.filter((candidate) => ids.has(candidate.id));
-    const suggestion = suggestWeek({ ...context, dates, candidates, missing: Math.max(0, dates.length - candidates.length) });
-    if (!suggestion) return;
-    remember({ servings: usualServings(dates.map(servingsFor), defaultServings) });
-    setDraft({ weekStart, contextKey: context.key, entries: suggestion.entries.map((entry) => ({
-      date: entry.date, dinner: eligible.find((recipe) => recipe.existingId === entry.dinnerId)!, servings: servingsFor(entry.date),
-    })) });
-    setSaveRejected(false);
-    setError(null);
-    setEditing(false);
-  }
-
-  function save() {
-    if (!draft || saved.current || activeRequest.current || hasRejected || !exclusionsReady) return;
-    const listId = acceptSuggestedWeek(draft, t('plans.weekOf', { label: weekLabel(fromDateKey(weekStart), locale) }));
-    if (!listId) { setSaveRejected(true); return; }
-    saved.current = true;
+    void suggestDinners({ kind: 'week', weekStart, servings: Object.fromEntries(dates.map((date) => [date, servingsFor(date)])) });
     router.back();
-    pushOnce({ pathname: '/shopping/[id]', params: { id: listId } });
+  }
+
+  if (openDates.length === 0) {
+    return (
+      <SheetScreen title={t('weekPlanning.title')} layout="fill">
+        <EmptyState icon="checkmark" title={t('weekPlanning.noEmptyDaysTitle')} message={t('weekPlanning.noEmptyDays')} />
+      </SheetScreen>
+    );
   }
 
   return (
     <SheetScreen title={t('weekPlanning.title')} layout="fill">
-      <ThemedText type="small" themeColor="textSecondary" style={styles.center}>{weekLabel(fromDateKey(weekStart), locale)}</ThemedText>
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
-        {context.dates.length === 0 ? <ThemedText>{t('weekPlanning.noEmptyDays')}</ThemedText> : editing ? (
-          <>
-            <TextField label={t('weekPlanning.preferences')} accessibilityLabel={t('weekPlanning.preferences')}
-              placeholder={t('weekPlanning.placeholder')} multiline maxLength={600} editable={!busy}
-              value={preferences?.text ?? ''} onChangeText={(text) => remember({ text })} style={styles.input} />
-            <ThemedText type="small" themeColor="textSecondary">{t('weekPlanning.optional')}</ThemedText>
-            <IngredientExclusions onPendingChange={setEditingExclusions} disabled={!!busy} />
-            {editingExclusions ? <ThemedText type="small">{t('ingredientExclusions.saveFirst')}</ThemedText> : null}
-            <View style={styles.chips}>
-              {PLANNING_SHORTCUTS.map((value) => {
-                const checked = preferences?.shortcuts.includes(value);
-                return <Pressable key={value} accessibilityRole="checkbox" accessibilityState={{ checked: !!checked, disabled: !!busy }} disabled={!!busy}
-                  onPress={() => remember({ shortcuts: checked ? preferences.shortcuts.filter((item) => item !== value) : [...(preferences?.shortcuts ?? []), value] })}
-                  style={[styles.chip, { backgroundColor: checked ? theme.tint : theme.backgroundElement }]}>
-                  <ThemedText type="small" style={{ color: checked ? theme.onTint : theme.text }}>{t(`weekPlanning.${value}`)}</ThemedText>
-                </Pressable>;
-              })}
-            </View>
-            <View style={styles.dayHeader}>
-              <ThemedText type="smallBold">{t('weekPlanning.days')}</ThemedText>
-              <ThemedText type="small" themeColor="textSecondary">{t('weekPlanning.servings')}</ThemedText>
-            </View>
-            <View style={[styles.dayList, { backgroundColor: theme.backgroundElement }]}>
-              {days.filter((day) => context.dates.includes(day.date)).map((day, index) => {
-                const checked = dates.includes(day.date);
-                const label = `${day.weekday} ${day.dayOfMonth}.`;
-                return <View key={day.date} style={[styles.dayRow, index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border }]}>
-                  <Pressable accessibilityRole="checkbox" accessibilityState={{ checked, disabled: !!busy }} accessibilityLabel={label}
-                    disabled={!!busy} hitSlop={{ top: 6, bottom: 6 }}
-                    onPress={() => setSelected((current) => checked ? current.filter((value) => value !== day.date) : [...current, day.date].sort())}
-                    style={styles.dayToggle}>
-                    <View style={[styles.check, checked ? { backgroundColor: theme.tint, borderColor: theme.tint } : { borderColor: theme.borderStrong }]}>
-                      {checked ? <Icon name="checkmark" size={12} weight="bold" color={theme.onTint} /> : null}
+      <ThemedText type="small" themeColor="textSecondary" style={styles.intro}>{t('weekPlanning.intro')}</ThemedText>
+      <ScrollView style={styles.fill} contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
+        <SuggestionSettings expanded={expanded} onToggle={toggle} onEditingExclusionsChange={setEditingExclusions}
+          note={!ai && saved < dates.length ? (
+            <ThemedText type="small" themeColor="textSecondary" style={settingStyles.label}>
+              {saved ? t('weekPlanning.notEnoughSaved', { count: saved }) : t('weekPlanning.noneSaved')}
+            </ThemedText>
+          ) : null}>
+          <SettingRow label={t('weekPlanning.days')} value={daysSummary}
+            open={expanded === 'days'} onPress={() => toggle('days')} />
+          {expanded === 'days' ? days.map((day) => {
+            const open = openDates.includes(day.date);
+            const checked = open && dates.includes(day.date);
+            const label = dayName(day.date);
+            const color = day.isToday ? theme.accent : checked ? theme.text : theme.textSecondary;
+            return (
+              <View key={day.date}>
+                <Separator inset={styles.daySeparator} />
+                <View style={[styles.row, styles.dayRow]}>
+                  {open ? (
+                    <Pressable accessibilityRole="checkbox" accessibilityState={{ checked }} accessibilityLabel={label}
+                      onPress={() => toggleDay(day.date)} style={({ pressed }) => [styles.dayToggle, pressed && styles.pressed]}>
+                      <View style={[styles.check, checked ? { backgroundColor: theme.tint, borderColor: theme.tint }
+                        : { borderColor: theme.borderStrong }]}>
+                        {checked ? <Icon name="checkmark" size={12} weight="bold" color={theme.onTint} /> : null}
+                      </View>
+                      <ThemedText style={{ color }}>{label}</ThemedText>
+                    </Pressable>
+                  ) : (
+                    // Already has a dinner, or one is on its way: shown so the week reads whole, but not offered.
+                    <View accessible accessibilityLabel={`${label}, ${t(incoming[day.date] ? 'weekPlanning.dayIncoming' : 'weekPlanning.dayPlanned')}`}
+                      style={[styles.dayToggle, styles.unavailable]}>
+                      <View style={styles.check}>
+                        <Icon name={incoming[day.date] ? 'sparkles' : 'fork.knife'} size={13} color={theme.textSecondary} />
+                      </View>
+                      <ThemedText style={[styles.fill, { color }]}>{label}</ThemedText>
+                      <ThemedText type="small" themeColor="textSecondary">
+                        {t(incoming[day.date] ? 'weekPlanning.dayIncoming' : 'weekPlanning.dayPlanned')}
+                      </ThemedText>
                     </View>
-                    <ThemedText style={{ color: checked ? theme.text : theme.textSecondary }}>{label}</ThemedText>
-                  </Pressable>
-                  {checked ? <Stepper compact value={servingsFor(day.date)} accessibilityLabel={`${t('weekPlanning.servings')}, ${label}`}
-                    onChange={(value) => { if (!activeRequest.current) setServingsByDate((current) => ({ ...current, [day.date]: value })); }} /> : null}
-                </View>;
-              })}
-            </View>
-            {!dates.length ? <ThemedText type="small">{t('weekPlanning.noneSelected')}</ThemedText> : null}
-            <ThemedText type="small" themeColor="textSecondary">{t('weekPlanning.privacy')}</ThemedText>
-            {eligible.length >= dates.length && dates.length > 0 ? <>
-              <Button title={t('weekPlanning.savedMeals')} variant="secondary" disabled={!!busy || !exclusionsReady} onPress={useSavedDinners} />
-              <ThemedText type="small" themeColor="textSecondary">{t('weekPlanning.savedHint')}</ThemedText>
-            </> : null}
-            {excluded.length > 0 ? <Button size="small" variant="secondary" disabled={!!busy}
-              title={t('weekPlanning.resetExcluded', { count: excluded.length })} onPress={() => remember({ excluded: [] })} /> : null}
-          </>
-        ) : (
-          <>
-            <ThemedText type="smallBold">{t('weekPlanning.preview')}</ThemedText>
-            <ThemedText type="small" themeColor="textSecondary">{t('weekPlanning.previewDetails')}</ThemedText>
-            {draft?.entries.map(({ date, dinner }) => {
-              const day = days.find((item) => item.date === date)!;
-              const servings = draft.entries.find((entry) => entry.date === date)!.servings;
-              return <DinnerPreview key={date} dinner={dinner} servings={servings} day={`${day.weekday} ${day.dayOfMonth}.`}
-                onServings={(value) => {
-                  setDraft({ ...draft, entries: draft.entries.map((entry) => entry.date === date ? { ...entry, servings: value } : entry) });
-                  setServingsByDate((current) => ({ ...current, [date]: value }));
-                }}
-                disabled={!!busy || stale} swapping={busy === date}
-                onSwap={() => { void generate(date); }} onDislike={() => { void generate(date, dinner.name); }}
-                onRemove={() => { setDraft({ ...draft, entries: draft.entries.filter((entry) => entry.date !== date) }); setSelected((current) => current.filter((value) => value !== date)); }} />;
-            })}
-            <Button title={t('weekPlanning.editPreferences')} variant="secondary" disabled={!!busy} onPress={() => { setEditing(true); setError(null); }} />
-          </>
-        )}
-        {busy ? <ThemedText accessibilityLiveRegion="polite" type="small" themeColor="textSecondary">{t(busy === 'all' ? 'weekPlanning.generating' : 'weekPlanning.swapping')}</ThemedText> : null}
-        {error ? <ThemedText accessibilityLiveRegion="polite" type="small" style={{ color: theme.danger }}>{error}</ThemedText> : null}
-        {!editing && stale ? <ThemedText accessibilityLiveRegion="polite">{t('weekPlanning.changed')}</ThemedText> : null}
-        {!editing && hasRejected ? <ThemedText type="small">{t('weekPlanning.rejected')}</ThemedText> : null}
+                  )}
+                  {checked ? (
+                    <Stepper compact value={servingsFor(day.date)} accessibilityLabel={`${t('weekPlanning.servings')}, ${label}`}
+                      onChange={(value) => setServingsByDate((current) => ({ ...current, [day.date]: value }))} />
+                  ) : null}
+                </View>
+              </View>
+            );
+          }) : null}
+        </SuggestionSettings>
       </ScrollView>
-      {context.dates.length > 0 ? editing ? (
-        <Button title={t(error ? 'error.retry' : 'weekPlanning.generate')} loading={busy === 'all'} disabled={!!busy || !dates.length || !exclusionsReady}
-          onPress={() => { void generate(); }} />
-      ) : stale ? (
-        <Button title={t('weekPlanning.refresh')} onPress={() => { setEditing(true); setSaveRejected(false); }} />
-      ) : <View style={styles.actions}>
-        <ThemedText type="small" themeColor="textSecondary" style={styles.center}>{t('weekPlanning.saveHint')}</ThemedText>
-        <Button title={t('weekPlanning.usePlan')} disabled={!!busy || !draft?.entries.length || hasRejected || !exclusionsReady} onPress={save} />
-      </View> : null}
-      <Button title={t('common.cancel')} variant="secondary" onPress={() => router.back()} />
+      <View style={styles.footer}>
+        <Button disabled={!canStart} onPress={start}
+          title={!dates.length ? t('weekPlanning.noneSelected')
+            : shown === 1 ? t('weekPlanning.generateOne') : t('weekPlanning.generate', { count: shown })} />
+        {ai ? <ThemedText type="small" themeColor="textSecondary" style={styles.center}>{t('weekPlanning.privacy')}</ThemedText> : null}
+      </View>
     </SheetScreen>
   );
 }
 
-/** The number of servings most selected days use; new recipes are written for it. */
-function usualServings(values: number[], fallback: number): number {
-  const counts = new Map<number, number>();
-  for (const value of values) counts.set(value, (counts.get(value) ?? 0) + 1);
-  let best = fallback;
-  for (const [value, count] of counts) if (count > (counts.get(best) ?? 0)) best = value;
-  return best;
-}
-
-function DinnerPreview({ dinner, servings, day, disabled, swapping, onSwap, onRemove, onDislike, onServings }: {
-  dinner: SuggestedDinner; servings: number; day: string; disabled: boolean; swapping: boolean;
-  onSwap: () => void; onRemove: () => void; onDislike: () => void; onServings: (value: number) => void;
-}) {
-  const t = useT();
-  const theme = useTheme();
-  const [expanded, setExpanded] = useState(false);
-  return <View style={[styles.recipe, { backgroundColor: theme.backgroundElement }]}>
-    <View style={styles.previewDay} pointerEvents={disabled ? 'none' : 'auto'}>
-      <ThemedText type="small" themeColor="textSecondary">{day} · {t('common.servings')}</ThemedText>
-      <Stepper compact value={servings} onChange={onServings} accessibilityLabel={`${t('weekPlanning.servings')}, ${day}`} />
-    </View>
-    <ThemedText type="smallBold">{dinner.name}</ThemedText>
-    <ThemedText type="small" themeColor="textSecondary">{t(dinner.existingId ? 'weekPlanning.savedRecipe' : 'weekPlanning.newRecipe')}</ThemedText>
-    <View style={styles.chips}>
-      <Button size="small" variant="secondary" title={t('weekPlanning.swap')} accessibilityLabel={`${t('weekPlanning.swap')} ${dinner.name}`} disabled={disabled} loading={swapping} onPress={onSwap} />
-      <Button size="small" variant="secondary" title={t('weekPlanning.removeDay')} accessibilityLabel={`${t('weekPlanning.removeDay')}: ${day}`} disabled={disabled} onPress={onRemove} />
-    </View>
-    <Pressable accessibilityRole="button" accessibilityState={{ expanded }} onPress={() => setExpanded(!expanded)} style={styles.details}>
-      <ThemedText type="small" style={{ color: theme.tint }}>{t('weekPlanning.details')} {expanded ? '−' : '+'}</ThemedText>
-    </Pressable>
-    {expanded ? <View style={styles.actions}>
-      {dinner.ingredients.map((item, index) => <ThemedText key={index} type="small">
-        {formatQuantity(Math.round(item.quantity * servings / dinner.baseServings * 100) / 100, item.unit)} {item.name}
-      </ThemedText>)}
-      {dinner.notes ? <ThemedText type="small">{dinner.notes}</ThemedText> : null}
-      <Button title={t('weekPlanning.dislike')} size="small" variant="secondary" disabled={disabled} onPress={onDislike} />
-    </View> : null}
-  </View>;
-}
-
 const styles = StyleSheet.create({
-  center: { textAlign: 'center' }, scroll: { flex: 1 }, content: { gap: Spacing.three, paddingBottom: Spacing.three },
-  input: { minHeight: 96, paddingVertical: Spacing.three, textAlignVertical: 'top' },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two },
-  chip: { minHeight: 44, justifyContent: 'center', borderRadius: Spacing.three, paddingHorizontal: Spacing.three, paddingVertical: Spacing.two },
-  dayHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', gap: Spacing.two, marginBottom: -Spacing.one },
-  dayList: { borderRadius: Spacing.three, overflow: 'hidden' },
-  dayRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, minHeight: 52, paddingLeft: Spacing.three, paddingRight: Spacing.two },
-  dayToggle: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: Spacing.three, minHeight: 52 },
-  check: { width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
-  previewDay: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: Spacing.two },
-  recipe: { padding: Spacing.three, gap: Spacing.two, borderRadius: Spacing.three },
-  details: { minHeight: 44, justifyContent: 'center' }, actions: { gap: Spacing.two },
+  center: { textAlign: 'center' },
+  intro: { textAlign: 'center', marginTop: -Spacing.two, paddingHorizontal: Spacing.three },
+  fill: { flex: 1 },
+  content: { gap: Spacing.four, paddingTop: Spacing.two, paddingBottom: Spacing.three },
+  pressed: { opacity: 0.6 },
+  row: settingStyles.row,
+  dayRow: { minHeight: 48, paddingRight: Spacing.one },
+  dayToggle: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: Spacing.three, minHeight: 48 },
+  check: { width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, borderColor: 'transparent', alignItems: 'center', justifyContent: 'center' },
+  unavailable: { paddingRight: Spacing.three },
+  // Starts under the day's name, past the tick.
+  daySeparator: { marginLeft: Spacing.three + 22 + Spacing.three },
+  footer: { gap: Spacing.two },
 });

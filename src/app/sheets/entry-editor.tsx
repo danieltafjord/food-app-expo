@@ -1,5 +1,6 @@
+import { useValue } from '@legendapp/state/react';
 import { router, useLocalSearchParams } from 'expo-router';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 
 import { Button } from '@/components/button';
 import { DinnerImage } from '@/components/dinner-image';
@@ -9,6 +10,7 @@ import { Stepper } from '@/components/stepper';
 import { ThemedText } from '@/components/themed-text';
 import { BadgeColors, Spacing } from '@/constants/theme';
 import { useResolvedScheme, useTheme } from '@/hooks/use-theme';
+import { suggestDinners, useSuggestionFailure, useSwapInProgress } from '@/lib/dinner-suggester';
 import { hapticSelection } from '@/lib/haptics';
 import { useT } from '@/lib/i18n';
 import { pushOnce } from '@/lib/navigation';
@@ -19,15 +21,18 @@ import {
   usePlanEntry,
   type PlanEntryWithDinner,
 } from '@/lib/store';
+import { store$ } from '@/lib/store/collections';
+import { releaseSuggestedDinner } from '@/lib/store/week-suggestions';
 import { buildWeek, dateKeyOf, fromDateKey, startOfWeek } from '@/lib/week';
 
 /**
  * A scheduled dinner (`entryId`). Everything here saves as you go, like the
  * rest of the board: the servings stepper writes on each tap, the day chips
- * move the dinner (dragging the card on the board does the same), and the
- * "Edit dinner" row opens the recipe itself, and "Add another dinner" opens the
- * picker for the same day. Removing the dinner from the
- * plan is a separate red action below a divider.
+ * move the dinner (dragging the card on the board does the same), "Suggest
+ * another" swaps in a new idea for the day (the sheet stays open, so it can be
+ * tapped again until one sticks), "Edit dinner" opens the recipe itself, and
+ * "Add another dinner" opens the picker for the same day. Removing the dinner
+ * from the plan is a separate red action below a divider.
  */
 export default function EntryEditorSheet() {
   const t = useT();
@@ -54,6 +59,10 @@ function EntryForm({ entry }: { entry: PlanEntryWithDinner }) {
   const scheduled = dateKeyOf(entry.scheduled_date);
   const days = buildWeek(startOfWeek(fromDateKey(scheduled)), locale);
   const noIngredients = entry.ingredient_count === 0;
+  const swapping = useSwapInProgress(entry.id);
+  const failure = useSuggestionFailure();
+  const failed = failure?.job.kind === 'swap' && failure.job.entryId === entry.id ? failure.message : null;
+  const fromSaved = useValue(() => store$.meta.planningPreferences.get()?.source === 'saved');
 
   function moveTo(date: string) {
     if (date === scheduled) return;
@@ -74,8 +83,16 @@ function EntryForm({ entry }: { entry: PlanEntryWithDinner }) {
     pushOnce({ pathname: '/sheets/dinner-picker', params: { date: scheduled } });
   }
 
+  function suggestAnother() {
+    if (swapping) return;
+    hapticSelection();
+    void suggestDinners({ kind: 'swap', entryId: entry.id });
+  }
+
   function remove() {
     deletePlanEntry(entry.id);
+    // A suggestion nobody kept doesn't linger in the household's dinners.
+    releaseSuggestedDinner(entry.dinner_id, scheduled);
     router.back();
   }
 
@@ -148,6 +165,16 @@ function EntryForm({ entry }: { entry: PlanEntryWithDinner }) {
 
       <View style={[styles.group, { backgroundColor: theme.backgroundElement }]}>
         <LinkRow
+          icon="sparkles"
+          title={t('entryEditor.suggestAnother')}
+          hint={swapping ? t('entryEditor.swapping') : failed ? t(failed)
+            : t(fromSaved ? 'entryEditor.suggestSavedHint' : 'entryEditor.suggestAnotherHint')}
+          warning={failed && !swapping ? theme.danger : undefined}
+          busy={swapping}
+          onPress={suggestAnother}
+        />
+        <View style={[styles.separator, { backgroundColor: theme.border }]} />
+        <LinkRow
           icon="fork.knife"
           title={t('entryEditor.editDinner')}
           hint={noIngredients ? t('entryEditor.noIngredientsHint') : t('entryEditor.editDinnerHint')}
@@ -173,13 +200,14 @@ function EntryForm({ entry }: { entry: PlanEntryWithDinner }) {
   );
 }
 
-/** One tappable row in a grouped card: leading icon, title and hint, chevron. */
-function LinkRow({ icon, title, hint, warning, onPress }: {
-  icon: IconName; title: string; hint: string; warning?: string; onPress: () => void;
+/** One tappable row in a grouped card: leading icon, title and hint, chevron (a spinner while busy). */
+function LinkRow({ icon, title, hint, warning, busy = false, onPress }: {
+  icon: IconName; title: string; hint: string; warning?: string; busy?: boolean; onPress: () => void;
 }) {
   const theme = useTheme();
   return (
-    <Pressable onPress={onPress} accessibilityRole="button" accessibilityHint={hint}
+    <Pressable onPress={onPress} disabled={busy} accessibilityRole="button" accessibilityHint={hint}
+      accessibilityState={{ busy, disabled: busy }}
       style={({ pressed }) => [styles.linkRow, pressed && { backgroundColor: theme.backgroundSelected }]}>
       <View style={[styles.linkIcon, { backgroundColor: theme.backgroundSelected }]}>
         <Icon name={icon} size={14} color={theme.text} />
@@ -194,7 +222,8 @@ function LinkRow({ icon, title, hint, warning, onPress }: {
           </ThemedText>
         </View>
       </View>
-      <Icon name="chevron.right" size={13} color={theme.textSecondary} />
+      {busy ? <ActivityIndicator size="small" color={theme.textSecondary} />
+        : <Icon name="chevron.right" size={13} color={theme.textSecondary} />}
     </Pressable>
   );
 }

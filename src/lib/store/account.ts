@@ -66,6 +66,7 @@ function wipeLocalData(): void {
 
     store$.meta.aiDismissedSuggestions.set({});
     store$.meta.planningPreferences.set({ text: '', shortcuts: [], excluded: [] });
+    store$.meta.suggestedDinners.set({});
     store$.meta.aiClassificationJobs.set({});
     store$.meta.pendingImages.set({});
     store$.meta.dirty.set({});

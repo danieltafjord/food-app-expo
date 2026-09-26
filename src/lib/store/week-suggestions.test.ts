@@ -1,162 +1,126 @@
-import { createShoppingListFromPlan } from '@/lib/shopping/generate';
 import type { SuggestedDinner } from '@/lib/week-suggestions';
 import { clearLocalData, resetLocalDataForHousehold } from './account';
 import { store$ } from './collections';
-import { createDinner, getDinner, upsertDinnerItem } from './dinners';
+import { createDinner, getDinner, patchDinner, upsertDinnerItem } from './dinners';
 import { createIngredient } from './ingredients';
-import { createDinnerPlan, createPlanEntry } from './plans';
-import { addShoppingItem, toggleShoppingItem } from './shopping-lists';
-import { acceptSuggestedWeek, getSuggestionContext, type SuggestedWeekDraft } from './week-suggestions';
+import { createDinnerPlan, createPlanEntry, deletePlanEntry } from './plans';
+import {
+  getSuggestionContext,
+  isUntouchedSuggestion,
+  planSuggestedDinners,
+  releaseSuggestedDinner,
+  replacePlannedDinner,
+} from './week-suggestions';
 
 const WEEK = '2026-09-21';
 const TODAY = '2026-09-24';
 const recipe = (name = 'Tomato pasta'): SuggestedDinner => ({ existingId: null, name, category: 'vegetarian',
   notes: 'Cook the pasta and simmer the tomatoes.', baseServings: 2,
   ingredients: [{ name: 'Pasta', quantity: 200, unit: 'g' }, { name: 'Tomato', quantity: 300, unit: 'g' }] });
-const draft = (entries: { date: string; dinner: SuggestedDinner; servings?: number }[] = [{ date: TODAY, dinner: recipe() }]): SuggestedWeekDraft => ({
-  weekStart: WEEK, contextKey: getSuggestionContext(WEEK, TODAY).key,
-  entries: entries.map((entry) => ({ servings: 2, ...entry })) });
+const entries = () => Object.values(store$.planEntries.get());
+const dinnerNames = () => Object.values(store$.dinners.get()).map((row) => row.name).sort();
 
 beforeEach(() => clearLocalData());
 
-it('previews an empty household without creating data and saves only the accepted days with a usable list', () => {
-  const preview = draft([{ date: TODAY, dinner: recipe() }, { date: '2026-09-26', dinner: recipe('Pasta bake') }]);
-  expect(Object.values(store$.dinners.get())).toHaveLength(0);
-  expect(Object.values(store$.shoppingLists.get())).toHaveLength(0);
-  const listId = acceptSuggestedWeek({ ...preview, entries: preview.entries.slice(1) }, 'This week', TODAY);
-  expect(listId).toBeTruthy();
-  expect(Object.values(store$.dinners.get()).map((row) => row.name)).toEqual(['Pasta bake']);
-  expect(Object.values(store$.planEntries.get()).map((row) => row.scheduled_date)).toEqual(['2026-09-26']);
-  expect(Object.values(store$.shoppingListItems.get())).toEqual(expect.arrayContaining([
-    expect.objectContaining({ shopping_list_id: listId, quantity: 200, unit: 'g', is_generated: true }),
-    expect.objectContaining({ shopping_list_id: listId, quantity: 300, unit: 'g', is_generated: true }),
-  ]));
-  expect(acceptSuggestedWeek(preview, 'This week', TODAY)).toBeNull();
-  expect(Object.values(store$.shoppingLists.get())).toHaveLength(1);
+it('writes new recipes and plans each day with its own servings', () => {
+  const ids = planSuggestedDinners(WEEK, 'Week', [
+    { date: TODAY, dinner: recipe(), servings: 2 },
+    { date: '2026-09-26', dinner: recipe('Pasta bake'), servings: 4 },
+  ]);
+  expect(ids).toHaveLength(2);
+  expect(dinnerNames()).toEqual(['Pasta bake', 'Tomato pasta']);
+  expect(entries().map((row) => [row.scheduled_date, row.servings]).sort()).toEqual([[TODAY, 2], ['2026-09-26', 4]]);
+  const dinner = getDinner(entries().find((row) => row.scheduled_date === TODAY)!.dinner_id)!;
+  expect(dinner).toMatchObject({ notes: 'Cook the pasta and simmer the tomatoes.', default_servings: 2, category: 'vegetarian' });
+  expect(dinner.items.map((item) => [item.quantity, item.unit])).toEqual([[200, 'g'], [300, 'g']]);
+  // Both recipes share one catalogue entry per ingredient.
+  expect(Object.values(store$.ingredients.get())).toHaveLength(2);
+  expect(Object.values(store$.dinnerPlans.get())).toHaveLength(1);
 });
 
-it('reuses saved recipes and scales shopping quantities to planned portions without rewriting recipe yield', () => {
+it('plans a saved recipe by id without rewriting it, and never duplicates a dinner by name', () => {
   const id = createDinner({ name: 'Family pasta', default_servings: 4 });
   upsertDinnerItem(id, { ingredient_id: createIngredient({ name: 'Pasta' }), quantity: 400, unit: 'g' });
   const original = JSON.stringify(getDinner(id));
-  const preview = draft([{ date: TODAY, dinner: getSuggestionContext(WEEK, TODAY).recipes[0] }]);
-  const listId = acceptSuggestedWeek(preview, 'Week', TODAY);
-  expect(Object.values(store$.planEntries.get())).toEqual([expect.objectContaining({ dinner_id: id, servings: 2 })]);
-  expect(Object.values(store$.shoppingListItems.get())).toEqual([expect.objectContaining({ shopping_list_id: listId, quantity: 200 })]);
+  const saved = getSuggestionContext(WEEK, TODAY).recipes[0];
+  planSuggestedDinners(WEEK, 'Week', [
+    { date: TODAY, dinner: saved, servings: 2 },
+    // Generated elsewhere under a name the household already has.
+    { date: '2026-09-25', dinner: recipe(' family PASTA '), servings: 2 },
+  ]);
+  expect(entries().map((row) => row.dinner_id)).toEqual([id, id]);
   expect(JSON.stringify(getDinner(id))).toBe(original);
-  expect(Object.values(store$.dinners.get())).toHaveLength(1);
+  expect(isUntouchedSuggestion(id)).toBe(false);
 });
 
-it('plans each day with its own servings and scales that day\'s shopping', () => {
-  const listId = acceptSuggestedWeek(draft([
-    { date: TODAY, dinner: recipe(), servings: 2 },
-    { date: '2026-09-26', dinner: recipe('Pasta bake'), servings: 4 },
-  ]), 'Week', TODAY);
-  const entries = Object.values(store$.planEntries.get());
-  expect(entries.find((row) => row.scheduled_date === TODAY)?.servings).toBe(2);
-  expect(entries.find((row) => row.scheduled_date === '2026-09-26')?.servings).toBe(4);
-  // Pasta: 200 g for 2 on Thursday + 400 g for 4 on Saturday.
-  expect(Object.values(store$.shoppingListItems.get())).toEqual(expect.arrayContaining([
-    expect.objectContaining({ shopping_list_id: listId, quantity: 600, unit: 'g' }),
-  ]));
+it('skips a saved recipe deleted before its suggestion arrived', () => {
+  const id = createDinner({ name: 'Gone soon' });
+  const dinner: SuggestedDinner = { ...recipe('Gone soon'), existingId: id };
+  store$.dinners[id].delete();
+  expect(planSuggestedDinners(WEEK, 'Week', [{ date: TODAY, dinner, servings: 2 }])).toEqual([]);
+  expect(entries()).toEqual([]);
 });
 
-it('aggregates shared ingredients across generated meals', () => {
-  acceptSuggestedWeek(draft([{ date: TODAY, dinner: recipe() }, { date: '2026-09-25', dinner: recipe('Pasta bake') }]), 'Week', TODAY);
-  expect(Object.values(store$.ingredients.get())).toHaveLength(2);
-  expect(Object.values(store$.shoppingListItems.get()).map((item) => item.quantity).sort()).toEqual([400, 600]);
-});
+it('swaps a day\'s dinner and deletes the suggestion it replaced', () => {
+  const [entryId] = planSuggestedDinners(WEEK, 'Week', [{ date: TODAY, dinner: recipe(), servings: 3 }]);
+  const first = entries()[0].dinner_id;
+  expect(isUntouchedSuggestion(first)).toBe(true);
 
-it('rejects stale previews after an ingredient quantity changes without partially saving', () => {
-  const id = createDinner({ name: 'Family pasta' });
-  const ingredient = createIngredient({ name: 'Pasta' });
-  upsertDinnerItem(id, { ingredient_id: ingredient, quantity: 200, unit: 'g' });
-  const preview = draft();
-  upsertDinnerItem(id, { ingredient_id: ingredient, quantity: 500, unit: 'g' });
-  expect(acceptSuggestedWeek(preview, 'Week', TODAY)).toBeNull();
-  expect(Object.values(store$.dinners.get())).toHaveLength(1);
-  expect(store$.planEntries.get()).toEqual({});
-  expect(store$.shoppingLists.get()).toEqual({});
-});
-
-it('rejects a preview after another device fills a day or the household changes', () => {
-  const preview = draft();
-  const id = createDinner({ name: 'Already planned' });
-  const plan = createDinnerPlan({ name: 'Week', start_date: WEEK });
-  createPlanEntry(plan, { dinner_id: id, scheduled_date: TODAY, servings: 2 });
-  expect(acceptSuggestedWeek(preview, 'Week', TODAY)).toBeNull();
-  const fresh = draft([{ date: '2026-09-25', dinner: recipe() }]);
-  resetLocalDataForHousehold(12);
-  expect(acceptSuggestedWeek(fresh, 'Week', TODAY)).toBeNull();
-  expect(store$.dinners.get()).toEqual({});
+  expect(replacePlannedDinner(entryId, recipe('Fish soup'), TODAY)).toBe(true);
+  expect(store$.planEntries[entryId].get()).toMatchObject({ scheduled_date: TODAY, servings: 3 });
+  expect(dinnerNames()).toEqual(['Fish soup']);
+  expect(Object.values(store$.dinnerItems.get())).not.toContainEqual(expect.objectContaining({ dinner_id: first }));
+  expect(store$.meta.suggestedDinners[first].get()).toBeUndefined();
 });
 
 it.each([
-  (preview: SuggestedWeekDraft) => ({ ...preview, entries: preview.entries.map((entry) => ({ ...entry, servings: 0 })) }),
-  (preview: SuggestedWeekDraft) => ({ ...preview, entries: [] }),
-  (preview: SuggestedWeekDraft) => ({ ...preview, entries: [...preview.entries, ...preview.entries] }),
-  (preview: SuggestedWeekDraft) => ({ ...preview, entries: [{ ...preview.entries[0], date: '2026-09-23' }] }),
-  (preview: SuggestedWeekDraft) => ({ ...preview, entries: [{ date: TODAY, dinner: { ...recipe(), ingredients: [] }, servings: 2 }] }),
-])('rejects invalid drafts before creating recipes or plans', (mutate) => {
-  expect(acceptSuggestedWeek(mutate(draft()), 'Week', TODAY)).toBeNull();
-  expect(store$.dinners.get()).toEqual({});
-  expect(store$.dinnerPlans.get()).toEqual({});
-  expect(store$.shoppingLists.get()).toEqual({});
+  ['edited', (id: string) => patchDinner(id, { notes: 'Our way' })],
+  ['given a new amount', (id: string) => upsertDinnerItem(id, {
+    ingredient_id: getDinner(id)!.items[0].ingredient_id, quantity: 500, unit: 'g' })],
+  ['planned on another day', (id: string) => createPlanEntry(entries()[0].dinner_plan_id, {
+    dinner_id: id, scheduled_date: '2026-09-27', servings: 2 })],
+])('keeps a suggestion once it was %s', (_, change) => {
+  const [entryId] = planSuggestedDinners(WEEK, 'Week', [{ date: TODAY, dinner: recipe(), servings: 2 }]);
+  const first = entries()[0].dinner_id;
+  change(first);
+  replacePlannedDinner(entryId, recipe('Fish soup'), TODAY);
+  expect(dinnerNames()).toEqual(['Fish soup', 'Tomato pasta']);
 });
 
-it('reuses the linked list and preserves bought and manual rows when adding dinners', () => {
-  const id = createDinner({ name: 'First meal' });
-  const ingredient = createIngredient({ name: 'Pasta' });
-  upsertDinnerItem(id, { ingredient_id: ingredient, quantity: 200, unit: 'g' });
+it('keeps a suggestion that was cooked on a past day, and replaced saved recipes always', () => {
+  const [past] = planSuggestedDinners(WEEK, 'Week', [{ date: '2026-09-22', dinner: recipe(), servings: 2 }]);
+  const cooked = store$.planEntries[past].get()!.dinner_id;
+  deletePlanEntry(past);
+  releaseSuggestedDinner(cooked, '2026-09-22', TODAY);
+  expect(dinnerNames()).toEqual(['Tomato pasta']);
+
+  const own = createDinner({ name: 'Our tacos' });
   const plan = createDinnerPlan({ name: 'Week', start_date: WEEK });
-  createPlanEntry(plan, { dinner_id: id, scheduled_date: TODAY, servings: 2 });
-  const list = createShoppingListFromPlan(plan);
-  const bought = Object.values(store$.shoppingListItems.get())[0].id;
-  toggleShoppingItem(bought);
-  const manual = addShoppingItem(list, { name: 'Coffee' });
-  const before = [store$.shoppingListItems[bought].get(), store$.shoppingListItems[manual].get()];
-  const preview = draft([{ date: '2026-09-25', dinner: recipe() }]);
-  expect(acceptSuggestedWeek(preview, 'Week', TODAY)).toBe(list);
-  expect(Object.values(store$.shoppingLists.get())).toHaveLength(1);
-  expect([store$.shoppingListItems[bought].get(), store$.shoppingListItems[manual].get()]).toEqual(before);
-  expect(Object.values(store$.shoppingListItems.get())).toContainEqual(expect.objectContaining({ ingredient_id: ingredient, quantity: 200, is_checked: false }));
+  const entryId = createPlanEntry(plan, { dinner_id: own, scheduled_date: TODAY, servings: 2 });
+  replacePlannedDinner(entryId, recipe('Fish soup'), TODAY);
+  expect(dinnerNames()).toEqual(['Fish soup', 'Our tacos', 'Tomato pasta']);
 });
 
-it('clears personal preferences and rejected dinners when switching household', () => {
-  store$.meta.planningPreferences.set({ text: 'No fish', shortcuts: ['quick'], excluded: ['Fish soup'], servings: 4 });
+it('removes a suggestion taken off the plan', () => {
+  const [entryId] = planSuggestedDinners(WEEK, 'Week', [{ date: TODAY, dinner: recipe(), servings: 2 }]);
+  const dinnerId = store$.planEntries[entryId].get()!.dinner_id;
+  deletePlanEntry(entryId);
+  releaseSuggestedDinner(dinnerId, TODAY, TODAY);
+  expect(store$.dinners.get()).toEqual({});
+});
+
+it('clears personal preferences and suggestion bookkeeping when switching household', () => {
+  store$.meta.planningPreferences.set({ text: 'No fish', shortcuts: ['quick'], excluded: ['Fish soup'], source: 'new' });
+  planSuggestedDinners(WEEK, 'Week', [{ date: TODAY, dinner: recipe(), servings: 2 }]);
   resetLocalDataForHousehold(12);
   expect(store$.meta.planningPreferences.get()).toEqual({ text: '', shortcuts: [], excluded: [] });
+  expect(store$.meta.suggestedDinners.get()).toEqual({});
 });
 
-it('filters saved recipes and invalidates previews when household exclusions change', () => {
+it('leaves out saved recipes with household exclusions', () => {
   const id = createDinner({ name: 'Family pasta' });
   upsertDinnerItem(id, { ingredient_id: createIngredient({ name: 'Pasta' }), quantity: 200, unit: 'g' });
-  const preview = draft();
+  expect(getSuggestionContext(WEEK, TODAY).recipes).toHaveLength(1);
   store$.households[store$.meta.localHouseholdId.get()].excluded_ingredients.set(['pasta']);
-
   expect(getSuggestionContext(WEEK, TODAY).recipes).toEqual([]);
-  expect(acceptSuggestedWeek(preview, 'Week', TODAY)).toBeNull();
-  expect(acceptSuggestedWeek(draft(), 'Week', TODAY)).toBeNull();
-  expect(store$.planEntries.get()).toEqual({});
-});
-
-it('collects ingredients from all plans in the target week without leaking other weeks or households', () => {
-  const planned = createDinner({ name: 'Planned pasta' });
-  const nextWeek = createDinner({ name: 'Next week' });
-  upsertDinnerItem(planned, { ingredient_id: createIngredient({ name: 'Tomato' }), quantity: 300, unit: 'g' });
-  upsertDinnerItem(nextWeek, { ingredient_id: createIngredient({ name: 'Chicken' }), quantity: 400, unit: 'g' });
-  const plan = createDinnerPlan({ name: 'Week', start_date: WEEK });
-  createPlanEntry(plan, { dinner_id: planned, scheduled_date: TODAY, servings: 2 });
-  createPlanEntry(plan, { dinner_id: nextWeek, scheduled_date: '2026-09-28', servings: 2 });
-  const otherPlan = createDinnerPlan({ name: 'Other household', start_date: WEEK });
-  store$.dinnerPlans[otherPlan].household_id.set('other-household');
-  createPlanEntry(otherPlan, { dinner_id: nextWeek, scheduled_date: TODAY, servings: 2 });
-
-  expect(getSuggestionContext(WEEK, TODAY).plannedIngredients).toEqual(['Tomato']);
-});
-
-it('clears ingredient exclusions when the local household is replaced', () => {
-  store$.households[store$.meta.localHouseholdId.get()].excluded_ingredients.set(['Pasta']);
-  resetLocalDataForHousehold(12);
-  expect(getSuggestionContext(WEEK, TODAY).excludedIngredients).toEqual([]);
 });

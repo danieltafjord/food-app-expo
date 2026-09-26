@@ -3,9 +3,33 @@ import { requestAi } from '@/lib/ai-request';
 import type { Locale } from '@/lib/i18n/locale';
 import { hasExcludedIngredient } from '@/lib/ingredient-exclusions';
 
-export const PLANNING_SHORTCUTS = ['quick', 'budget', 'vegetarian'] as const;
+/** In the order the planner shows them; the server knows the same set. */
+export const PLANNING_SHORTCUTS = [
+  'quick', 'budget', 'kids', 'traditional', 'fish', 'vegetarian', 'healthy', 'low_carb', 'one_pot', 'weekend',
+] as const;
 export type PlanningShortcut = (typeof PLANNING_SHORTCUTS)[number];
-export type PlanningPreferences = { text: string; shortcuts: PlanningShortcut[]; excluded: string[]; servings?: number };
+/** Choosing one of these drops the other: a vegetarian week can't be fish-heavy. */
+export const CONFLICTING_SHORTCUTS: Partial<Record<PlanningShortcut, PlanningShortcut>> = { vegetarian: 'fish', fish: 'vegetarian' };
+/** The wishes the household's own dinners can honour: of those, only the category is known. */
+export const SAVED_SHORTCUTS: readonly PlanningShortcut[] = ['vegetarian'];
+/**
+ * Where suggestions come from: the household's own dinners, new recipes, or
+ * both. In the order the planner shows them, from familiar to new.
+ */
+export const PLANNING_SOURCES = ['saved', 'mix', 'new'] as const;
+export type PlanningSource = (typeof PLANNING_SOURCES)[number];
+export type PlanningPreferences = {
+  text: string;
+  shortcuts: PlanningShortcut[];
+  excluded: string[];
+  /** Older versions remembered servings here; planning now starts from the household default. */
+  servings?: number;
+  /** Missing means `mix`. */
+  source?: PlanningSource;
+};
+/** The most free text a request carries; a day's own wish shares the room with the week's. */
+export const PREFERENCES_MAX = 600;
+export type Weekday = 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday';
 export type SuggestedIngredient = { name: string; quantity: number; unit: string | null };
 export type SuggestedDinner = {
   existingId: string | null;
@@ -25,6 +49,10 @@ export type WeekSuggestionInput = {
   excluded_ingredients?: string[];
   reuse_ingredients?: string[];
   available: { id: string; name: string; category: string | null; ingredients: string[] }[];
+  /** The weekday of each requested dinner, in order. */
+  days?: Weekday[];
+  /** How many of the dinners to take from `available`. */
+  reuse?: number;
 };
 
 export const mealNameKey = (name: string) => name.trim().normalize('NFKC').toLowerCase();
