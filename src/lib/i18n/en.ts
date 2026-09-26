@@ -398,6 +398,11 @@ export const en = {
     signedInAs: 'Signed in as',
     signOut: 'Sign out',
     deleteAccount: 'Delete account',
+    deleteWithAppleTitle: 'Delete your account?',
+    deleteWithAppleMessage:
+      'Your cloud account and households where you are the only member are deleted for good. Sign in with Apple once more to confirm.',
+    deleteWithAppleConfirm: 'Continue',
+    deleteFailedTitle: 'Couldn’t delete your account',
     deleteAccountHint:
       'Opens your profile to delete your cloud account. Afterwards, use Clear data on this device to remove the local copy.',
     syncFailedTitle: 'Couldn’t save to your account',
@@ -468,8 +473,9 @@ export const en = {
     setupNeeded: 'Setup needed',
     setupBefore: 'Set ',
     setupAfter: ' in your .env to enable sign-in.',
-    signInCreate: 'Sign in or create account',
-    secureHint: 'You’ll sign in securely in your browser.',
+    continueWithGoogle: 'Continue with Google',
+    continueWithEmail: 'Continue with email',
+    secureHint: 'Google and email sign-in open securely in your browser.',
     authFailed: 'Authorization failed. Please try again.',
     signInFailed: 'Could not complete sign-in. Please try again.',
     switchAccountTitle: 'Switch account?',

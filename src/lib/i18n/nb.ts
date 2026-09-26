@@ -394,6 +394,11 @@ export const nb: Dictionary = {
     signedInAs: 'Innlogget som',
     signOut: 'Logg ut',
     deleteAccount: 'Slett konto',
+    deleteWithAppleTitle: 'Slette kontoen?',
+    deleteWithAppleMessage:
+      'Skykontoen din og husstander der du er eneste medlem slettes for godt. Logg inn med Apple én gang til for å bekrefte.',
+    deleteWithAppleConfirm: 'Fortsett',
+    deleteFailedTitle: 'Kunne ikke slette kontoen',
     deleteAccountHint:
       'Åpner profilen for å slette kontoen i skyen. Bruk deretter Slett data på denne enheten for å fjerne den lokale kopien.',
     syncFailedTitle: 'Kunne ikke lagre til kontoen din',
@@ -464,8 +469,9 @@ export const nb: Dictionary = {
     setupNeeded: 'Oppsett kreves',
     setupBefore: 'Sett ',
     setupAfter: ' i .env-filen for å aktivere innlogging.',
-    signInCreate: 'Logg inn eller opprett konto',
-    secureHint: 'Du logger inn sikkert i nettleseren din.',
+    continueWithGoogle: 'Fortsett med Google',
+    continueWithEmail: 'Fortsett med e-post',
+    secureHint: 'Innlogging med Google og e-post åpnes sikkert i nettleseren.',
     authFailed: 'Autorisering mislyktes. Prøv igjen.',
     signInFailed: 'Kunne ikke fullføre innlogging. Prøv igjen.',
     switchAccountTitle: 'Bytte konto?',

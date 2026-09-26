@@ -1,18 +1,20 @@
+import * as AppleAuthentication from 'expo-apple-authentication';
 import * as AuthSession from 'expo-auth-session';
 import { router } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { useState } from 'react';
-import { Alert, StyleSheet } from 'react-native';
+import { Alert, Platform, Pressable, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/button';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
-import { useTheme } from '@/hooks/use-theme';
+import { useResolvedScheme, useTheme } from '@/hooks/use-theme';
 import { ApiError, apiRequest } from '@/lib/api/client';
 import type { User } from '@/lib/api/types';
-import { authRequestConfig, discovery, redirectUri } from '@/lib/auth/oauth';
+import { signInWithApple } from '@/lib/auth/apple';
+import { authRequestConfig, discovery, googleAuthRequestConfig, redirectUri } from '@/lib/auth/oauth';
 import { takePendingInvite } from '@/lib/auth/pending-invite';
 import { useSession } from '@/lib/auth/session';
 import { isOAuthConfigured, OAUTH_CLIENT_ID } from '@/lib/config';
@@ -23,25 +25,34 @@ import { accountTransitionFor, bindAccount, resetLocalDataForAccount } from '@/l
 // Required so the auth popup/redirect can settle the pending session (web + native).
 WebBrowser.maybeCompleteAuthSession();
 
+/** Sign in with Apple is native to iOS; on other platforms people use Google or email. */
+const APPLE_SIGN_IN = Platform.OS === 'ios';
+
+type Method = 'apple' | 'google' | 'email';
+
 export default function SignInScreen() {
   const t = useT();
   const theme = useTheme();
+  const scheme = useResolvedScheme();
   const { signIn } = useSession();
-  const [submitting, setSubmitting] = useState(false);
+  const [pending, setPending] = useState<Method | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // We drive the flow off the promise that promptAsync resolves with, rather than
   // the [, response] tuple + an effect — it keeps every setState in this handler
   // (after an await), out of an effect, and reads top-to-bottom.
-  const [request, , promptAsync] = AuthSession.useAuthRequest(authRequestConfig, discovery);
+  // Google is the same browser sign-in, told to go straight on to Google.
+  const [emailRequest, , promptEmail] = AuthSession.useAuthRequest(authRequestConfig, discovery);
+  const [googleRequest, , promptGoogle] = AuthSession.useAuthRequest(googleAuthRequestConfig, discovery);
+  const browserReady = !!emailRequest && !!googleRequest && isOAuthConfigured;
 
-  function exchange(code: string): Promise<AuthSession.TokenResponse> {
+  function exchange(code: string, request: AuthSession.AuthRequest): Promise<AuthSession.TokenResponse> {
     return AuthSession.exchangeCodeAsync(
       {
         clientId: OAUTH_CLIENT_ID,
         code,
         redirectUri,
-        extraParams: request?.codeVerifier ? { code_verifier: request.codeVerifier } : undefined,
+        extraParams: request.codeVerifier ? { code_verifier: request.codeVerifier } : undefined,
       },
       discovery,
     );
@@ -96,37 +107,28 @@ export default function SignInScreen() {
     }
   }
 
-  async function onSignIn() {
+  // Commit a new session: reconcile local data with the account first, then
+  // hand over to the session. This screen owns the post-sign-in navigation. If
+  // the user came from an invite link (deferred while signed out), resume it
+  // now — doing that from a root effect races with `dismiss()` and loses the token.
+  async function completeSignIn(token: AuthSession.TokenResponse) {
+    if (!(await reconcileLocalData(token.accessToken))) {
+      return;
+    }
+    await signIn(token);
+    const invite = takePendingInvite();
+    if (invite) {
+      router.replace({ pathname: '/invitations/[token]', params: { token: invite } });
+    } else {
+      dismiss(); // connected — return to Settings.
+    }
+  }
+
+  async function run(method: Method, flow: () => Promise<void>) {
     setError(null);
-    setSubmitting(true);
+    setPending(method);
     try {
-      const result = await promptAsync();
-      if (result.type === 'success') {
-        if (result.params.code) {
-          const token = await exchange(result.params.code);
-          // Reconcile local data with the account before committing the session.
-          if (await reconcileLocalData(token.accessToken)) {
-            await signIn(token);
-            // This screen owns the post-sign-in navigation. If the user came from
-            // an invite link (deferred while signed out), resume it now — doing
-            // that from a root effect races with `dismiss()` and loses the token.
-            const invite = takePendingInvite();
-            if (invite) {
-              router.replace({ pathname: '/invitations/[token]', params: { token: invite } });
-            } else {
-              dismiss(); // connected — return to Settings.
-            }
-          }
-          return;
-        }
-        // The server redirected back with an OAuth error instead of a code.
-        if (result.params.error) {
-          setError(result.params.error_description ?? result.params.error);
-        }
-      } else if (result.type === 'error') {
-        setError(result.error?.message ?? t('auth.authFailed'));
-      }
-      // 'cancel' / 'dismiss' / 'locked' need no message — the user backed out.
+      await flow();
     } catch (err) {
       // Surface the real reason — token-exchange and network failures hide here
       // otherwise. The user sees `message`; the log is dev-only so we don't ship it.
@@ -141,8 +143,42 @@ export default function SignInScreen() {
             : t('auth.signInFailed');
       setError(message);
     } finally {
-      setSubmitting(false);
+      setPending(null);
     }
+  }
+
+  function onBrowserSignIn(method: 'google' | 'email') {
+    const request = method === 'google' ? googleRequest : emailRequest;
+    const promptAsync = method === 'google' ? promptGoogle : promptEmail;
+    return run(method, async () => {
+      if (!request) {
+        return;
+      }
+      const result = await promptAsync();
+      if (result.type === 'success') {
+        if (result.params.code) {
+          await completeSignIn(await exchange(result.params.code, request));
+          return;
+        }
+        // The server redirected back with an OAuth error instead of a code.
+        if (result.params.error) {
+          setError(result.params.error_description ?? result.params.error);
+        }
+      } else if (result.type === 'error') {
+        setError(result.error?.message ?? t('auth.authFailed'));
+      }
+      // 'cancel' / 'dismiss' / 'locked' need no message — the user backed out.
+    });
+  }
+
+  function onAppleSignIn() {
+    return run('apple', async () => {
+      const token = await signInWithApple();
+      // null: the user closed Apple's sheet.
+      if (token) {
+        await completeSignIn(token);
+      }
+    });
   }
 
   return (
@@ -178,16 +214,48 @@ export default function SignInScreen() {
             </ThemedText>
           )}
 
+          {APPLE_SIGN_IN && (
+            <AppleAuthentication.AppleAuthenticationButton
+              buttonType={AppleAuthentication.AppleAuthenticationButtonType.CONTINUE}
+              buttonStyle={
+                scheme === 'dark'
+                  ? AppleAuthentication.AppleAuthenticationButtonStyle.WHITE
+                  : AppleAuthentication.AppleAuthenticationButtonStyle.BLACK
+              }
+              cornerRadius={Spacing.three}
+              style={[styles.appleButton, (pending !== null || !isOAuthConfigured) && styles.disabled]}
+              onPress={() => {
+                if (pending === null && isOAuthConfigured) void onAppleSignIn();
+              }}
+            />
+          )}
           <Button
-            title={t('auth.signInCreate')}
-            onPress={onSignIn}
-            loading={submitting}
-            disabled={!request || !isOAuthConfigured}
+            title={t('auth.continueWithGoogle')}
+            variant="secondary"
+            onPress={() => onBrowserSignIn('google')}
+            loading={pending === 'google'}
+            disabled={!browserReady || (pending !== null && pending !== 'google')}
           />
-          <Button title={t('common.notNow')} variant="secondary" onPress={dismiss} disabled={submitting} />
+          <Button
+            title={t('auth.continueWithEmail')}
+            variant="secondary"
+            onPress={() => onBrowserSignIn('email')}
+            loading={pending === 'email'}
+            disabled={!browserReady || (pending !== null && pending !== 'email')}
+          />
           <ThemedText type="small" themeColor="textSecondary" style={styles.hint}>
             {t('auth.secureHint')}
           </ThemedText>
+          <Pressable
+            accessibilityRole="button"
+            onPress={dismiss}
+            disabled={pending !== null}
+            hitSlop={Spacing.two}
+            style={styles.notNow}>
+            <ThemedText type="default" themeColor="textSecondary">
+              {t('common.notNow')}
+            </ThemedText>
+          </Pressable>
         </ThemedView>
       </SafeAreaView>
     </ThemedView>
@@ -232,5 +300,15 @@ const styles = StyleSheet.create({
   },
   hint: {
     textAlign: 'center',
+  },
+  appleButton: {
+    height: 52,
+  },
+  disabled: {
+    opacity: 0.5,
+  },
+  notNow: {
+    alignSelf: 'center',
+    paddingVertical: Spacing.two,
   },
 });

@@ -31,6 +31,15 @@ export const authRequestConfig: AuthSession.AuthRequestConfig = {
   scopes: [],
 };
 
+/**
+ * The same sign-in, with a hint that makes the backend's login page go straight
+ * on to Google instead of showing the email form.
+ */
+export const googleAuthRequestConfig: AuthSession.AuthRequestConfig = {
+  ...authRequestConfig,
+  extraParams: { provider: 'google' },
+};
+
 /** Normalize a `TokenResponse` into the value we persist. `issuedAt` is in seconds. */
 export function tokenResponseToSession(token: AuthSession.TokenResponse): StoredSession {
   return {

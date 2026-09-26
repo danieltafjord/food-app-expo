@@ -88,6 +88,8 @@ export type User = {
   email: string;
   email_verified: boolean;
   two_factor_enabled: boolean;
+  /** Apple/Google identities linked to the account. */
+  sign_in_providers: ('apple' | 'google')[];
   theme: 'system' | 'light' | 'dark';
   locale: 'en' | 'nb';
   current_household: Household | null;

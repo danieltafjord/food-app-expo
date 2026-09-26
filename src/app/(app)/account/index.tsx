@@ -1,6 +1,6 @@
 import * as WebBrowser from 'expo-web-browser';
 import { useState } from 'react';
-import { Alert } from 'react-native';
+import { Alert, Platform } from 'react-native';
 
 import { useDeferredTab } from '@/hooks/use-deferred-tab';
 import { AiSettingsSection } from '@/components/ai-settings';
@@ -16,6 +16,7 @@ import { SyncIndicator } from '@/components/sync-indicator';
 import { useActiveHousehold, useUpdateHousehold } from '@/lib/api/households';
 import { useUpdateSettings } from '@/lib/api/settings';
 import type { HouseholdRole } from '@/lib/api/types';
+import { requestAppleCredential } from '@/lib/auth/apple';
 import { useSession } from '@/lib/auth/session';
 import { API_BASE_URL, PRIVACY_URL, SUPPORT_URL } from '@/lib/config';
 import { LOCALE_LABELS, LOCALES, useT, type Locale } from '@/lib/i18n';
@@ -47,7 +48,7 @@ export default function AccountScreen() {
 
 function AccountScreenContent() {
   const t = useT();
-  const { user, signOut, refreshUser, isAuthenticated } = useSession();
+  const { user, signOut, refreshUser, request, isAuthenticated } = useSession();
   const { household, role, isOwner } = useActiveHousehold();
 
   const themePreference = useThemePreference();
@@ -137,7 +138,35 @@ function AccountScreenContent() {
   }
 
   async function onDeleteAccount() {
+    // People who signed up with Apple have no password and cannot sign in on
+    // the website, so they confirm by signing in with Apple again right here.
+    if (Platform.OS === 'ios' && user?.sign_in_providers?.includes('apple')) {
+      Alert.alert(t('account.deleteWithAppleTitle'), t('account.deleteWithAppleMessage'), [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('account.deleteWithAppleConfirm'),
+          style: 'destructive',
+          onPress: () => void deleteWithApple(),
+        },
+      ]);
+      return;
+    }
     await openPage(`${API_BASE_URL}/settings/profile`);
+    await refreshUser().catch(() => {});
+  }
+
+  async function deleteWithApple() {
+    try {
+      const credential = await requestAppleCredential();
+      if (!credential) {
+        return; // Closed Apple's sheet.
+      }
+      await request('/me', { method: 'DELETE', body: credential.proof });
+    } catch (err) {
+      Alert.alert(t('account.deleteFailedTitle'), err instanceof Error ? err.message : undefined);
+      return;
+    }
+    // The deleted account's token now answers 401, which signs this device out.
     await refreshUser().catch(() => {});
   }
 
